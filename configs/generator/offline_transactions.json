@@ -1,0 +1,22 @@
+{
+  "random_seed": 42,
+  "n_transactions": 500000,
+  "n_customers": 220000,
+  "n_accounts": 260000,
+  "n_merchants": 40000,
+  "start_date": "2026-01-01",
+  "days_history": 180,
+  "currency": "USD",
+  "skew_city": "New York",
+  "skew_city_ratio": 0.50,
+  "skew_merchant_category": "online_marketplace",
+  "skew_merchant_category_ratio": 0.40,
+  "duplicate_rate": 0.02,
+  "late_arrival_rate": 0.04,
+  "missing_value_rate": 0.015,
+  "inconsistent_format_rate": 0.01,
+  "burst_day_count": 15,
+  "fraud_ring_count": 10,
+  "schema_change_date": "2026-04-01",
+  "output_dir": "data/raw_source/offline_transactions"
+}
