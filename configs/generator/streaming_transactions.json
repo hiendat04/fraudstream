@@ -1,0 +1,21 @@
+{
+  "random_seed": 2026,
+  "n_events": 500000,
+  "n_customers": 220000,
+  "n_merchants": 45000,
+  "start_timestamp": "2026-07-01T00:00:00",
+  "duration_minutes": 10080,
+  "currency": "USD",
+  "topic": "financial_transactions",
+  "n_partitions": 24,
+  "sink_type": "local_jsonl",
+  "window_minutes": 5,
+  "late_event_rate": 0.065,
+  "out_of_order_rate": 0.055,
+  "duplicate_rate": 0.025,
+  "burst_window_count": 42,
+  "burst_event_ratio": 0.30,
+  "late_event_threshold_minutes": 45,
+  "max_late_minutes": 720,
+  "output_dir": "data/raw_stream/transactions"
+}

@@ -31,14 +31,14 @@
             </Attribute>
           </value>
         </entry>
-        <entry key="/data/raw_source/offline_transactions/schema_version=v2/transaction_date=2026-03-31/transactions.csv">
+        <entry key="/data/raw_source/offline_transactions/schema_version=v2/transaction_date=2026-04-01/transactions.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />
             </Attribute>
           </value>
         </entry>
-        <entry key="/data/raw_source/offline_transactions/schema_version=v2/transaction_date=2026-04-01/transactions.csv">
+        <entry key="/data/raw_stream/transactions/_stream_summary.csv">
           <value>
             <Attribute>
               <option name="separator" value="," />

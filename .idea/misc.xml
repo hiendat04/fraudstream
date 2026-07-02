@@ -4,8 +4,5 @@
     <option name="sdkName" value="uv (financial-fraud-detection)" />
   </component>
   <component name="KubernetesApiPersistence">{}</component>
-  <component name="KubernetesApiProvider"><![CDATA[{
-  "isMigrated": true
-}]]></component>
   <component name="ProjectRootManager" version="2" project-jdk-name="uv (financial-fraud-detection)" project-jdk-type="Python SDK" />
 </project>
