@@ -4,8 +4,13 @@ version = "0.1.0"
 requires-python = ">=3.14"
 dependencies = []
 
+[project.optional-dependencies]
+kafka = ["confluent-kafka"]
+
 [project.scripts]
 fraudstream-generate-offline = "fraudstream.generators.offline_transactions:main"
+fraudstream-generate-streaming = "fraudstream.generators.streaming_transactions:main"
+fraudstream-replay-stream = "fraudstream.producers.stream_replay:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]
