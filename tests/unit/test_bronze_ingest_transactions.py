@@ -83,6 +83,47 @@ class BronzeTransactionIngestionTest(TestCase):
             self.assertEqual(v2_row["authentication_method"], "otp")
             self.assertEqual(v2_row["risk_signal_version"], "v2")
 
+    def test_ingestion_allows_missing_evolved_columns(self) -> None:
+        """Bronze should read old and partial evolved schemas into one table."""
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            source_dir = root_dir / "raw_source" / "offline_transactions"
+            output_dir = root_dir / "bronze" / "raw_transactions"
+            v1_file = source_dir / "schema_version=v1" / "transaction_date=2026-01-01" / "transactions.csv"
+            v2_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+            partial_v2_columns = [*BASE_COLUMNS, "ip_address"]
+
+            _write_csv(v1_file, BASE_COLUMNS, [_v1_row()])
+            _write_csv(v2_file, partial_v2_columns, [_v2_row()])
+            _write_manifest(source_dir, [v1_file, v2_file])
+
+            result = ingest_transactions_to_bronze(
+                BronzeIngestionConfig(
+                    source_dir=source_dir,
+                    output_dir=output_dir,
+                    ingest_run_id="test_schema_evolution",
+                    ingest_date="2026-07-04",
+                    write_mode="overwrite",
+                )
+            )
+
+            self.assertEqual(result.row_count, 2)
+            self.assertEqual(result.schema_versions, ("v1", "v2"))
+
+            rows = _read_parquet_rows(output_dir)
+            rows_by_version = {row["schema_version"]: row for row in rows}
+
+            self.assertIsNone(rows_by_version["v1"]["device_id"])
+            self.assertIsNone(rows_by_version["v1"]["ip_address"])
+            self.assertIsNone(rows_by_version["v1"]["authentication_method"])
+            self.assertIsNone(rows_by_version["v1"]["risk_signal_version"])
+
+            self.assertIsNone(rows_by_version["v2"]["device_id"])
+            self.assertEqual(rows_by_version["v2"]["ip_address"], "10.1.2.3")
+            self.assertIsNone(rows_by_version["v2"]["authentication_method"])
+            self.assertIsNone(rows_by_version["v2"]["risk_signal_version"])
+
 
 def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
     """Write a tiny source CSV partition for tests."""
