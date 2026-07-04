@@ -8,6 +8,7 @@ source metadata, and writes partitioned Parquet for later Silver processing.
 from __future__ import annotations
 
 import argparse
+import csv
 import json
 import sys
 from dataclasses import dataclass
@@ -122,6 +123,14 @@ class SourceFileGroups:
         """Return true when at least one supported source file exists."""
 
         return bool(self.v1_files or self.v2_files)
+
+
+@dataclass(frozen=True)
+class SourceCsvSchemaGroup:
+    """Source CSV files that share the same physical header."""
+
+    columns: tuple[str, ...]
+    files: tuple[Path, ...]
 
 
 @dataclass(frozen=True)
@@ -282,15 +291,116 @@ def _read_raw_source_files(spark: Any, source_files: Sequence[Path]) -> Any:
     dataframes = []
     grouped_files = _group_source_files(source_files)
 
-    if grouped_files.v1_files:
-        dataframes.append(_read_csv_files(spark, grouped_files.v1_files, _source_schema(BASE_COLUMNS)))
-    if grouped_files.v2_files:
-        dataframes.append(_read_csv_files(spark, grouped_files.v2_files, _source_schema(RAW_COLUMNS)))
-
     if grouped_files.unknown_files:
         raise ValueError(f"Unsupported schema_version in source file path: {grouped_files.unknown_files[0]}")
     if not grouped_files.has_supported_files:
         raise FileNotFoundError("No v1 or v2 transaction CSV files were discovered")
+
+    if grouped_files.v1_files:
+        dataframes.extend(
+            _read_versioned_csv_files(
+                spark=spark,
+                source_files=grouped_files.v1_files,
+                required_columns=BASE_COLUMNS,
+                allowed_columns=BASE_COLUMNS,
+            )
+        )
+    if grouped_files.v2_files:
+        dataframes.extend(
+            _read_versioned_csv_files(
+                spark=spark,
+                source_files=grouped_files.v2_files,
+                required_columns=BASE_COLUMNS,
+                allowed_columns=RAW_COLUMNS,
+            )
+        )
+
+    return _union_raw_dataframes(dataframes)
+
+
+def _read_versioned_csv_files(
+    spark: Any,
+    source_files: Sequence[Path],
+    required_columns: Sequence[str],
+    allowed_columns: Sequence[str],
+) -> list[Any]:
+    """Read versioned source files while allowing optional evolved columns."""
+
+    return [
+        _select_raw_columns(_read_csv_files(spark, schema_group.files, schema_group.columns))
+        for schema_group in _group_files_by_header(source_files, required_columns, allowed_columns)
+    ]
+
+
+def _group_files_by_header(
+    source_files: Sequence[Path],
+    required_columns: Sequence[str],
+    allowed_columns: Sequence[str],
+) -> tuple[SourceCsvSchemaGroup, ...]:
+    """Group files by physical CSV header after validating the source contract."""
+
+    allowed_column_set = set(allowed_columns)
+    grouped_files: dict[tuple[str, ...], list[Path]] = {}
+
+    for path in source_files:
+        header_columns = _read_csv_header(path)
+        _validate_source_header(path, header_columns, required_columns, allowed_columns)
+        source_columns = tuple(column for column in header_columns if column in allowed_column_set)
+        grouped_files.setdefault(source_columns, []).append(path)
+
+    return tuple(
+        SourceCsvSchemaGroup(columns=columns, files=tuple(sorted(files)))
+        for columns, files in sorted(grouped_files.items(), key=lambda item: item[0])
+    )
+
+
+def _read_csv_header(path: Path) -> tuple[str, ...]:
+    """Read the physical CSV header from one source file."""
+
+    with path.open("r", encoding="utf-8", newline="") as file:
+        reader = csv.reader(file)
+        try:
+            return tuple(next(reader))
+        except StopIteration as exc:
+            raise ValueError(f"Source CSV file is empty: {path}") from exc
+
+
+def _validate_source_header(
+    path: Path,
+    header_columns: Sequence[str],
+    required_columns: Sequence[str],
+    allowed_columns: Sequence[str],
+) -> None:
+    """Validate a source header without requiring every evolved column."""
+
+    header_column_set = set(header_columns)
+    allowed_column_set = set(allowed_columns)
+    duplicate_columns = _duplicate_values(header_columns)
+    missing_required_columns = [column for column in required_columns if column not in header_column_set]
+    unsupported_columns = [column for column in header_columns if column not in allowed_column_set]
+
+    if duplicate_columns:
+        raise ValueError(f"Source CSV file has duplicate columns {duplicate_columns}: {path}")
+    if missing_required_columns:
+        raise ValueError(f"Source CSV file is missing required columns {missing_required_columns}: {path}")
+    if unsupported_columns:
+        raise ValueError(f"Source CSV file has unsupported columns {unsupported_columns}: {path}")
+
+
+def _duplicate_values(values: Sequence[str]) -> list[str]:
+    """Return duplicate values in first-seen order."""
+
+    seen: set[str] = set()
+    duplicates: list[str] = []
+    for value in values:
+        if value in seen and value not in duplicates:
+            duplicates.append(value)
+        seen.add(value)
+    return duplicates
+
+
+def _union_raw_dataframes(dataframes: Sequence[Any]) -> Any:
+    """Union raw DataFrames that may have different optional columns."""
 
     dataframe = dataframes[0]
     for next_dataframe in dataframes[1:]:
@@ -336,9 +446,10 @@ def _source_schema(column_names: Sequence[str]) -> Any:
     return spark_types.StructType(fields)
 
 
-def _read_csv_files(spark: Any, source_files: Sequence[Path], schema: Any) -> Any:
+def _read_csv_files(spark: Any, source_files: Sequence[Path], source_columns: Sequence[str]) -> Any:
     """Read CSV files using a raw-preserving parser configuration."""
 
+    schema = _source_schema(source_columns)
     dataframe = (
         spark.read.option("header", "true")
         .option("mode", "PERMISSIVE")
@@ -351,8 +462,7 @@ def _read_csv_files(spark: Any, source_files: Sequence[Path], schema: Any) -> An
         .schema(schema)
         .csv([str(path) for path in source_files])
     )
-    source_columns = [field.name for field in schema.fields if field.name != "_corrupt_record"]
-    return dataframe.na.fill("", subset=source_columns)
+    return dataframe.na.fill("", subset=list(source_columns))
 
 
 def _prepare_for_reuse(dataframe: Any) -> Any:

@@ -176,6 +176,11 @@ These columns exist in the Bronze table even when reading old `v1` files. For
 exist yet. For `v2` partitions, keep the source value exactly as read, including
 blank strings where the source emitted blanks.
 
+The ingestion job reads `v1` and `v2` files by their physical CSV headers. Base
+transaction fields are required, but evolved fields are optional. If an evolved
+field is absent from a source file header, Bronze writes `NULL`; if the field is
+present and the source emitted a blank value, Bronze keeps the blank string.
+
 | Field | Type | Nullable | Source Version | Meaning |
 |---|---|---:|---|---|
 | `device_id` | `STRING` | Yes | `v2` | Device identifier added after the schema change date. |
@@ -283,7 +288,7 @@ PARTITIONED BY (ingest_date, schema_version, transaction_date);
 | Missing values | Preserve source blanks. Only use `NULL` for columns absent from old schema versions or parser-level missing fields. |
 | Format issues | Do not trim, uppercase, lowercase, or normalize fields. |
 | Type casting | Keep source business columns as `STRING`. Cast in Silver. |
-| Schema evolution | Add evolved columns to the table as nullable fields. Fill `v1` rows with `NULL` for evolved columns. |
+| Schema evolution | Add evolved columns to the table as nullable fields. Fill rows with `NULL` when an evolved column is absent from the source file header. |
 | File traceability | Capture source file path, row number when available, manifest path, and ingest run ID. |
 | Write mode | Prefer append for ingestion runs. Use controlled overwrite only for local regeneration. |
 | Corrupt records | Keep malformed lines in `_corrupt_record` for inspection instead of silently dropping them. |
