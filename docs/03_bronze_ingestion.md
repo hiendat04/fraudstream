@@ -147,6 +147,31 @@ PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
   --write-mode append
 ```
 
+## Validate Bronze Output
+
+Run the validator after ingestion to compare the raw source files with the
+Bronze Parquet output:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.bronze.validate_transactions \
+  --source-dir data/raw_source/offline_transactions \
+  --bronze-dir data/bronze/raw_transactions \
+  --report-path data/bronze/raw_transactions/_bronze_validation_summary.json
+```
+
+The validator prints a JSON report and exits with a non-zero status when a
+check fails. It compares:
+
+- source CSV row count against Bronze Parquet row count
+- source CSV file count against distinct `_source_file_path` values in Bronze
+- source partition count against Bronze `schema_version` and `transaction_date`
+  coverage
+- raw format issue counts, including padded city values, inconsistent casing,
+  blank source values, and evolved-column null or blank behavior
+
+These checks prove Bronze preserved the raw source. Format cleanup belongs in
+Silver, not Bronze.
+
 ## Raw Transaction Fields
 
 All source business columns should be loaded as nullable `STRING` values in
@@ -322,5 +347,7 @@ These checks are the acceptance criteria for the first Bronze Spark job.
 Run the Spark-backed Bronze ingestion test:
 
 ```bash
-PYTHONPATH=src python -m unittest tests.unit.test_bronze_ingest_transactions
+PYTHONPATH=src python -m unittest \
+  tests.unit.test_bronze_ingest_transactions \
+  tests.unit.test_bronze_validate_transactions
 ```
