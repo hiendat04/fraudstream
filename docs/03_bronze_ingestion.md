@@ -103,7 +103,49 @@ The smoke check writes a tiny Parquet dataset to:
 ```
 
 and reads it back with a local Spark session. This validates the project
-dependency and local run path before the Bronze ingestion job is implemented.
+dependency and local run path independently from the full Bronze ingestion job.
+
+## Run Bronze Ingestion
+
+Generate the raw offline source files first:
+
+```bash
+PYTHONPATH=src python -m fraudstream.generators.offline_transactions
+```
+
+Then ingest the raw CSV partitions into Bronze Parquet:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
+  --source-dir data/raw_source/offline_transactions \
+  --output-dir data/bronze/raw_transactions \
+  --write-mode overwrite
+```
+
+The job reads the source manifest when available:
+
+```text
+data/raw_source/offline_transactions/_manifest.json
+```
+
+Default output:
+
+```text
+data/bronze/raw_transactions/
+|-- _bronze_ingestion_summary.json
+`-- ingest_date=YYYY-MM-DD/
+    `-- schema_version=v1|v2/
+        `-- transaction_date=YYYY-MM-DD/
+            `-- part-*.parquet
+```
+
+Use `overwrite` for local regeneration and `append` when preserving multiple
+ingestion runs:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
+  --write-mode append
+```
 
 ## Raw Transaction Fields
 
@@ -276,3 +318,9 @@ The Bronze ingestion job should prove that it preserved the raw source:
 | Metadata coverage | `_source_file_path`, `_ingest_run_id`, `_ingested_at`, and `_raw_record_hash` are populated. |
 
 These checks are the acceptance criteria for the first Bronze Spark job.
+
+Run the Spark-backed Bronze ingestion test:
+
+```bash
+PYTHONPATH=src python -m unittest tests.unit.test_bronze_ingest_transactions
+```

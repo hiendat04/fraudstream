@@ -28,6 +28,7 @@ The repository currently includes:
 | Streaming transaction generator | Creates a reproducible JSONL event log that behaves like a Kafka topic export | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
 | Kafka replay producer | Publishes generated stream events to Kafka for future Flink jobs | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
 | Local Kafka stack | Runs Kafka, topic initialization, and Kafka UI with Docker Compose | [docker-compose.yml](docker-compose.yml) |
+| Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -181,6 +182,12 @@ Verify local Spark execution:
 PYTHONPATH=src python -m fraudstream.jobs.spark_local_check
 ```
 
+Ingest raw offline CSV files into Bronze Parquet:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions
+```
+
 Stop the local Kafka stack:
 
 ```bash
@@ -195,7 +202,8 @@ Run the current unit tests:
 PYTHONPATH=src python -m unittest \
   tests.unit.test_offline_transactions \
   tests.unit.test_streaming_transactions \
-  tests.unit.test_stream_replay
+  tests.unit.test_stream_replay \
+  tests.unit.test_bronze_ingest_transactions
 ```
 
 Run a syntax and import compile check:
