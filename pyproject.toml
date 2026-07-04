@@ -6,6 +6,7 @@ dependencies = []
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]
+spark = ["pyspark>=4.1,<4.2"]
 
 [project.scripts]
 fraudstream-generate-offline = "fraudstream.generators.offline_transactions:main"

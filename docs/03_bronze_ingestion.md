@@ -66,6 +66,45 @@ Recommended storage format:
 Parquet
 ```
 
+## Local Spark Setup
+
+Spark is installed as an optional project dependency so the core data generators
+can still run without a JVM-based Spark runtime.
+
+Install the Spark extra:
+
+```bash
+uv sync --extra spark
+```
+
+If you also need the Kafka replay producer in the same environment, sync both
+extras:
+
+```bash
+uv sync --extra kafka --extra spark
+```
+
+PySpark local execution requires Java 17 or later. Check your local Java runtime:
+
+```bash
+java -version
+```
+
+Run the local Spark smoke check:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.spark_local_check
+```
+
+The smoke check writes a tiny Parquet dataset to:
+
+```text
+/tmp/fraudstream_spark_local_check
+```
+
+and reads it back with a local Spark session. This validates the project
+dependency and local run path before the Bronze ingestion job is implemented.
+
 ## Raw Transaction Fields
 
 All source business columns should be loaded as nullable `STRING` values in

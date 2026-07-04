@@ -126,6 +126,18 @@ Install the optional Kafka dependency when using the replay producer:
 uv sync --extra kafka
 ```
 
+Install the optional Spark dependency when working on Bronze ingestion:
+
+```bash
+uv sync --extra spark
+```
+
+To keep both Kafka and Spark extras installed locally:
+
+```bash
+uv sync --extra kafka --extra spark
+```
+
 Run commands from the repository root. During local development, commands use `PYTHONPATH=src` so the `fraudstream` package is importable without a full packaging workflow.
 
 ## Quick Start
@@ -161,6 +173,12 @@ PYTHONPATH=src python -m fraudstream.producers.stream_replay \
   --bootstrap-servers localhost:9092 \
   --topic financial_transactions \
   --events-per-second 5000
+```
+
+Verify local Spark execution:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.spark_local_check
 ```
 
 Stop the local Kafka stack:
