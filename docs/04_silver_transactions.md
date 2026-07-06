@@ -95,12 +95,12 @@ stores `duplicate_record_count` and `dedup_rank` so the selection is auditable.
 | `account_id` | `STRING` | No | `account_id` | Trim. Blank values fail minimum quality. |
 | `customer_id` | `STRING` | No | `customer_id` | Trim. Blank values fail minimum quality. |
 | `merchant_id` | `STRING` | Yes | `merchant_id` | Trim. Convert blank to `NULL`. |
-| `merchant_category` | `STRING` | Yes | `merchant_category` | Trim and lowercase. Keep snake-case category values. |
+| `merchant_category` | `STRING` | Yes | `merchant_category` | Trim, lowercase, and normalize spaces or hyphens to snake case. |
 | `amount` | `DECIMAL(18,2)` | No | `amount` | Trim and cast. Non-numeric or negative values fail minimum quality. |
 | `currency` | `STRING` | No | `currency` | Trim and uppercase. Expected value is `USD` for generated data. |
 | `city` | `STRING` | Yes | `city` | Trim, collapse repeated spaces, and title-case. Convert blank to `NULL`. |
-| `channel` | `STRING` | No | `channel` | Trim and lowercase. Expected values: `card_present`, `online`, `mobile_wallet`, `atm`. |
-| `transaction_status` | `STRING` | No | `transaction_status` | Trim and lowercase. Expected values: `approved`, `declined`, `reversed`. |
+| `channel` | `STRING` | No | `channel` | Trim, lowercase, and normalize spaces or hyphens to snake case. Expected values: `card_present`, `online`, `mobile_wallet`, `atm`. |
+| `transaction_status` | `STRING` | No | `transaction_status` | Trim, lowercase, and normalize spaces or hyphens to snake case. Expected values: `approved`, `declined`, `reversed`. |
 | `is_fraud` | `BOOLEAN` | No | `is_fraud` | Cast `1` to `true`, `0` to `false`; other values fail minimum quality. |
 | `event_time` | `TIMESTAMP` | No | `event_timestamp` | Parse source business timestamp. This is the canonical business time. |
 | `event_date` | `DATE` | No | `event_time` | Date derived from `event_time`; used for partitioning. |
@@ -108,8 +108,8 @@ stores `duplicate_record_count` and `dedup_rank` so the selection is auditable.
 | `arrival_delay_minutes` | `DOUBLE` | Yes | `event_time`, `source_created_at` | Difference between `source_created_at` and `event_time`. |
 | `device_id` | `STRING` | Yes | `device_id` | Trim. Convert blank to `NULL`. Missing for `v1` rows is expected. |
 | `ip_address` | `STRING` | Yes | `ip_address` | Trim. Convert blank to `NULL`. |
-| `authentication_method` | `STRING` | Yes | `authentication_method` | Trim and lowercase. Convert blank to `NULL`. |
-| `risk_signal_version` | `STRING` | Yes | `risk_signal_version` | Trim. Convert blank to `NULL`. |
+| `authentication_method` | `STRING` | Yes | `authentication_method` | Trim, lowercase, and normalize spaces or hyphens to snake case. Convert blank to `NULL`. |
+| `risk_signal_version` | `STRING` | Yes | `risk_signal_version` | Trim and lowercase. Convert blank to `NULL`. |
 
 ## Quality And Lineage Fields
 
@@ -136,8 +136,10 @@ Silver standardization must be deterministic and easy to test:
 - Convert blank strings to `NULL` except required identifiers and enum fields,
   which should fail quality checks when blank.
 - Normalize `currency` to uppercase.
-- Normalize `merchant_category`, `channel`, `transaction_status`, and
-  `authentication_method` to lowercase.
+- Normalize `merchant_category`, `channel`, `transaction_status`,
+  `authentication_method`, and `risk_signal_version` to lowercase.
+- For enum-like string fields, convert spaces and hyphens to underscores so
+  values such as `Mobile Wallet` and `mobile-wallet` become `mobile_wallet`.
 - Normalize `city` by trimming, collapsing repeated internal spaces, and
   title-casing.
 - Parse `amount` to `DECIMAL(18,2)`.
@@ -247,7 +249,7 @@ quality behavior.
 | Row accounting | Bronze rows equal selected Silver rows plus duplicate rows plus quarantined rows. |
 | Type casting | `amount`, `is_fraud`, `event_time`, and `source_created_at` use typed columns. |
 | Business time | `event_date` is derived from `event_time`. |
-| Standardized strings | `currency`, `city`, `channel`, and `transaction_status` match standardization rules. |
+| Standardized strings | `currency`, `city`, `merchant_category`, `channel`, `transaction_status`, `authentication_method`, and `risk_signal_version` match standardization rules. |
 | Late arrivals | Late records remain available with `late_arrival` in `quality_issue_codes`. |
 | Schema evolution | `v1` missing evolved fields remain `NULL`; `v2` missing evolved values are flagged. |
 | Lineage | Every Silver row keeps Bronze source path, row number, ingest run, and raw record hash. |

@@ -142,6 +142,75 @@ class SilverTransactionsTest(TestCase):
             self.assertEqual(rows["txn_v2_warning"]["authentication_method"], "otp")
             self.assertEqual(str(rows["txn_v2_warning"]["event_date"]), "2026-04-01")
 
+    def test_standardizes_injected_raw_format_issues(self) -> None:
+        """Silver should normalize easy-to-clean raw string format problems."""
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            source_dir = root_dir / "raw_source" / "offline_transactions"
+            bronze_dir = root_dir / "bronze" / "raw_transactions"
+            silver_dir = root_dir / "silver" / "transactions"
+            source_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+
+            _write_csv(
+                source_file,
+                RAW_COLUMNS,
+                [
+                    _row(
+                        transaction_id="txn_format",
+                        amount=" 1,234.50 ",
+                        city="  san   FRANCISCO  ",
+                        created_ts="2026-04-01T08:05:00",
+                        event_timestamp="2026-04-01T08:00:00",
+                        merchant_category=" Online Marketplace ",
+                        currency=" usd ",
+                        channel=" Mobile Wallet ",
+                        transaction_status=" APPROVED ",
+                        device_id=" dev_format_001 ",
+                        ip_address=" 10.0.0.1 ",
+                        authentication_method=" OTP ",
+                        risk_signal_version=" V2 ",
+                    )
+                ],
+            )
+            _write_manifest(source_dir, [source_file])
+
+            ingest_transactions_to_bronze(
+                BronzeIngestionConfig(
+                    source_dir=source_dir,
+                    output_dir=bronze_dir,
+                    ingest_run_id="test_silver_format_cleanup",
+                    ingest_date="2026-07-05",
+                    write_mode="overwrite",
+                )
+            )
+            result = build_silver_transactions(
+                SilverTransactionsConfig(
+                    bronze_dir=bronze_dir,
+                    output_dir=silver_dir,
+                    write_mode="overwrite",
+                )
+            )
+
+            self.assertEqual(result.input_row_count, 1)
+            self.assertEqual(result.output_row_count, 1)
+            self.assertEqual(result.valid_row_count, 1)
+            self.assertEqual(result.warning_row_count, 0)
+            self.assertEqual(result.quarantined_row_count, 0)
+
+            row = _read_parquet_rows(silver_dir)[0]
+            self.assertEqual(row["merchant_category"], "online_marketplace")
+            self.assertEqual(str(row["amount"]), "1234.50")
+            self.assertEqual(row["currency"], "USD")
+            self.assertEqual(row["city"], "San Francisco")
+            self.assertEqual(row["channel"], "mobile_wallet")
+            self.assertEqual(row["transaction_status"], "approved")
+            self.assertEqual(row["device_id"], "dev_format_001")
+            self.assertEqual(row["ip_address"], "10.0.0.1")
+            self.assertEqual(row["authentication_method"], "otp")
+            self.assertEqual(row["risk_signal_version"], "v2")
+            self.assertEqual(row["quality_status"], "valid")
+
 
 def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
     """Write a tiny source CSV partition for tests."""
@@ -172,6 +241,10 @@ def _row(
     city: str,
     created_ts: str,
     event_timestamp: str = "2026-01-01T12:00:00",
+    merchant_category: str = "online_marketplace",
+    currency: str = "usd",
+    channel: str = "online",
+    transaction_status: str = "APPROVED",
     device_id: str = "",
     ip_address: str = "",
     authentication_method: str = "",
@@ -184,12 +257,12 @@ def _row(
         "account_id": f"acct_{transaction_id}",
         "customer_id": f"cust_{transaction_id}",
         "merchant_id": f"merch_{transaction_id}",
-        "merchant_category": "online_marketplace",
+        "merchant_category": merchant_category,
         "amount": amount,
-        "currency": "usd",
+        "currency": currency,
         "city": city,
-        "channel": "online",
-        "transaction_status": "APPROVED",
+        "channel": channel,
+        "transaction_status": transaction_status,
         "is_fraud": "0",
         "event_timestamp": event_timestamp,
         "created_ts": created_ts,
