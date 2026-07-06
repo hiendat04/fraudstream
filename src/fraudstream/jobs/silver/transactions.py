@@ -203,7 +203,7 @@ def _clean_bronze_transactions(bronze_dataframe: Any, processed_at: datetime) ->
         ",",
         "",
     )
-    
+
     amount_decimal = (
         spark_functions.when(amount_text.rlike(r"^-?\d+(\.\d+)?$"), amount_text)
         .otherwise(spark_functions.lit(None))
@@ -221,20 +221,20 @@ def _clean_bronze_transactions(bronze_dataframe: Any, processed_at: datetime) ->
         .withColumn("account_id", _trimmed_required("account_id"))
         .withColumn("customer_id", _trimmed_required("customer_id"))
         .withColumn("merchant_id", _trimmed_or_null("merchant_id"))
-        .withColumn("merchant_category", spark_functions.lower(_trimmed_or_null("merchant_category")))
+        .withColumn("merchant_category", _normalized_lower_code_or_null("merchant_category"))
         .withColumn("amount", amount_decimal)
-        .withColumn("currency", spark_functions.upper(_trimmed_required("currency")))
-        .withColumn("city", _title_case_or_null(_trimmed_or_null("city")))
-        .withColumn("channel", spark_functions.lower(_trimmed_required("channel")))
-        .withColumn("transaction_status", spark_functions.lower(_trimmed_required("transaction_status")))
+        .withColumn("currency", _normalized_upper_code_required("currency"))
+        .withColumn("city", _normalized_city_or_null("city"))
+        .withColumn("channel", _normalized_lower_code_required("channel"))
+        .withColumn("transaction_status", _normalized_lower_code_required("transaction_status"))
         .withColumn("is_fraud", _cast_fraud_label("is_fraud"))
         .withColumn("event_time", event_time)
         .withColumn("source_created_at", source_created_at)
         .withColumn("arrival_delay_minutes", arrival_delay_minutes.cast("double"))
         .withColumn("device_id", _trimmed_or_null("device_id"))
         .withColumn("ip_address", _trimmed_or_null("ip_address"))
-        .withColumn("authentication_method", spark_functions.lower(_trimmed_or_null("authentication_method")))
-        .withColumn("risk_signal_version", _trimmed_or_null("risk_signal_version"))
+        .withColumn("authentication_method", _normalized_lower_code_or_null("authentication_method"))
+        .withColumn("risk_signal_version", _normalized_lower_code_or_null("risk_signal_version"))
         .withColumn("event_date", spark_functions.to_date(spark_functions.col("event_time")))
         .withColumn("_bronze_ingest_run_id", spark_functions.col("_ingest_run_id"))
         .withColumn("_bronze_source_file_path", spark_functions.col("_source_file_path"))
@@ -273,9 +273,49 @@ def _title_case_or_null(column: Any) -> Any:
     from pyspark.sql import functions as spark_functions
 
     collapsed_value = spark_functions.regexp_replace(column, r"\s+", " ")
+    title_cased_value = spark_functions.initcap(spark_functions.lower(collapsed_value))
     return spark_functions.when(column.isNull(), spark_functions.lit(None).cast("string")).otherwise(
-        spark_functions.initcap(collapsed_value)
+        title_cased_value
     )
+
+
+def _normalized_city_or_null(column_name: str) -> Any:
+    """Return a display-safe city string or null for blank values."""
+
+    return _title_case_or_null(_trimmed_or_null(column_name))
+
+
+def _normalized_lower_code_required(column_name: str) -> Any:
+    """Return a required code-like string in lowercase snake case."""
+
+    from pyspark.sql import functions as spark_functions
+
+    return spark_functions.lower(_normalize_code_separators(_trimmed_required(column_name)))
+
+
+def _normalized_lower_code_or_null(column_name: str) -> Any:
+    """Return an optional code-like string in lowercase snake case."""
+
+    from pyspark.sql import functions as spark_functions
+
+    return spark_functions.lower(_normalize_code_separators(_trimmed_or_null(column_name)))
+
+
+def _normalized_upper_code_required(column_name: str) -> Any:
+    """Return a required code-like string in uppercase snake case."""
+
+    from pyspark.sql import functions as spark_functions
+
+    return spark_functions.upper(_normalize_code_separators(_trimmed_required(column_name)))
+
+
+def _normalize_code_separators(column: Any) -> Any:
+    """Convert spaces and hyphens in enum-like strings to single underscores."""
+
+    from pyspark.sql import functions as spark_functions
+
+    normalized_value = spark_functions.regexp_replace(column, r"[\s-]+", "_")
+    return spark_functions.regexp_replace(normalized_value, r"_+", "_")
 
 
 def _cast_fraud_label(column_name: str) -> Any:
