@@ -58,6 +58,35 @@ event_date
 paths. This keeps Silver aligned to business event time even when records arrive
 late.
 
+## Run Silver Transaction Deduplication
+
+Build Bronze first:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions
+```
+
+Then build deduplicated Silver transactions:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
+  --bronze-dir data/bronze/raw_transactions \
+  --output-dir data/silver/transactions \
+  --write-mode overwrite
+```
+
+Default output:
+
+```text
+data/silver/transactions/
+|-- _silver_transactions_summary.json
+`-- event_date=YYYY-MM-DD/
+    `-- part-*.parquet
+```
+
+The job writes one selected non-quarantined row per `transaction_id`. It also
+stores `duplicate_record_count` and `dedup_rank` so the selection is auditable.
+
 ## Cleaned Transaction Schema
 
 | Field | Type | Nullable | Source | Cleaning Rule |
@@ -223,5 +252,11 @@ quality behavior.
 | Schema evolution | `v1` missing evolved fields remain `NULL`; `v2` missing evolved values are flagged. |
 | Lineage | Every Silver row keeps Bronze source path, row number, ingest run, and raw record hash. |
 
-These expectations should become unit tests and a reusable validation command
-when the Silver Spark job is implemented.
+These expectations should guide the Silver Spark job tests and any future
+reusable Silver validation command.
+
+Run the Spark-backed Silver test:
+
+```bash
+PYTHONPATH=src python -m unittest tests.unit.test_silver_transactions
+```
