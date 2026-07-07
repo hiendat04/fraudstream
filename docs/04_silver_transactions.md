@@ -36,10 +36,22 @@ Target table:
 silver.transactions
 ```
 
+Quality evidence table:
+
+```text
+silver.transaction_quality_issues
+```
+
 Recommended local output path:
 
 ```text
 data/silver/transactions/
+```
+
+Recommended local quality evidence path:
+
+```text
+data/silver/transaction_quality_issues/
 ```
 
 Recommended storage format:
@@ -72,20 +84,28 @@ Then build deduplicated Silver transactions:
 PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
   --bronze-dir data/bronze/raw_transactions \
   --output-dir data/silver/transactions \
+  --quality-output-dir data/silver/transaction_quality_issues \
   --write-mode overwrite
 ```
 
 Default output:
 
 ```text
-data/silver/transactions/
-|-- _silver_transactions_summary.json
-`-- event_date=YYYY-MM-DD/
-    `-- part-*.parquet
+data/silver/
+|-- transactions/
+|   |-- _silver_transactions_summary.json
+|   |-- _silver_quality_report.json
+|   `-- event_date=YYYY-MM-DD/
+|       `-- part-*.parquet
+`-- transaction_quality_issues/
+    `-- quality_status=valid|warning|quarantined/
+        `-- part-*.parquet
 ```
 
 The job writes one selected non-quarantined row per `transaction_id`. It also
 stores `duplicate_record_count` and `dedup_rank` so the selection is auditable.
+Rows that are quarantined, rejected as duplicate candidates, or selected with
+warnings are written to the quality evidence table.
 
 ## Cleaned Transaction Schema
 
@@ -95,12 +115,12 @@ stores `duplicate_record_count` and `dedup_rank` so the selection is auditable.
 | `account_id` | `STRING` | No | `account_id` | Trim. Blank values fail minimum quality. |
 | `customer_id` | `STRING` | No | `customer_id` | Trim. Blank values fail minimum quality. |
 | `merchant_id` | `STRING` | Yes | `merchant_id` | Trim. Convert blank to `NULL`. |
-| `merchant_category` | `STRING` | Yes | `merchant_category` | Trim and lowercase. Keep snake-case category values. |
+| `merchant_category` | `STRING` | Yes | `merchant_category` | Trim, lowercase, and normalize spaces or hyphens to snake case. |
 | `amount` | `DECIMAL(18,2)` | No | `amount` | Trim and cast. Non-numeric or negative values fail minimum quality. |
 | `currency` | `STRING` | No | `currency` | Trim and uppercase. Expected value is `USD` for generated data. |
 | `city` | `STRING` | Yes | `city` | Trim, collapse repeated spaces, and title-case. Convert blank to `NULL`. |
-| `channel` | `STRING` | No | `channel` | Trim and lowercase. Expected values: `card_present`, `online`, `mobile_wallet`, `atm`. |
-| `transaction_status` | `STRING` | No | `transaction_status` | Trim and lowercase. Expected values: `approved`, `declined`, `reversed`. |
+| `channel` | `STRING` | No | `channel` | Trim, lowercase, and normalize spaces or hyphens to snake case. Expected values: `card_present`, `online`, `mobile_wallet`, `atm`. |
+| `transaction_status` | `STRING` | No | `transaction_status` | Trim, lowercase, and normalize spaces or hyphens to snake case. Expected values: `approved`, `declined`, `reversed`. |
 | `is_fraud` | `BOOLEAN` | No | `is_fraud` | Cast `1` to `true`, `0` to `false`; other values fail minimum quality. |
 | `event_time` | `TIMESTAMP` | No | `event_timestamp` | Parse source business timestamp. This is the canonical business time. |
 | `event_date` | `DATE` | No | `event_time` | Date derived from `event_time`; used for partitioning. |
@@ -108,8 +128,34 @@ stores `duplicate_record_count` and `dedup_rank` so the selection is auditable.
 | `arrival_delay_minutes` | `DOUBLE` | Yes | `event_time`, `source_created_at` | Difference between `source_created_at` and `event_time`. |
 | `device_id` | `STRING` | Yes | `device_id` | Trim. Convert blank to `NULL`. Missing for `v1` rows is expected. |
 | `ip_address` | `STRING` | Yes | `ip_address` | Trim. Convert blank to `NULL`. |
-| `authentication_method` | `STRING` | Yes | `authentication_method` | Trim and lowercase. Convert blank to `NULL`. |
-| `risk_signal_version` | `STRING` | Yes | `risk_signal_version` | Trim. Convert blank to `NULL`. |
+| `authentication_method` | `STRING` | Yes | `authentication_method` | Trim, lowercase, and normalize spaces or hyphens to snake case. Convert blank to `NULL`. |
+| `risk_signal_version` | `STRING` | Yes | `risk_signal_version` | Trim and lowercase. Convert blank to `NULL`. |
+
+## Required And Nullable Field Rules
+
+Silver should not silently drop records with important missing values. It should
+classify them, keep lineage, and write them to quality evidence.
+
+Required transaction keys:
+
+| Field | Rule | Quality Code | Behavior |
+|---|---|---|---|
+| `transaction_id` | Must be non-null and non-blank. | `missing_transaction_id` | Quarantine and write to `silver.transaction_quality_issues`. |
+| `account_id` | Must be non-null and non-blank. | `missing_account_id` | Quarantine and write to `silver.transaction_quality_issues`. |
+| `customer_id` | Must be non-null and non-blank. | `missing_customer_id` | Quarantine and write to `silver.transaction_quality_issues`. |
+
+Nullable fields:
+
+| Field | Rule |
+|---|---|
+| `merchant_id` | Blank becomes `NULL`; row remains usable. |
+| `merchant_category` | Blank becomes `NULL`; row remains usable. |
+| `city` | Blank becomes `NULL`; row remains usable. |
+| `source_created_at` | Missing or unparseable `created_ts` becomes `NULL`; row remains usable. |
+| `device_id` | Blank becomes `NULL`; missing `v2` values are warnings. |
+| `ip_address` | Blank becomes `NULL`; missing `v2` values are warnings. |
+| `authentication_method` | Blank becomes `NULL`; row remains usable. |
+| `risk_signal_version` | Blank becomes `NULL`; row remains usable. |
 
 ## Quality And Lineage Fields
 
@@ -128,6 +174,13 @@ and whether it is safe for downstream use.
 | `_bronze_raw_record_hash` | `STRING` | No | Copied from Bronze `_raw_record_hash` for audit checks. |
 | `_silver_processed_at` | `TIMESTAMP` | No | Timestamp when the Silver job processed the row. |
 
+The quality evidence table stores the same Silver columns plus:
+
+| Field | Type | Meaning |
+|---|---|---|
+| `_silver_record_action` | `STRING` | `selected`, `duplicate_rejected`, or `quarantined`. |
+| `_silver_quality_reported_at` | `TIMESTAMP` | Timestamp when the row was written to quality evidence. |
+
 ## Standardization Rules
 
 Silver standardization must be deterministic and easy to test:
@@ -136,8 +189,10 @@ Silver standardization must be deterministic and easy to test:
 - Convert blank strings to `NULL` except required identifiers and enum fields,
   which should fail quality checks when blank.
 - Normalize `currency` to uppercase.
-- Normalize `merchant_category`, `channel`, `transaction_status`, and
-  `authentication_method` to lowercase.
+- Normalize `merchant_category`, `channel`, `transaction_status`,
+  `authentication_method`, and `risk_signal_version` to lowercase.
+- For enum-like string fields, convert spaces and hyphens to underscores so
+  values such as `Mobile Wallet` and `mobile-wallet` become `mobile_wallet`.
 - Normalize `city` by trimming, collapsing repeated internal spaces, and
   title-casing.
 - Parse `amount` to `DECIMAL(18,2)`.
@@ -164,11 +219,12 @@ rows in this order:
 6. `_bronze_raw_record_hash` as a deterministic final tie-breaker.
 
 Keep the row with `dedup_rank = 1` in `silver.transactions`. Preserve duplicate
-evidence by storing `duplicate_record_count` on the selected row. A future audit
-table can keep non-selected duplicates under:
+evidence by storing `duplicate_record_count` on the selected row. Non-selected
+duplicate candidates are written to quality evidence with
+`_silver_record_action = duplicate_rejected`:
 
 ```text
-silver.transaction_duplicates
+silver.transaction_quality_issues
 ```
 
 ## Minimum Quality Rules
@@ -191,13 +247,38 @@ Rows can be cleaned only if the minimum business contract is satisfied.
 | `arrival_delay_minutes` is greater than 60 | `late_arrival` | Warning. |
 | `device_id` or `ip_address` is missing on `v2` rows | `missing_evolved_value` | Warning. |
 
-`silver.transactions` should contain valid and warning rows after
-deduplication. Quarantined rows should be written to a separate table so they
-remain inspectable without polluting clean analytics:
+`silver.transactions` contains valid and warning rows after deduplication.
+Quarantined rows are written to a separate table so they remain inspectable
+without polluting clean analytics:
 
 ```text
 silver.transaction_quality_issues
 ```
+
+The same table also stores duplicate-rejected rows and selected rows with
+warnings, so downstream checks can explain every row that was not simply clean
+and selected.
+
+## Data Quality Report
+
+Every Silver run writes:
+
+```text
+data/silver/transactions/_silver_quality_report.json
+```
+
+The report includes:
+
+- input, output, quality evidence, warning, quarantine, and duplicate counts
+- counts by `_silver_record_action`
+- counts by `quality_issue_codes`
+- missing counts for nullable fields
+- explicit required transaction key rules
+- explicit nullable field rules
+
+This report is the first place to check when row counts do not match
+expectations. It should explain where records went instead of letting records
+disappear silently.
 
 ## Spark Table Definition
 
@@ -244,10 +325,13 @@ quality behavior.
 | Check | Expected Result |
 |---|---|
 | Deduplication | `silver.transactions` has one row per non-quarantined `transaction_id`. |
-| Row accounting | Bronze rows equal selected Silver rows plus duplicate rows plus quarantined rows. |
+| Row accounting | Bronze rows equal selected Silver rows plus duplicate-rejected rows plus quarantined rows. |
 | Type casting | `amount`, `is_fraud`, `event_time`, and `source_created_at` use typed columns. |
 | Business time | `event_date` is derived from `event_time`. |
-| Standardized strings | `currency`, `city`, `channel`, and `transaction_status` match standardization rules. |
+| Standardized strings | `currency`, `city`, `merchant_category`, `channel`, `transaction_status`, `authentication_method`, and `risk_signal_version` match standardization rules. |
+| Missing values | Required transaction key failures are quarantined; nullable fields are kept as `NULL`. |
+| Quality evidence | Quarantined rows, duplicate-rejected rows, and warning rows are written to `silver.transaction_quality_issues`. |
+| Quality report | `_silver_quality_report.json` includes issue counts and field-rule definitions. |
 | Late arrivals | Late records remain available with `late_arrival` in `quality_issue_codes`. |
 | Schema evolution | `v1` missing evolved fields remain `NULL`; `v2` missing evolved values are flagged. |
 | Lineage | Every Silver row keeps Bronze source path, row number, ingest run, and raw record hash. |
