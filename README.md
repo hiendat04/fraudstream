@@ -29,6 +29,7 @@ The repository currently includes:
 | Kafka replay producer | Publishes generated stream events to Kafka for future Flink jobs | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
 | Local Kafka stack | Runs Kafka, topic initialization, and Kafka UI with Docker Compose | [docker-compose.yml](docker-compose.yml) |
 | Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
+| Silver transaction deduplication | Cleans typed transaction fields and writes one deterministic row per transaction ID | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -188,6 +189,12 @@ Ingest raw offline CSV files into Bronze Parquet:
 PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions
 ```
 
+Build deduplicated Silver transaction Parquet:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.silver.transactions
+```
+
 Stop the local Kafka stack:
 
 ```bash
@@ -203,7 +210,8 @@ PYTHONPATH=src python -m unittest \
   tests.unit.test_offline_transactions \
   tests.unit.test_streaming_transactions \
   tests.unit.test_stream_replay \
-  tests.unit.test_bronze_ingest_transactions
+  tests.unit.test_bronze_ingest_transactions \
+  tests.unit.test_silver_transactions
 ```
 
 Run a syntax and import compile check:
@@ -221,6 +229,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/01_data_generator.md](docs/01_data_generator.md) | Offline generator behavior, configuration, output layout, and Bronze ingestion contract |
 | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) | Streaming generator, Kafka replay, event shape, streaming problems, and Flink contract |
 | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) | Bronze transaction schema, metadata fields, partitioning, and raw-preservation rules |
+| [docs/04_silver_transactions.md](docs/04_silver_transactions.md) | Silver transaction schema, cleaned types, standardization, deduplication, and quality rules |
 
 ## Engineering Direction
 
