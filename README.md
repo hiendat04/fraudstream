@@ -30,6 +30,7 @@ The repository currently includes:
 | Local Kafka stack | Runs Kafka, topic initialization, and Kafka UI with Docker Compose | [docker-compose.yml](docker-compose.yml) |
 | Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
 | Silver transaction deduplication | Cleans typed transaction fields and writes one deterministic row per transaction ID | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
+| PostgreSQL serving schema | Creates Bronze, Silver, Gold, and metadata schemas for DBeaver and governance workflows | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -168,6 +169,15 @@ Kafka listens on `localhost:9092`. Kafka UI is available at:
 http://localhost:18080
 ```
 
+Start local PostgreSQL and create the serving schemas:
+
+```bash
+docker compose up -d postgres postgres-schema-init
+```
+
+PostgreSQL is available for DBeaver at `localhost:5432`, database
+`fraudstream`, user `fraudstream`.
+
 Replay generated events to Kafka:
 
 ```bash
@@ -230,6 +240,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) | Streaming generator, Kafka replay, event shape, streaming problems, and Flink contract |
 | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) | Bronze transaction schema, metadata fields, partitioning, and raw-preservation rules |
 | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) | Silver transaction schema, cleaned types, standardization, deduplication, and quality rules |
+| [docs/05_gold_tables.md](docs/05_gold_tables.md) | Gold fact, dimension, OBT, feature, and PostgreSQL serving schema design |
 
 ## Engineering Direction
 
