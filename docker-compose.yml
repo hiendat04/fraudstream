@@ -66,5 +66,46 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
       DYNAMIC_CONFIG_ENABLED: "false"
 
+  postgres:
+    image: postgres:16-alpine
+    container_name: fraudstream-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
+      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraudstream} -d ${POSTGRES_DB:-fraudstream}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  postgres-schema-init:
+    image: postgres:16-alpine
+    container_name: fraudstream-postgres-schema-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
+      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
+      PGPASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    volumes:
+      - ./infra/postgres/init/001_create_fraudstream_schema.sql:/schema/001_create_fraudstream_schema.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        psql \
+          --host postgres \
+          --username "${POSTGRES_USER:-fraudstream}" \
+          --dbname "${POSTGRES_DB:-fraudstream}" \
+          --set ON_ERROR_STOP=1 \
+          --file /schema/001_create_fraudstream_schema.sql
+
 volumes:
   kafka-data:
+  postgres-data:
