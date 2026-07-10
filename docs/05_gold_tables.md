@@ -84,6 +84,7 @@ Implementation files:
 |---|---|
 | `docker-compose.yml` | Runs PostgreSQL and the one-shot schema initializer. |
 | `infra/postgres/init/001_create_fraudstream_schema.sql` | Defines schemas, tables, constraints, indexes, comments, and the Gold OBT view. |
+| `src/fraudstream/jobs/gold/transactions.py` | Builds Gold Parquet facts, dimensions, aggregates, and feature tables from Silver. |
 | `src/fraudstream/jobs/postgres/publish.py` | Publishes Silver and Gold Parquet datasets into PostgreSQL tables. |
 
 ## Naming Standards
@@ -350,7 +351,16 @@ PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
   --write-mode overwrite
 ```
 
-Publish Gold Parquet tables after the Gold Spark job has created `data/gold/*`:
+Build Gold Parquet tables from Silver:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
+  --silver-dir data/silver/transactions \
+  --output-dir data/gold \
+  --write-mode overwrite
+```
+
+Publish Gold Parquet tables:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \

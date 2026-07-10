@@ -212,10 +212,22 @@ Build deduplicated Silver transaction Parquet:
 PYTHONPATH=src python -m fraudstream.jobs.silver.transactions
 ```
 
+Build Gold transaction facts, dimensions, aggregates, and feature tables:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.gold.transactions
+```
+
 Publish Silver Parquet into PostgreSQL:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.postgres.publish --layer silver
+```
+
+Publish Gold Parquet into PostgreSQL:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.postgres.publish --layer gold
 ```
 
 Stop the local Kafka stack:
