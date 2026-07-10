@@ -135,10 +135,17 @@ Install the optional Spark dependency when working on Bronze ingestion:
 uv sync --extra spark
 ```
 
-To keep both Kafka and Spark extras installed locally:
+Install the optional PostgreSQL dependency when publishing Parquet outputs into
+the local serving database:
 
 ```bash
-uv sync --extra kafka --extra spark
+uv sync --extra postgres
+```
+
+To keep Kafka, Spark, and PostgreSQL publishing extras installed locally:
+
+```bash
+uv sync --extra kafka --extra spark --extra postgres
 ```
 
 Run commands from the repository root. During local development, commands use `PYTHONPATH=src` so the `fraudstream` package is importable without a full packaging workflow.
@@ -203,6 +210,12 @@ Build deduplicated Silver transaction Parquet:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.silver.transactions
+```
+
+Publish Silver Parquet into PostgreSQL:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.postgres.publish --layer silver
 ```
 
 Stop the local Kafka stack:

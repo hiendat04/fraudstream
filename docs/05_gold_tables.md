@@ -84,6 +84,7 @@ Implementation files:
 |---|---|
 | `docker-compose.yml` | Runs PostgreSQL and the one-shot schema initializer. |
 | `infra/postgres/init/001_create_fraudstream_schema.sql` | Defines schemas, tables, constraints, indexes, comments, and the Gold OBT view. |
+| `src/fraudstream/jobs/postgres/publish.py` | Publishes Silver and Gold Parquet datasets into PostgreSQL tables. |
 
 ## Naming Standards
 
@@ -320,8 +321,8 @@ dimension tables remain the authoritative model.
 
 ## Loading Pattern
 
-The current repository creates PostgreSQL schemas and empty tables. Data loading
-is handled by publish jobs that run after Spark has produced Parquet outputs.
+PostgreSQL data loading is handled by a publisher job that runs after Spark has
+produced Parquet outputs.
 
 Pipeline loading pattern:
 
@@ -334,6 +335,41 @@ Pipeline loading pattern:
 For local development, full refresh loading is acceptable for facts, daily
 aggregates, and feature tables. SCD2 dimensions require change detection before
 closing old records and inserting new current versions.
+
+Install the Spark and PostgreSQL extras:
+
+```bash
+uv sync --extra spark --extra postgres
+```
+
+Publish Silver Parquet tables:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
+  --layer silver \
+  --write-mode overwrite
+```
+
+Publish Gold Parquet tables after the Gold Spark job has created `data/gold/*`:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
+  --layer gold \
+  --write-mode overwrite
+```
+
+During development, missing Gold tables can be skipped while individual tables
+are still being implemented:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
+  --layer gold \
+  --tables dim_customer,fact_transactions \
+  --skip-missing
+```
+
+The publisher validates source columns before writing. If a Parquet dataset is
+missing a required target column, the job fails before loading that table.
 
 ## Validation Expectations
 
@@ -349,4 +385,3 @@ These checks define the minimum quality bar for Gold publishing:
 | Quality lineage | Warning rows remain visible through `quality_status` and issue tables. |
 | Aggregate reconciliation | Daily aggregate counts reconcile to transaction facts. |
 | Feature time safety | Feature values use only data available before the feature `event_timestamp`. |
-
