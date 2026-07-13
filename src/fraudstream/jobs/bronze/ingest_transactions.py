@@ -11,11 +11,22 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Sequence
 from uuid import uuid4
+
+from fraudstream.jobs.spark_ui import (
+    SparkUIConfig,
+    add_spark_ui_arguments,
+    announce_spark_ui,
+    clear_spark_job_group,
+    configure_spark_builder,
+    retain_spark_ui,
+    set_spark_job_group,
+    spark_ui_config_from_args,
+)
 
 
 APP_NAME = "FraudStreamBronzeTransactionIngestion"
@@ -88,6 +99,7 @@ class BronzeIngestionConfig:
     ingest_date: str | None = None
     source_system: str = DEFAULT_SOURCE_SYSTEM
     source_dataset: str = DEFAULT_SOURCE_DATASET
+    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
 
     def validate(self) -> None:
         """Raise ValueError when the ingestion config is not usable."""
@@ -99,6 +111,7 @@ class BronzeIngestionConfig:
             raise FileNotFoundError(f"source_dir does not exist: {self.source_dir}")
         if self.manifest_path is not None and not self.manifest_path.exists():
             raise FileNotFoundError(f"manifest_path does not exist: {self.manifest_path}")
+        self.spark_ui.validate()
 
 
 @dataclass(frozen=True)
@@ -183,9 +196,10 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
     """Read raw transaction CSV partitions and write Bronze Parquet."""
 
     config.validate()
-    spark = _build_spark_session(config.master)
+    spark = _build_spark_session(config.master, config.spark_ui)
     bronze_dataframe = None
     try:
+        announce_spark_ui(spark, config.spark_ui)
         context = _build_run_context(config)
 
         raw_dataframe = _read_raw_source_files(spark, context.manifest.files)
@@ -197,15 +211,27 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
         )
         bronze_dataframe = _prepare_for_reuse(enriched_dataframe)
 
+        set_spark_job_group(
+            spark,
+            "bronze-write-raw-transactions",
+            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write Parquet",
+        )
         _write_bronze_parquet(bronze_dataframe, config)
 
+        set_spark_job_group(
+            spark,
+            "bronze-profile-offline-problems",
+            "Bronze: profile duplicates, schema versions, and transaction-date coverage",
+        )
         result = _build_ingestion_result(
             bronze_dataframe=bronze_dataframe,
             config=config,
             context=context,
             spark_version=spark.version,
         )
+        clear_spark_job_group(spark)
         _write_summary(result, config.output_dir)
+        retain_spark_ui(spark, config.spark_ui)
         return result
     finally:
         if bronze_dataframe is not None:
@@ -229,7 +255,7 @@ def _build_run_context(config: BronzeIngestionConfig) -> BronzeRunContext:
     )
 
 
-def _build_spark_session(master: str) -> Any:
+def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
     try:
@@ -239,14 +265,13 @@ def _build_spark_session(master: str) -> Any:
             "PySpark is not installed. Run `uv sync --extra spark`, then retry this command."
         ) from exc
 
-    return (
+    builder = (
         SparkSession.builder.appName(APP_NAME)
         .master(master)
         .config("spark.sql.shuffle.partitions", "8")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
 def _discover_source_manifest(config: BronzeIngestionConfig) -> SourceManifest:
@@ -622,6 +647,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--ingest-run-id")
     parser.add_argument("--ingest-date")
+    add_spark_ui_arguments(parser)
     return parser
 
 
@@ -637,6 +663,7 @@ def main(argv: list[str] | None = None) -> int:
         write_mode=args.write_mode,
         ingest_run_id=args.ingest_run_id,
         ingest_date=args.ingest_date,
+        spark_ui=spark_ui_config_from_args(args),
     )
     try:
         result = ingest_transactions_to_bronze(config)

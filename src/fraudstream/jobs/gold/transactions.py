@@ -5,7 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -13,6 +13,16 @@ from typing import Any, Sequence
 from fraudstream.jobs.bronze.ingest_transactions import DEFAULT_MASTER, SUPPORTED_WRITE_MODES
 from fraudstream.jobs.postgres.publish import GOLD_TABLE_COLUMNS
 from fraudstream.jobs.silver.transactions import DEFAULT_OUTPUT_DIR as DEFAULT_SILVER_DIR
+from fraudstream.jobs.spark_ui import (
+    SparkUIConfig,
+    add_spark_ui_arguments,
+    announce_spark_ui,
+    clear_spark_job_group,
+    configure_spark_builder,
+    retain_spark_ui,
+    set_spark_job_group,
+    spark_ui_config_from_args,
+)
 
 
 APP_NAME = "FraudStreamGoldTransactions"
@@ -48,6 +58,7 @@ class GoldTransactionsConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
+    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
 
     def validate(self) -> None:
         """Raise when the Gold build cannot run with this config."""
@@ -57,6 +68,7 @@ class GoldTransactionsConfig:
             raise ValueError(f"write_mode must be one of: {allowed}")
         if not self.silver_dir.exists():
             raise FileNotFoundError(f"silver_dir does not exist: {self.silver_dir}")
+        self.spark_ui.validate()
 
 
 @dataclass(frozen=True)
@@ -134,6 +146,7 @@ class GoldBuildFrames:
     fact_device_ip_daily: Any
     feat_customer_rolling: Any
     feat_customer_total_orders_90d: Any
+    feat_merchant_risk_rolling: Any
     feat_transaction_training: Any
 
 
@@ -141,9 +154,10 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
     """Build Gold transaction facts, dimensions, aggregates, and features."""
 
     config.validate()
-    spark = _build_spark_session(config.master)
+    spark = _build_spark_session(config.master, config.spark_ui)
     persisted_frames: list[Any] = []
     try:
+        announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
         silver_dataframe = _prepare_silver_dataframe(spark.read.parquet(str(config.silver_dir)))
         frames = _build_gold_frames(spark, silver_dataframe, processed_at)
@@ -157,6 +171,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
                 frames.fact_customer_daily,
                 frames.fact_account_daily,
                 frames.fact_merchant_daily,
+                frames.feat_merchant_risk_rolling,
             ]
         )
         for dataframe in persisted_frames:
@@ -173,6 +188,8 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
             table_results=tuple(table_results),
         )
         _write_summary(result, config.output_dir)
+        clear_spark_job_group(spark)
+        retain_spark_ui(spark, config.spark_ui)
         return result
     finally:
         for dataframe in persisted_frames:
@@ -180,7 +197,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
         spark.stop()
 
 
-def _build_spark_session(master: str) -> Any:
+def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
     """Create a Spark session for Gold processing."""
 
     try:
@@ -190,14 +207,16 @@ def _build_spark_session(master: str) -> Any:
             "PySpark is not installed. Run `uv sync --extra spark`, then retry this command."
         ) from exc
 
-    return (
+    builder = (
         SparkSession.builder.appName(APP_NAME)
         .master(master)
         .config("spark.sql.shuffle.partitions", "16")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        .config("spark.ui.enabled", "false")
-        .getOrCreate()
+        .config("spark.sql.session.timeZone", "UTC")
+        .config("spark.sql.adaptive.enabled", "true")
+        .config("spark.sql.adaptive.skewJoin.enabled", "true")
     )
+    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
 def _prepare_silver_dataframe(silver_dataframe: Any) -> Any:
@@ -248,11 +267,19 @@ def _build_gold_frames(spark: Any, silver_dataframe: Any, processed_at: datetime
     fact_device_ip_daily = _build_fact_device_ip_daily(silver_dataframe, fact_transactions)
     feat_customer_rolling = _build_feat_customer_rolling(fact_customer_daily, processed_at)
     feat_customer_total_orders_90d = _build_feat_customer_total_orders_90d(fact_customer_daily, processed_at)
+    merchant_category_daily = _build_merchant_category_daily(fact_transactions)
+    merchant_category_rolling = _build_merchant_category_rolling(merchant_category_daily)
+    feat_merchant_risk_rolling = _build_feat_merchant_risk_rolling(
+        fact_merchant_daily=fact_merchant_daily,
+        merchant_category_rolling=merchant_category_rolling,
+        processed_at=processed_at,
+    )
     feat_transaction_training = _build_feat_transaction_training(
         fact_transactions=fact_transactions,
         feat_customer_rolling=feat_customer_rolling,
         fact_account_daily=fact_account_daily,
-        fact_merchant_daily=fact_merchant_daily,
+        feat_merchant_risk_rolling=feat_merchant_risk_rolling,
+        merchant_category_rolling=merchant_category_rolling,
         processed_at=processed_at,
     )
 
@@ -274,6 +301,7 @@ def _build_gold_frames(spark: Any, silver_dataframe: Any, processed_at: datetime
         fact_device_ip_daily=fact_device_ip_daily,
         feat_customer_rolling=feat_customer_rolling,
         feat_customer_total_orders_90d=feat_customer_total_orders_90d,
+        feat_merchant_risk_rolling=feat_merchant_risk_rolling,
         feat_transaction_training=feat_transaction_training,
     )
 
@@ -854,12 +882,239 @@ def _build_feat_customer_total_orders_90d(fact_customer_daily: Any, processed_at
     )
 
 
+def _build_merchant_category_daily(fact_transactions: Any) -> Any:
+    """Pre-aggregate category activity before rolling feature windows."""
+
+    from pyspark.sql import functions as spark_functions
+
+    return (
+        fact_transactions.where(spark_functions.col("merchant_category").isNotNull())
+        .groupBy(
+            "merchant_category",
+            spark_functions.col("event_date").alias("feature_date"),
+        )
+        .agg(
+            spark_functions.count("*").cast("long").alias("category_txn_count_1d"),
+            spark_functions.sum("amount").cast("decimal(18,2)").alias("category_amount_sum_1d"),
+            _count_when(spark_functions.col("is_fraud")).alias("category_fraud_txn_count_1d"),
+        )
+    )
+
+
+def _build_merchant_category_rolling(merchant_category_daily: Any) -> Any:
+    """Build small category-level rolling frames for broadcast joins."""
+
+    from pyspark.sql import functions as spark_functions
+    from pyspark.sql import Window
+
+    base = merchant_category_daily.withColumn(
+        "_feature_date_epoch",
+        spark_functions.unix_timestamp(spark_functions.col("feature_date").cast("timestamp")),
+    )
+    window_30d = (
+        Window.partitionBy("merchant_category")
+        .orderBy("_feature_date_epoch")
+        .rangeBetween(-29 * 86_400, 0)
+    )
+
+    return (
+        base.withColumn(
+            "merchant_category_txn_count_30d",
+            spark_functions.sum("category_txn_count_1d").over(window_30d).cast("long"),
+        )
+        .withColumn(
+            "merchant_category_amount_sum_30d",
+            spark_functions.sum("category_amount_sum_1d").over(window_30d).cast("decimal(18,2)"),
+        )
+        .withColumn(
+            "merchant_category_fraud_txn_count_30d",
+            spark_functions.sum("category_fraud_txn_count_1d").over(window_30d).cast("long"),
+        )
+        .withColumn(
+            "merchant_category_amount_avg_30d",
+            _safe_decimal_average("merchant_category_amount_sum_30d", "merchant_category_txn_count_30d"),
+        )
+        .withColumn(
+            "merchant_category_prior_fraud_rate_30d",
+            _safe_rate("merchant_category_fraud_txn_count_30d", "merchant_category_txn_count_30d"),
+        )
+        .select(
+            "merchant_category",
+            "feature_date",
+            spark_functions.col("category_txn_count_1d").alias("merchant_category_txn_count_1d"),
+            "merchant_category_txn_count_30d",
+            "merchant_category_amount_avg_30d",
+            "merchant_category_prior_fraud_rate_30d",
+        )
+    )
+
+
+def _build_feat_merchant_risk_rolling(
+    *,
+    fact_merchant_daily: Any,
+    merchant_category_rolling: Any,
+    processed_at: datetime,
+) -> Any:
+    """Build merchant burst, historical risk, and category comparison features."""
+
+    from pyspark.sql import functions as spark_functions
+    from pyspark.sql import Window
+
+    base = (
+        fact_merchant_daily.where(
+            spark_functions.col("merchant_dim_id") != spark_functions.lit(UNKNOWN_MERCHANT_DIM_ID)
+        )
+        .withColumn(
+            "_feature_date_epoch",
+            spark_functions.unix_timestamp(spark_functions.col("feature_date").cast("timestamp")),
+        )
+    )
+    window_7d = Window.partitionBy("merchant_key").orderBy("_feature_date_epoch").rangeBetween(-6 * 86_400, 0)
+    window_30d = Window.partitionBy("merchant_key").orderBy("_feature_date_epoch").rangeBetween(-29 * 86_400, 0)
+    prior_window_30d = (
+        Window.partitionBy("merchant_key")
+        .orderBy("_feature_date_epoch")
+        .rangeBetween(-30 * 86_400, -86_400)
+    )
+    zero_long = spark_functions.lit(0).cast("long")
+
+    merchant_features = (
+        base.withColumn("event_timestamp", spark_functions.to_timestamp("feature_date"))
+        .withColumn("created", spark_functions.lit(processed_at).cast("timestamp"))
+        .withColumn("window_start_date", spark_functions.date_sub("feature_date", 29))
+        .withColumn("window_end_date", spark_functions.col("feature_date"))
+        .withColumn("baseline_window_start_date", spark_functions.date_sub("feature_date", 30))
+        .withColumn("baseline_window_end_date", spark_functions.date_sub("feature_date", 1))
+        .withColumn("merchant_txn_count_1d", spark_functions.col("txn_count_1d"))
+        .withColumn("merchant_txn_count_7d", spark_functions.sum("txn_count_1d").over(window_7d).cast("long"))
+        .withColumn("merchant_txn_count_30d", spark_functions.sum("txn_count_1d").over(window_30d).cast("long"))
+        .withColumn("merchant_amount_sum_1d", spark_functions.col("amount_sum_1d"))
+        .withColumn(
+            "merchant_amount_sum_7d",
+            spark_functions.sum("amount_sum_1d").over(window_7d).cast("decimal(18,2)"),
+        )
+        .withColumn(
+            "merchant_amount_sum_30d",
+            spark_functions.sum("amount_sum_1d").over(window_30d).cast("decimal(18,2)"),
+        )
+        .withColumn(
+            "merchant_amount_avg_30d",
+            _safe_decimal_average("merchant_amount_sum_30d", "merchant_txn_count_30d"),
+        )
+        .withColumn("merchant_distinct_customer_count_1d", spark_functions.col("distinct_customer_count_1d"))
+        .withColumn("merchant_declined_txn_count_1d", spark_functions.col("declined_txn_count_1d"))
+        .withColumn("merchant_fraud_rate_1d", spark_functions.col("fraud_rate_1d"))
+        .withColumn(
+            "merchant_fraud_txn_count_30d",
+            spark_functions.sum("fraud_txn_count_1d").over(window_30d).cast("long"),
+        )
+        .withColumn(
+            "merchant_prior_fraud_rate_30d",
+            _safe_rate("merchant_fraud_txn_count_30d", "merchant_txn_count_30d"),
+        )
+        .withColumn(
+            "merchant_txn_count_prior_30d",
+            spark_functions.coalesce(
+                spark_functions.sum("txn_count_1d").over(prior_window_30d).cast("long"),
+                zero_long,
+            ),
+        )
+        .withColumn(
+            "merchant_burst_ratio_1d_to_prior_30d",
+            spark_functions.col("merchant_txn_count_1d").cast("double")
+            / spark_functions.greatest(
+                spark_functions.col("merchant_txn_count_prior_30d").cast("double") / spark_functions.lit(30.0),
+                spark_functions.lit(1.0),
+            ),
+        )
+        .withColumn("_gold_processed_at", spark_functions.lit(processed_at).cast("timestamp"))
+    )
+    category_features = spark_functions.broadcast(merchant_category_rolling)
+
+    return (
+        merchant_features.join(category_features, ["merchant_category", "feature_date"], "left")
+        .withColumn(
+            "merchant_vs_category_amount_ratio_30d",
+            _nullable_ratio("merchant_amount_avg_30d", "merchant_category_amount_avg_30d"),
+        )
+        .select(*GOLD_TABLE_COLUMNS["feat_merchant_risk_rolling"])
+    )
+
+
+def _build_latest_merchant_feature_lookup(fact_transactions: Any, feat_merchant_risk_rolling: Any) -> Any:
+    """Attach the latest strictly prior merchant snapshot without a range join."""
+
+    from pyspark.sql import functions as spark_functions
+    from pyspark.sql import Window
+
+    feature_rows = feat_merchant_risk_rolling.select(
+        "merchant_key",
+        spark_functions.date_add("feature_date", 1).alias("_effective_date"),
+        spark_functions.lit(0).alias("_row_priority"),
+        spark_functions.lit(None).cast("string").alias("transaction_id"),
+        spark_functions.struct(
+            "merchant_txn_count_1d",
+            "merchant_txn_count_7d",
+            "merchant_txn_count_30d",
+            "merchant_amount_avg_30d",
+            "merchant_fraud_rate_1d",
+            "merchant_prior_fraud_rate_30d",
+            "merchant_burst_ratio_1d_to_prior_30d",
+        ).alias("_merchant_feature_values"),
+    )
+    feature_struct_type = feature_rows.schema["_merchant_feature_values"].dataType
+    transaction_rows = (
+        fact_transactions.where(
+            spark_functions.col("merchant_dim_id") != spark_functions.lit(UNKNOWN_MERCHANT_DIM_ID)
+        )
+        .select(
+            "merchant_key",
+            spark_functions.col("event_date").alias("_effective_date"),
+            spark_functions.lit(1).alias("_row_priority"),
+            "transaction_id",
+            spark_functions.lit(None).cast(feature_struct_type).alias("_merchant_feature_values"),
+        )
+    )
+    history_window = (
+        Window.partitionBy("merchant_key")
+        .orderBy("_effective_date", "_row_priority")
+        .rowsBetween(Window.unboundedPreceding, Window.currentRow)
+    )
+    enriched_transactions = (
+        feature_rows.unionByName(transaction_rows)
+        .withColumn(
+            "_merchant_feature_values",
+            spark_functions.last("_merchant_feature_values", ignorenulls=True).over(history_window),
+        )
+        .where(spark_functions.col("_row_priority") == spark_functions.lit(1))
+    )
+
+    return enriched_transactions.select(
+        "transaction_id",
+        spark_functions.col("_merchant_feature_values").isNotNull().alias("merchant_feature_available"),
+        spark_functions.col("_merchant_feature_values.merchant_txn_count_1d").alias("merchant_txn_count_1d"),
+        spark_functions.col("_merchant_feature_values.merchant_txn_count_7d").alias("merchant_txn_count_7d"),
+        spark_functions.col("_merchant_feature_values.merchant_txn_count_30d").alias("merchant_txn_count_30d"),
+        spark_functions.col("_merchant_feature_values.merchant_amount_avg_30d").alias(
+            "_merchant_amount_avg_30d"
+        ),
+        spark_functions.col("_merchant_feature_values.merchant_fraud_rate_1d").alias("merchant_fraud_rate_1d"),
+        spark_functions.col("_merchant_feature_values.merchant_prior_fraud_rate_30d").alias(
+            "merchant_prior_fraud_rate_30d"
+        ),
+        spark_functions.col("_merchant_feature_values.merchant_burst_ratio_1d_to_prior_30d").alias(
+            "merchant_burst_ratio_1d_to_prior_30d"
+        ),
+    )
+
+
 def _build_feat_transaction_training(
     *,
     fact_transactions: Any,
     feat_customer_rolling: Any,
     fact_account_daily: Any,
-    fact_merchant_daily: Any,
+    feat_merchant_risk_rolling: Any,
+    merchant_category_rolling: Any,
     processed_at: datetime,
 ) -> Any:
     """Build transaction-level training rows with point-in-time feature joins."""
@@ -880,17 +1135,32 @@ def _build_feat_transaction_training(
         spark_functions.col("txn_count_1d").alias("account_txn_count_1d"),
         spark_functions.col("amount_sum_1d").alias("account_amount_sum_1d"),
     )
-    merchant_features = fact_merchant_daily.select(
-        "merchant_key",
-        spark_functions.col("feature_date").alias("previous_feature_date"),
-        spark_functions.col("txn_count_1d").alias("merchant_txn_count_1d"),
-        spark_functions.col("fraud_rate_1d").alias("merchant_fraud_rate_1d"),
+    merchant_features = _build_latest_merchant_feature_lookup(fact_transactions, feat_merchant_risk_rolling)
+    category_features = spark_functions.broadcast(
+        merchant_category_rolling.select(
+            "merchant_category",
+            spark_functions.col("feature_date").alias("previous_feature_date"),
+            "merchant_category_txn_count_1d",
+            "merchant_category_prior_fraud_rate_30d",
+            spark_functions.col("merchant_category_amount_avg_30d").alias(
+                "_merchant_category_amount_avg_30d"
+            ),
+        )
     )
 
     return (
         transaction_base.join(customer_features, ["customer_key", "previous_feature_date"], "left")
         .join(account_features, ["account_key", "previous_feature_date"], "left")
-        .join(merchant_features, ["merchant_key", "previous_feature_date"], "left")
+        .join(merchant_features, "transaction_id", "left")
+        .join(category_features, ["merchant_category", "previous_feature_date"], "left")
+        .withColumn(
+            "merchant_feature_available",
+            spark_functions.coalesce("merchant_feature_available", spark_functions.lit(False)),
+        )
+        .withColumn(
+            "merchant_vs_category_amount_ratio_30d",
+            _nullable_ratio("_merchant_amount_avg_30d", "_merchant_category_amount_avg_30d"),
+        )
         .withColumn("event_timestamp", spark_functions.col("event_time"))
         .withColumn("created", spark_functions.lit(processed_at).cast("timestamp"))
         .withColumn("device_distinct_customer_count_1d", spark_functions.lit(None).cast("long"))
@@ -952,6 +1222,18 @@ def _safe_decimal_average(amount_column: str, count_column: str) -> Any:
     ).otherwise(spark_functions.lit(0)).cast("decimal(18,2)")
 
 
+def _nullable_ratio(numerator_column: str, denominator_column: str) -> Any:
+    """Return a double ratio or null when its comparison baseline is unavailable."""
+
+    from pyspark.sql import functions as spark_functions
+
+    return spark_functions.when(
+        spark_functions.col(denominator_column) > spark_functions.lit(0),
+        spark_functions.col(numerator_column).cast("double")
+        / spark_functions.col(denominator_column).cast("double"),
+    ).otherwise(spark_functions.lit(None).cast("double"))
+
+
 def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) -> list[GoldTableResult]:
     """Write all Gold tables to their documented Parquet paths."""
 
@@ -973,6 +1255,7 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
         ("fact_device_ip_daily", frames.fact_device_ip_daily, ("feature_date",)),
         ("feat_customer_rolling", frames.feat_customer_rolling, ("feature_date",)),
         ("feat_customer_total_orders_90d", frames.feat_customer_total_orders_90d, ()),
+        ("feat_merchant_risk_rolling", frames.feat_merchant_risk_rolling, ("feature_date",)),
         ("feat_transaction_training", frames.feat_transaction_training, ()),
     )
 
@@ -980,6 +1263,11 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
     for table_name, dataframe, partition_columns in table_writes:
         output_path = config.output_dir / table_name
         selected_dataframe = _select_gold_columns(dataframe, table_name)
+        set_spark_job_group(
+            selected_dataframe.sparkSession,
+            f"gold-build-{table_name}",
+            f"Gold: materialize and write {table_name}",
+        )
         row_count = selected_dataframe.count()
         writer = selected_dataframe.write.mode(config.write_mode)
         if partition_columns:
@@ -1035,6 +1323,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _gold_processed_at.")
+    add_spark_ui_arguments(parser)
     return parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -1047,6 +1336,7 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
+        spark_ui=spark_ui_config_from_args(args),
     )
     try:
         result = build_gold_transactions(config)

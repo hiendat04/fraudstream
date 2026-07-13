@@ -11,7 +11,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from functools import reduce
 from pathlib import Path
@@ -22,6 +22,16 @@ from fraudstream.jobs.bronze.ingest_transactions import (
     DEFAULT_OUTPUT_DIR as DEFAULT_BRONZE_DIR,
     SCHEMA_VERSION_V2,
     SUPPORTED_WRITE_MODES,
+)
+from fraudstream.jobs.spark_ui import (
+    SparkUIConfig,
+    add_spark_ui_arguments,
+    announce_spark_ui,
+    clear_spark_job_group,
+    configure_spark_builder,
+    retain_spark_ui,
+    set_spark_job_group,
+    spark_ui_config_from_args,
 )
 
 
@@ -121,6 +131,7 @@ class SilverTransactionsConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
+    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
 
     def validate(self) -> None:
         """Raise when the Silver job cannot run with this config."""
@@ -130,6 +141,7 @@ class SilverTransactionsConfig:
             raise ValueError(f"write_mode must be one of: {allowed}")
         if not self.bronze_dir.exists():
             raise FileNotFoundError(f"bronze_dir does not exist: {self.bronze_dir}")
+        self.spark_ui.validate()
 
     @property
     def resolved_quality_output_dir(self) -> Path:
@@ -203,9 +215,10 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
     """Read Bronze transactions, deduplicate, and write Silver Parquet."""
 
     config.validate()
-    spark = _build_spark_session(config.master)
+    spark = _build_spark_session(config.master, config.spark_ui)
     ranked_dataframe = None
     try:
+        announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
         bronze_dataframe = spark.read.parquet(str(config.bronze_dir))
         cleaned_dataframe = _clean_bronze_transactions(bronze_dataframe, processed_at)
@@ -213,9 +226,24 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         silver_dataframe = _select_silver_rows(ranked_dataframe)
         quality_issue_dataframe = _select_quality_issue_rows(ranked_dataframe, processed_at)
 
+        set_spark_job_group(
+            spark,
+            "silver-write-selected-transactions",
+            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows",
+        )
         _write_silver_parquet(silver_dataframe, config)
+        set_spark_job_group(
+            spark,
+            "silver-write-quality-evidence",
+            "Silver: write quarantined, warning, and duplicate-rejected evidence",
+        )
         _write_quality_issue_parquet(quality_issue_dataframe, config)
 
+        set_spark_job_group(
+            spark,
+            "silver-profile-offline-problems",
+            "Silver: measure duplicate, late-arrival, schema-evolution, and quality outcomes",
+        )
         result = _build_result(
             ranked_dataframe=ranked_dataframe,
             config=config,
@@ -224,6 +252,8 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         )
         _write_summary(result, config.output_dir)
         _write_quality_report(_build_quality_report(ranked_dataframe, result), result.quality_report_path)
+        clear_spark_job_group(spark)
+        retain_spark_ui(spark, config.spark_ui)
         return result
     finally:
         if ranked_dataframe is not None:
@@ -231,7 +261,7 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         spark.stop()
 
 
-def _build_spark_session(master: str) -> Any:
+def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
     try:
@@ -241,14 +271,13 @@ def _build_spark_session(master: str) -> Any:
             "PySpark is not installed. Run `uv sync --extra spark`, then retry this command."
         ) from exc
 
-    return (
+    builder = (
         SparkSession.builder.appName(APP_NAME)
         .master(master)
         .config("spark.sql.shuffle.partitions", "8")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
-        .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
 def _clean_bronze_transactions(bronze_dataframe: Any, processed_at: datetime) -> Any:
@@ -804,6 +833,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _silver_processed_at.")
+    add_spark_ui_arguments(parser)
     return parser
 
 
@@ -818,6 +848,7 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
+        spark_ui=spark_ui_config_from_args(args),
     )
     try:
         result = build_silver_transactions(config)

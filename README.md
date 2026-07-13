@@ -31,6 +31,8 @@ The repository currently includes:
 | Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
 | Silver transaction deduplication | Cleans typed transaction fields and writes one deterministic row per transaction ID | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
 | PostgreSQL serving schema | Creates Bronze, Silver, Gold, and metadata schemas for DBeaver and governance workflows | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
+| Fraud feature engineering design | Defines explainable, point-in-time-safe customer, merchant, amount, device/IP, and late-arrival features | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
+| Merchant risk features | Builds rolling merchant burst, historical fraud-rate, and merchant-category comparison signals | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -218,6 +220,40 @@ Build Gold transaction facts, dimensions, aggregates, and feature tables:
 PYTHONPATH=src python -m fraudstream.jobs.gold.transactions
 ```
 
+### Observe the offline pipeline in Spark UI
+
+The raw-data generator is Python, so Spark UI begins at Bronze. Enable it on
+any Bronze, Silver, or Gold Spark job with `--spark-ui`. The command prints the
+actual URL chosen by Spark; it is normally `http://localhost:4040`.
+
+For example, Silver provides the clearest view of how Spark handles the
+deliberate offline data problems:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
+  --spark-ui \
+  --spark-ui-port 4040 \
+  --spark-ui-retain-seconds 300
+```
+
+Open the printed URL while the command is running. The retention option keeps
+the live UI open for five minutes after the final Spark action so there is time
+to inspect and capture screenshots. It does not slow the transformations; it
+only delays `spark.stop()` after processing finishes.
+
+The Spark Jobs page uses readable FraudStream groups:
+
+| Layer | What to capture in Spark UI |
+|---|---|
+| Bronze | Raw CSV scans, schema-version unions, source-lineage columns, Parquet partition writes, and duplicate profiling. |
+| Silver | Type cleanup, late-arrival rules, quality classification, the shuffle/sort window used for deterministic deduplication, and quality-evidence writes. |
+| Gold | Daily aggregations, rolling windows, point-in-time feature joins, merchant category broadcast joins, and adaptive skew handling. |
+
+Use **Jobs** for the named business steps, **SQL/DataFrame** for physical query
+plans, **Stages** for shuffle and task details, and **Storage** for the reused
+Bronze, Silver, or Gold frames. Run the layers sequentially if they use the same
+preferred UI port. If that port is busy, use the actual URL printed by Spark.
+
 Publish Silver Parquet into PostgreSQL:
 
 ```bash
@@ -246,7 +282,11 @@ PYTHONPATH=src python -m unittest \
   tests.unit.test_streaming_transactions \
   tests.unit.test_stream_replay \
   tests.unit.test_bronze_ingest_transactions \
-  tests.unit.test_silver_transactions
+  tests.unit.test_silver_transactions \
+  tests.unit.test_gold_transactions \
+  tests.unit.test_spark_ui \
+  tests.unit.test_postgres_publish \
+  tests.unit.test_postgres_schema_sql
 ```
 
 Run a syntax and import compile check:
@@ -266,6 +306,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) | Bronze transaction schema, metadata fields, partitioning, and raw-preservation rules |
 | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) | Silver transaction schema, cleaned types, standardization, deduplication, and quality rules |
 | [docs/05_gold_tables.md](docs/05_gold_tables.md) | Gold fact, dimension, OBT, feature, and PostgreSQL serving schema design |
+| [docs/06_feature_engineering.md](docs/06_feature_engineering.md) | Fraud feature definitions, event-time windows, point-in-time joins, leakage rules, and validation expectations |
 
 ## Engineering Direction
 

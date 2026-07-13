@@ -88,6 +88,26 @@ PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
   --write-mode overwrite
 ```
 
+For a live view of the cleanup and deduplication plan, enable Spark UI and keep
+it open briefly after the job finishes:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
+  --bronze-dir data/bronze/raw_transactions \
+  --output-dir data/silver/transactions \
+  --quality-output-dir data/silver/transaction_quality_issues \
+  --write-mode overwrite \
+  --spark-ui \
+  --spark-ui-retain-seconds 300
+```
+
+Open the printed URL, normally `http://localhost:4040`. In **Jobs**, select
+`Silver: clean types, detect late arrivals, rank duplicates, and write selected
+rows`; then use **SQL/DataFrame** and **Stages** to inspect the projection,
+window sort, transaction-ID shuffle, and Parquet write. The separate quality
+jobs show how warning, quarantined, and duplicate-rejected rows are measured and
+written without hiding them.
+
 Default output:
 
 ```text
