@@ -108,6 +108,9 @@ window sort, transaction-ID shuffle, and Parquet write. The separate quality
 jobs show how warning, quarantined, and duplicate-rejected rows are measured and
 written without hiding them.
 
+The measured AQE and shuffle-partition benchmark is documented in
+[`docs/optimization/spark/silver_job_optimization.md`](optimization/spark/silver_job_optimization.md).
+
 Default output:
 
 ```text
