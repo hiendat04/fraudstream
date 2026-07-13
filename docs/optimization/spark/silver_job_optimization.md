@@ -31,21 +31,51 @@ The optimization combines two techniques:
 | Median records per task | 2,500 | 62,545 | **25x more useful work** |
 | Median peak execution memory per task | 12.2 MiB | 42 MiB | 3.4x higher |
 
-### Baseline: 4.1-minute SQL execution
+## Spark UI Evidence
+
+### Baseline: AQE disabled and 200 shuffle partitions
+
+**1. Main Silver job timeline**
+
+![Baseline main Silver job timeline](../../../images/spark/baseline/01-main-job-timeline.png)
+
+**2. Main job summary**
+
+![Baseline main Silver job summary](../../../images/spark/baseline/02-main-job-summary.png)
+
+**3. Selected-row stage with 200 tasks**
+
+![Baseline selected-row stage task metrics showing 200 tasks](../../../images/spark/baseline/03-selected-row-stage-task-metrics.png)
+
+**4. Application job summary**
+
+![Baseline application job summary](../../../images/spark/baseline/04-application-job-summary.png)
+
+**5. SQL summary showing the 4.1-minute execution**
 
 ![Baseline Spark SQL summary showing 4.1 minutes](../../../images/spark/baseline/05-sql-query-summary.png)
 
-### Optimized: 21-second SQL execution
+### Optimized: AQE enabled and 8 shuffle partitions
+
+**1. Application timeline**
+
+![Optimized Spark application timeline](../../../images/spark/optimized/01-application-timeline.png)
+
+**2. Main job summary**
+
+![Optimized main Silver job summary](../../../images/spark/optimized/02-main-job-summary.png)
+
+**3. Completed-job summary**
+
+![Optimized completed-job summary](../../../images/spark/optimized/03-completed-job-summary.png)
+
+**4. Selected-row stage with 8 tasks**
+
+![Optimized selected-row stage task metrics showing 8 tasks](../../../images/spark/optimized/04-selected-row-stage-task-metrics.png)
+
+**5. SQL summary showing the 21-second execution**
 
 ![Optimized Spark SQL summary showing 21 seconds](../../../images/spark/optimized/05-sql-query-summary.png)
-
-### Baseline shuffle: 200 small tasks
-
-![Baseline stage metrics showing 200 tasks](../../../images/spark/baseline/03-selected-row-stage-task-metrics.png)
-
-### Optimized shuffle: 8 larger tasks
-
-![Optimized stage metrics showing 8 tasks](../../../images/spark/optimized/04-selected-row-stage-task-metrics.png)
 
 ## Why It Worked
 
