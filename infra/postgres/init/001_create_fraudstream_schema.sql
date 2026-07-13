@@ -530,6 +530,57 @@ CREATE TABLE IF NOT EXISTS gold.feat_customer_total_orders_90d (
     PRIMARY KEY (customer_key, event_timestamp)
 );
 
+CREATE TABLE IF NOT EXISTS gold.feat_merchant_risk_rolling (
+    merchant_key BIGINT NOT NULL REFERENCES gold.dim_merchant (merchant_key),
+    merchant_dim_id TEXT NOT NULL,
+    merchant_category TEXT,
+    event_timestamp TIMESTAMPTZ NOT NULL,
+    created TIMESTAMPTZ NOT NULL DEFAULT now(),
+    feature_date DATE NOT NULL,
+    window_start_date DATE NOT NULL,
+    window_end_date DATE NOT NULL,
+    baseline_window_start_date DATE NOT NULL,
+    baseline_window_end_date DATE NOT NULL,
+    merchant_txn_count_1d BIGINT NOT NULL DEFAULT 0,
+    merchant_txn_count_7d BIGINT NOT NULL DEFAULT 0,
+    merchant_txn_count_30d BIGINT NOT NULL DEFAULT 0,
+    merchant_txn_count_prior_30d BIGINT NOT NULL DEFAULT 0,
+    merchant_amount_sum_1d NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    merchant_amount_sum_7d NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    merchant_amount_sum_30d NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    merchant_amount_avg_30d NUMERIC(18, 2) NOT NULL DEFAULT 0,
+    merchant_distinct_customer_count_1d BIGINT NOT NULL DEFAULT 0,
+    merchant_declined_txn_count_1d BIGINT NOT NULL DEFAULT 0,
+    merchant_fraud_rate_1d DOUBLE PRECISION NOT NULL DEFAULT 0
+        CHECK (merchant_fraud_rate_1d >= 0 AND merchant_fraud_rate_1d <= 1),
+    merchant_fraud_txn_count_30d BIGINT NOT NULL DEFAULT 0,
+    merchant_prior_fraud_rate_30d DOUBLE PRECISION NOT NULL DEFAULT 0
+        CHECK (merchant_prior_fraud_rate_30d >= 0 AND merchant_prior_fraud_rate_30d <= 1),
+    merchant_burst_ratio_1d_to_prior_30d DOUBLE PRECISION NOT NULL DEFAULT 0
+        CHECK (merchant_burst_ratio_1d_to_prior_30d >= 0),
+    merchant_category_txn_count_1d BIGINT,
+    merchant_category_txn_count_30d BIGINT,
+    merchant_category_amount_avg_30d NUMERIC(18, 2),
+    merchant_category_prior_fraud_rate_30d DOUBLE PRECISION
+        CHECK (
+            merchant_category_prior_fraud_rate_30d IS NULL
+            OR (
+                merchant_category_prior_fraud_rate_30d >= 0
+                AND merchant_category_prior_fraud_rate_30d <= 1
+            )
+        ),
+    merchant_vs_category_amount_ratio_30d DOUBLE PRECISION
+        CHECK (merchant_vs_category_amount_ratio_30d IS NULL OR merchant_vs_category_amount_ratio_30d >= 0),
+    _gold_processed_at TIMESTAMPTZ NOT NULL DEFAULT now(),
+    PRIMARY KEY (merchant_key, event_timestamp)
+);
+
+CREATE INDEX IF NOT EXISTS ix_feat_merchant_risk_rolling_feature_date
+    ON gold.feat_merchant_risk_rolling (feature_date);
+
+CREATE INDEX IF NOT EXISTS ix_feat_merchant_risk_rolling_category_date
+    ON gold.feat_merchant_risk_rolling (merchant_category, feature_date);
+
 CREATE TABLE IF NOT EXISTS gold.feat_transaction_training (
     transaction_id TEXT PRIMARY KEY REFERENCES gold.fact_transactions (transaction_id) ON DELETE CASCADE,
     event_timestamp TIMESTAMPTZ NOT NULL,
@@ -546,8 +597,16 @@ CREATE TABLE IF NOT EXISTS gold.feat_transaction_training (
     customer_distinct_merchant_count_7d BIGINT,
     account_txn_count_1d BIGINT,
     account_amount_sum_1d NUMERIC(18, 2),
+    merchant_feature_available BOOLEAN NOT NULL DEFAULT false,
     merchant_txn_count_1d BIGINT,
+    merchant_txn_count_7d BIGINT,
+    merchant_txn_count_30d BIGINT,
     merchant_fraud_rate_1d DOUBLE PRECISION,
+    merchant_prior_fraud_rate_30d DOUBLE PRECISION,
+    merchant_burst_ratio_1d_to_prior_30d DOUBLE PRECISION,
+    merchant_category_txn_count_1d BIGINT,
+    merchant_category_prior_fraud_rate_30d DOUBLE PRECISION,
+    merchant_vs_category_amount_ratio_30d DOUBLE PRECISION,
     device_distinct_customer_count_1d BIGINT,
     ip_distinct_account_count_1d BIGINT,
     quality_issue_count INTEGER NOT NULL DEFAULT 0,
@@ -556,6 +615,16 @@ CREATE TABLE IF NOT EXISTS gold.feat_transaction_training (
     is_fraud BOOLEAN NOT NULL,
     _gold_processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
+
+ALTER TABLE gold.feat_transaction_training
+    ADD COLUMN IF NOT EXISTS merchant_feature_available BOOLEAN NOT NULL DEFAULT false,
+    ADD COLUMN IF NOT EXISTS merchant_txn_count_7d BIGINT,
+    ADD COLUMN IF NOT EXISTS merchant_txn_count_30d BIGINT,
+    ADD COLUMN IF NOT EXISTS merchant_prior_fraud_rate_30d DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS merchant_burst_ratio_1d_to_prior_30d DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS merchant_category_txn_count_1d BIGINT,
+    ADD COLUMN IF NOT EXISTS merchant_category_prior_fraud_rate_30d DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS merchant_vs_category_amount_ratio_30d DOUBLE PRECISION;
 
 CREATE OR REPLACE VIEW gold.obt_transaction_enriched AS
 SELECT
@@ -603,5 +672,6 @@ COMMENT ON TABLE silver.stg_transactions IS 'Clean staged transactions with one 
 COMMENT ON TABLE gold.fact_transactions IS 'Canonical Gold transaction fact table.';
 COMMENT ON TABLE gold.dim_customer IS 'Customer SCD2 dimension with behavioral attributes.';
 COMMENT ON TABLE gold.dim_merchant IS 'Merchant SCD2 dimension normalized by category and city.';
+COMMENT ON TABLE gold.feat_merchant_risk_rolling IS 'Point-in-time merchant burst, historical fraud-rate, and category comparison features.';
 COMMENT ON TABLE gold.feat_customer_total_orders_90d IS 'Example offline feature table with event_timestamp and created columns.';
 COMMENT ON VIEW gold.obt_transaction_enriched IS 'Flattened transaction reporting view for DBeaver exploration.';

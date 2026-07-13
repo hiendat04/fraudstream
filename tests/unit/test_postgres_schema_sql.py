@@ -53,6 +53,7 @@ class PostgresSchemaSqlTest(unittest.TestCase):
             "gold.fact_device_ip_daily",
             "gold.feat_customer_rolling",
             "gold.feat_customer_total_orders_90d",
+            "gold.feat_merchant_risk_rolling",
             "gold.feat_transaction_training",
         ]
 
@@ -72,6 +73,7 @@ class PostgresSchemaSqlTest(unittest.TestCase):
         for table_name in (
             "gold.feat_customer_rolling",
             "gold.feat_customer_total_orders_90d",
+            "gold.feat_merchant_risk_rolling",
             "gold.feat_transaction_training",
         ):
             table_body = self._table_body(table_name)

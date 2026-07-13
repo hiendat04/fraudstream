@@ -122,6 +122,23 @@ PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
   --write-mode overwrite
 ```
 
+To capture this ingestion in Spark UI, add the observation flags:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
+  --source-dir data/raw_source/offline_transactions \
+  --output-dir data/bronze/raw_transactions \
+  --write-mode overwrite \
+  --spark-ui \
+  --spark-ui-retain-seconds 300
+```
+
+Open the URL printed by the command, normally `http://localhost:4040`. The
+named Bronze jobs show the raw CSV parse and lineage write separately from the
+duplicate, schema-version, and transaction-date profiling actions. Spark UI is
+live; the retention flag keeps it available for screenshots before the session
+stops.
+
 The job reads the source manifest when available:
 
 ```text
@@ -158,6 +175,9 @@ PYTHONPATH=src python -m fraudstream.jobs.bronze.validate_transactions \
   --bronze-dir data/bronze/raw_transactions \
   --report-path data/bronze/raw_transactions/_bronze_validation_summary.json
 ```
+
+Add `--spark-ui --spark-ui-retain-seconds 300` when you also want to capture
+the Spark-side reconciliation query in the live UI.
 
 The validator prints a JSON report and exits with a non-zero status when a
 check fails. It compares:

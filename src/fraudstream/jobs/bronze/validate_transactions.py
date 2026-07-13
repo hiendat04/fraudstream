@@ -12,7 +12,7 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
@@ -24,6 +24,16 @@ from fraudstream.jobs.bronze.ingest_transactions import (
     SCHEMA_VERSION_V1,
     SCHEMA_VERSION_V2,
     TRANSACTION_FILE_GLOB,
+)
+from fraudstream.jobs.spark_ui import (
+    SparkUIConfig,
+    add_spark_ui_arguments,
+    announce_spark_ui,
+    clear_spark_job_group,
+    configure_spark_builder,
+    retain_spark_ui,
+    set_spark_job_group,
+    spark_ui_config_from_args,
 )
 
 
@@ -49,6 +59,7 @@ class BronzeValidationConfig:
     bronze_dir: Path = DEFAULT_OUTPUT_DIR
     master: str = DEFAULT_MASTER
     report_path: Path | None = None
+    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
 
     def validate(self) -> None:
         """Raise when the validation inputs are not available."""
@@ -57,6 +68,7 @@ class BronzeValidationConfig:
             raise FileNotFoundError(f"source_dir does not exist: {self.source_dir}")
         if not self.bronze_dir.exists():
             raise FileNotFoundError(f"bronze_dir does not exist: {self.bronze_dir}")
+        self.spark_ui.validate()
 
 
 @dataclass(frozen=True)
@@ -136,9 +148,17 @@ def validate_bronze_transactions(config: BronzeValidationConfig) -> BronzeValida
     source_files = _discover_source_files(config.source_dir)
     source_stats = _collect_source_stats(source_files)
 
-    spark = _build_spark_session(config.master)
+    spark = _build_spark_session(config.master, config.spark_ui)
     try:
+        announce_spark_ui(spark, config.spark_ui)
+        set_spark_job_group(
+            spark,
+            "bronze-validate-raw-preservation",
+            "Bronze validation: reconcile rows, source files, partitions, and raw format problems",
+        )
         bronze_stats = _collect_bronze_stats(spark, config.bronze_dir)
+        clear_spark_job_group(spark)
+        retain_spark_ui(spark, config.spark_ui)
     finally:
         spark.stop()
 
@@ -417,7 +437,7 @@ def _safe_int(value: Any) -> int:
     return int(value or 0)
 
 
-def _build_spark_session(master: str) -> Any:
+def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
     try:
@@ -427,13 +447,12 @@ def _build_spark_session(master: str) -> Any:
             "PySpark is not installed. Run `uv sync --extra spark`, then retry this command."
         ) from exc
 
-    return (
+    builder = (
         SparkSession.builder.appName(APP_NAME)
         .master(master)
         .config("spark.sql.shuffle.partitions", "8")
-        .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
 def _write_report(result: BronzeValidationResult, report_path: Path) -> None:
@@ -454,6 +473,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--bronze-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--report-path", type=Path)
+    add_spark_ui_arguments(parser)
     return parser
 
 
@@ -466,6 +486,7 @@ def main(argv: list[str] | None = None) -> int:
         bronze_dir=args.bronze_dir,
         master=args.master,
         report_path=args.report_path,
+        spark_ui=spark_ui_config_from_args(args),
     )
 
     try:

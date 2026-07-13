@@ -112,10 +112,14 @@ class PostgresPublishTest(TestCase):
         for table_name in (
             "feat_customer_rolling",
             "feat_customer_total_orders_90d",
+            "feat_merchant_risk_rolling",
             "feat_transaction_training",
         ):
             self.assertIn("event_timestamp", GOLD_TABLE_COLUMNS[table_name])
             self.assertIn("created", GOLD_TABLE_COLUMNS[table_name])
+
+        self.assertIn("merchant_burst_ratio_1d_to_prior_30d", GOLD_TABLE_COLUMNS["feat_merchant_risk_rolling"])
+        self.assertIn("merchant_prior_fraud_rate_30d", GOLD_TABLE_COLUMNS["feat_transaction_training"])
 
 
 if __name__ == "__main__":

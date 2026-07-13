@@ -297,10 +297,13 @@ columns:
 |---|---|---|
 | `gold.feat_customer_rolling` | `customer_key`, `event_timestamp` | Rolling 7-day and 30-day customer behavior features. |
 | `gold.feat_customer_total_orders_90d` | `customer_key`, `event_timestamp` | Example 90-day offline feature table. |
+| `gold.feat_merchant_risk_rolling` | `merchant_key`, `event_timestamp` | Rolling merchant burst, historical fraud-rate, and merchant-category comparison features. |
 | `gold.feat_transaction_training` | `transaction_id` | Model-training table joining transaction facts with point-in-time-safe features. |
 
 Feature computation prevents future leakage by joining each transaction only to
 features created from data available before that transaction's business time.
+The feature definitions, formulas, missing-history rules, and validation contract
+are documented in [`docs/06_feature_engineering.md`](06_feature_engineering.md).
 
 ## One-Big Table View
 
@@ -359,6 +362,24 @@ PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
   --output-dir data/gold \
   --write-mode overwrite
 ```
+
+To inspect Gold feature engineering in Spark UI:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
+  --silver-dir data/silver/transactions \
+  --output-dir data/gold \
+  --write-mode overwrite \
+  --spark-ui \
+  --spark-ui-retain-seconds 300
+```
+
+Open the URL printed by Spark, normally `http://localhost:4040`. Each table has
+its own `Gold: materialize and write ...` job group. The most useful captures
+for feature engineering are `feat_customer_rolling`,
+`feat_merchant_risk_rolling`, and `feat_transaction_training`; their SQL plans
+show rolling windows, daily pre-aggregation, broadcast category joins,
+point-in-time lookups, and adaptive skew handling.
 
 Publish Gold Parquet tables:
 
