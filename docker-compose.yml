@@ -53,6 +53,34 @@ services:
           --describe \
           --topic financial_transactions
 
+        for topic in \
+          financial_transactions_clean \
+          financial_transactions_invalid \
+          financial_transactions_duplicate \
+          financial_transactions_late \
+          fraud_features_customer_5m \
+          fraud_features_merchant_5m \
+          fraud_alerts
+        do
+          kafka-topics --bootstrap-server kafka:29092 \
+            --create \
+            --if-not-exists \
+            --topic "$$topic" \
+            --partitions 24 \
+            --replication-factor 1 \
+            --config retention.ms=604800000 \
+            --config cleanup.policy=delete \
+            --config message.timestamp.type=LogAppendTime
+
+          kafka-configs --bootstrap-server kafka:29092 \
+            --alter \
+            --entity-type topics \
+            --entity-name "$$topic" \
+            --add-config message.timestamp.type=LogAppendTime
+        done
+
+        kafka-topics --bootstrap-server kafka:29092 --list
+
   kafka-ui:
     image: provectuslabs/kafka-ui:v0.7.2
     container_name: fraudstream-kafka-ui

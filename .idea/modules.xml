@@ -4,6 +4,7 @@
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/financial-fraud-detection.iml" filepath="$PROJECT_DIR$/.idea/financial-fraud-detection.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/financial-fraud-detection@1.iml" filepath="$PROJECT_DIR$/.idea/financial-fraud-detection@1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" />
     </modules>
   </component>
 </project>

@@ -1,0 +1,32 @@
+{
+  "schema_version": "watermark_latency_profile_v1",
+  "environment": "local_generated_source",
+  "source": {
+    "path": "data/raw_stream/transactions/topic=financial_transactions/events.jsonl",
+    "sha256": "ec2bdac13ca7852da9771095256a2be3897fa23bd798e42b90d2767fc3beaaff",
+    "event_timestamp_field": "value.event_timestamp",
+    "arrival_timestamp_field": "produced_at"
+  },
+  "measurement": {
+    "measured_at": "2026-07-15T03:18:03Z",
+    "measurement_start": "2026-07-01T00:00:00Z",
+    "measurement_end": "2026-07-08T00:05:38Z",
+    "records_scanned": 512500,
+    "unique_events_measured": 500000,
+    "duplicate_records_excluded": 12500,
+    "invalid_records_excluded": 0,
+    "negative_delay_records_excluded": 0,
+    "percentile_method": "nearest_rank"
+  },
+  "latency_seconds": {
+    "p50": 68,
+    "p95": 11900,
+    "p99": 37032,
+    "max": 43259
+  },
+  "watermark": {
+    "basis": "p95_source_event_time_latency",
+    "delay_seconds": 11900,
+    "delay_minutes_rounded_up": 199
+  }
+}
