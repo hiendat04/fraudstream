@@ -16,13 +16,16 @@ The streaming generator creates a reproducible Kafka-like event log:
 data/raw_stream/transactions/topic=financial_transactions/events.jsonl
 ```
 
-Each line is one transaction event in publish order. The replay producer reads this file and publishes the same records to Kafka. Later, the Flink job will consume the Kafka topic and handle real streaming problems such as late events, out-of-order events, duplicates, and burst traffic.
+Each line is one transaction event in publish order. The replay producer reads
+this file and publishes the same records to Kafka. The Flink feature job consumes
+the topic and handles late events, out-of-order events, duplicates, and burst
+traffic.
 
 This design keeps the stream realistic and debuggable:
 
 - `events.jsonl` is the reproducible source log.
 - Kafka is the real streaming transport.
-- Flink is the future streaming processor.
+- Flink is the stateful streaming processor.
 
 ## Generate The Stream Log
 
@@ -160,7 +163,7 @@ Important timestamp fields:
 
 | Field | Meaning                                                                              |
 |---|--------------------------------------------------------------------------------------|
-| `value.event_timestamp` | When the transaction actually happened. Flink will this for event-time windows.      |
+| `value.event_timestamp` | When the transaction actually happened. Flink uses this for event-time windows. |
 | `produced_at` / `value.created_ts` | When the event was published or arrived. Use this for lateness and freshness checks. |
 
 In the example, the event was published at `2026-07-01T00:00:17`, but the transaction happened at `2026-06-30T18:49:58`. That is why it is marked as `late`.
@@ -192,15 +195,22 @@ In the example, the event was published at `2026-07-01T00:00:17`, but the transa
 
 ## Downstream Contract
 
-The future Flink job should:
+The Flink feature job:
 
-- consume Kafka topic `financial_transactions`
-- use Kafka key / `partition_key` for keyed customer processing
-- parse the JSON envelope
-- use `value.event_timestamp` as event time
-- deduplicate by `value.event_id`
-- compute and validate event-time windows
-- track late, duplicate, out-of-order, and burst behavior from `headers.problem_flags`
+- consumes Kafka topic `financial_transactions`
+- uses Kafka key / `partition_key` for keyed customer processing
+- parses the JSON envelope
+- uses `value.event_timestamp` as event time
+- loads a bounded-delay watermark from the measured p95 first-arrival latency
+  profile rather than a guessed duration
+- deduplicates by `value.event_id`
+- computes customer and merchant five-minute event-time features
+- emits deterministic velocity and burst alerts
+- retains `headers.problem_flags` as generator evidence while making runtime
+  late-event decisions from Flink watermarks
+
+The complete windowing, watermark, late-event, state, and output-table contract
+is defined in [`07_flink_streaming_pipeline.md`](07_flink_streaming_pipeline.md).
 
 ## Validate
 
@@ -222,7 +232,9 @@ Run all current unit tests:
 PYTHONPATH=src python -m unittest \
   tests.unit.test_offline_transactions \
   tests.unit.test_streaming_transactions \
-  tests.unit.test_stream_replay
+  tests.unit.test_stream_replay \
+  tests.unit.test_flink_transactions \
+  tests.unit.test_flink_watermark_calibration
 ```
 
 Run a syntax compile check:

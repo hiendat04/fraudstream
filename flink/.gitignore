@@ -1,0 +1,5 @@
+.venv/
+lib/*.jar
+checkpoints/
+
+!lib/.gitkeep

@@ -13,6 +13,8 @@ spark = ["pyspark>=4.1,<4.2"]
 fraudstream-generate-offline = "fraudstream.generators.offline_transactions:main"
 fraudstream-generate-streaming = "fraudstream.generators.streaming_transactions:main"
 fraudstream-replay-stream = "fraudstream.producers.stream_replay:main"
+fraudstream-calibrate-watermark = "fraudstream.jobs.flink.watermark_calibration:main"
+fraudstream-stream-features = "fraudstream.jobs.flink.transactions:main"
 fraudstream-validate-bronze = "fraudstream.jobs.bronze.validate_transactions:main"
 fraudstream-build-silver-transactions = "fraudstream.jobs.silver.transactions:main"
 fraudstream-build-gold-transactions = "fraudstream.jobs.gold.transactions:main"

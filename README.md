@@ -26,7 +26,8 @@ The repository currently includes:
 |---|---|---|
 | Offline transaction generator | Creates partitioned raw CSV transaction extracts with realistic source problems | [docs/01_data_generator.md](docs/01_data_generator.md) |
 | Streaming transaction generator | Creates a reproducible JSONL event log that behaves like a Kafka topic export | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
-| Kafka replay producer | Publishes generated stream events to Kafka for future Flink jobs | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
+| Kafka replay producer | Publishes generated stream events to Kafka for Flink processing | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
+| Flink streaming feature job | Validates and deduplicates Kafka events, uses a p95-measured watermark delay, computes event-time customer and merchant features, and emits alerts | [docs/07_flink_streaming_pipeline.md](docs/07_flink_streaming_pipeline.md) |
 | Local Kafka stack | Runs Kafka, topic initialization, and Kafka UI with Docker Compose | [docker-compose.yml](docker-compose.yml) |
 | Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
 | Silver transaction deduplication | Cleans typed transaction fields and writes one deterministic row per transaction ID | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
@@ -103,8 +104,10 @@ financial-fraud-detection/
 ├── configs/generator/        # Generator runtime configs
 ├── data/                     # Generated local data outputs
 ├── docs/                     # Detailed implementation documentation
+├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
+│   ├── jobs/                 # Spark, Flink, and PostgreSQL data jobs
 │   └── producers/            # Kafka replay producer
 ├── tests/unit/               # Unit tests
 ├── docker-compose.yml        # Local Kafka stack
@@ -281,10 +284,12 @@ PYTHONPATH=src python -m unittest \
   tests.unit.test_offline_transactions \
   tests.unit.test_streaming_transactions \
   tests.unit.test_stream_replay \
+  tests.unit.test_flink_transactions \
+  tests.unit.test_flink_watermark_calibration \
   tests.unit.test_bronze_ingest_transactions \
+  tests.unit.test_bronze_validate_transactions \
   tests.unit.test_silver_transactions \
   tests.unit.test_gold_transactions \
-  tests.unit.test_spark_ui \
   tests.unit.test_postgres_publish \
   tests.unit.test_postgres_schema_sql
 ```
@@ -307,10 +312,12 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) | Silver transaction schema, cleaned types, standardization, deduplication, and quality rules |
 | [docs/05_gold_tables.md](docs/05_gold_tables.md) | Gold fact, dimension, OBT, feature, and PostgreSQL serving schema design |
 | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) | Fraud feature definitions, event-time windows, point-in-time joins, leakage rules, and validation expectations |
+| [docs/07_flink_streaming_pipeline.md](docs/07_flink_streaming_pipeline.md) | Flink Kafka topology, watermarks, deduplication, streaming features, alerts, late events, state, and recovery |
+| [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
 ## Engineering Direction
 
-The next offline layer is Spark ingestion from raw CSV into Bronze Parquet, followed by Silver cleaning and Gold feature tables. The next streaming layer is a Flink job that consumes `financial_transactions` from Kafka, applies event-time processing, deduplicates events, and validates late or out-of-order behavior.
+The offline path runs from raw CSV through Bronze, Silver, and Gold Parquet. The streaming path replays generated events through Kafka and uses Flink for validation, deduplication, event-time features, late-event handling, and fraud alerts.
 
 The long-term platform direction is an end-to-end fraud data system with orchestration, lineage, feature generation, model tracking, scoring, and monitoring built around the generated transaction data.
