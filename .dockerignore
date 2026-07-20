@@ -1,0 +1,9 @@
+.git
+.idea
+.venv
+flink/.venv
+__pycache__
+*.pyc
+data
+images
+airflow/logs

@@ -32,6 +32,30 @@ SUMMARY_FILE_NAME = "_gold_transactions_summary.json"
 UNKNOWN_MERCHANT_DIM_ID = "UNKNOWN"
 DEFAULT_COUNTRY_CODE = "US"
 
+CORE_GOLD_TABLE_NAMES = (
+    "dim_date",
+    "dim_city",
+    "dim_channel",
+    "dim_quality_issue",
+    "dim_merchant_category",
+    "dim_customer",
+    "dim_account",
+    "dim_merchant",
+    "fact_transactions",
+    "fact_transaction_quality_issue",
+    "fact_customer_daily",
+    "fact_account_daily",
+    "fact_merchant_daily",
+    "fact_city_category_daily",
+    "fact_device_ip_daily",
+)
+OFFLINE_FEATURE_TABLE_NAMES = (
+    "feat_customer_rolling",
+    "feat_customer_total_orders_90d",
+    "feat_merchant_risk_rolling",
+    "feat_transaction_training",
+)
+
 QUALITY_ISSUE_DEFINITIONS = (
     ("missing_transaction_id", "quarantine", "silver", "Transaction ID is missing or blank."),
     ("missing_account_id", "quarantine", "silver", "Account ID is missing or blank."),
@@ -58,6 +82,7 @@ class GoldTransactionsConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
+    include_features: bool = True
     spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
 
     def validate(self) -> None:
@@ -96,6 +121,7 @@ class GoldTransactionsResult:
     silver_dir: Path
     output_dir: Path
     write_mode: str
+    build_scope: str
     spark_version: str
     processed_at: str
     completed_at: str
@@ -117,6 +143,7 @@ class GoldTransactionsResult:
             "silver_dir": str(self.silver_dir),
             "output_dir": str(self.output_dir),
             "write_mode": self.write_mode,
+            "build_scope": self.build_scope,
             "spark_version": self.spark_version,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
@@ -151,7 +178,7 @@ class GoldBuildFrames:
 
 
 def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsResult:
-    """Build Gold transaction facts, dimensions, aggregates, and features."""
+    """Build core Gold tables and, when requested, offline feature tables."""
 
     config.validate()
     spark = _build_spark_session(config.master, config.spark_ui)
@@ -160,7 +187,12 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
         announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
         silver_dataframe = _prepare_silver_dataframe(spark.read.parquet(str(config.silver_dir)))
-        frames = _build_gold_frames(spark, silver_dataframe, processed_at)
+        frames = _build_gold_frames(
+            spark,
+            silver_dataframe,
+            processed_at,
+            include_features=config.include_features,
+        )
 
         persisted_frames.extend(
             [
@@ -171,9 +203,10 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
                 frames.fact_customer_daily,
                 frames.fact_account_daily,
                 frames.fact_merchant_daily,
-                frames.feat_merchant_risk_rolling,
             ]
         )
+        if config.include_features:
+            persisted_frames.append(frames.feat_merchant_risk_rolling)
         for dataframe in persisted_frames:
             dataframe.persist()
 
@@ -182,6 +215,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
             silver_dir=config.silver_dir,
             output_dir=config.output_dir,
             write_mode=config.write_mode,
+            build_scope="all" if config.include_features else "core",
             spark_version=spark.version,
             processed_at=_to_utc_string(processed_at),
             completed_at=_to_utc_string(datetime.now(UTC)),
@@ -238,8 +272,14 @@ def _prepare_silver_dataframe(silver_dataframe: Any) -> Any:
     )
 
 
-def _build_gold_frames(spark: Any, silver_dataframe: Any, processed_at: datetime) -> GoldBuildFrames:
-    """Create all Gold DataFrames without writing them."""
+def _build_gold_frames(
+    spark: Any,
+    silver_dataframe: Any,
+    processed_at: datetime,
+    *,
+    include_features: bool = True,
+) -> GoldBuildFrames:
+    """Create core Gold frames and optionally the offline feature frames."""
 
     dim_date = _build_dim_date(silver_dataframe)
     dim_city = _build_dim_city(silver_dataframe, processed_at)
@@ -265,23 +305,31 @@ def _build_gold_frames(spark: Any, silver_dataframe: Any, processed_at: datetime
     fact_merchant_daily = _build_fact_merchant_daily(fact_transactions)
     fact_city_category_daily = _build_fact_city_category_daily(fact_transactions)
     fact_device_ip_daily = _build_fact_device_ip_daily(silver_dataframe, fact_transactions)
-    feat_customer_rolling = _build_feat_customer_rolling(fact_customer_daily, processed_at)
-    feat_customer_total_orders_90d = _build_feat_customer_total_orders_90d(fact_customer_daily, processed_at)
-    merchant_category_daily = _build_merchant_category_daily(fact_transactions)
-    merchant_category_rolling = _build_merchant_category_rolling(merchant_category_daily)
-    feat_merchant_risk_rolling = _build_feat_merchant_risk_rolling(
-        fact_merchant_daily=fact_merchant_daily,
-        merchant_category_rolling=merchant_category_rolling,
-        processed_at=processed_at,
-    )
-    feat_transaction_training = _build_feat_transaction_training(
-        fact_transactions=fact_transactions,
-        feat_customer_rolling=feat_customer_rolling,
-        fact_account_daily=fact_account_daily,
-        feat_merchant_risk_rolling=feat_merchant_risk_rolling,
-        merchant_category_rolling=merchant_category_rolling,
-        processed_at=processed_at,
-    )
+    feat_customer_rolling = None
+    feat_customer_total_orders_90d = None
+    feat_merchant_risk_rolling = None
+    feat_transaction_training = None
+    if include_features:
+        feat_customer_rolling = _build_feat_customer_rolling(fact_customer_daily, processed_at)
+        feat_customer_total_orders_90d = _build_feat_customer_total_orders_90d(
+            fact_customer_daily,
+            processed_at,
+        )
+        merchant_category_daily = _build_merchant_category_daily(fact_transactions)
+        merchant_category_rolling = _build_merchant_category_rolling(merchant_category_daily)
+        feat_merchant_risk_rolling = _build_feat_merchant_risk_rolling(
+            fact_merchant_daily=fact_merchant_daily,
+            merchant_category_rolling=merchant_category_rolling,
+            processed_at=processed_at,
+        )
+        feat_transaction_training = _build_feat_transaction_training(
+            fact_transactions=fact_transactions,
+            feat_customer_rolling=feat_customer_rolling,
+            fact_account_daily=fact_account_daily,
+            feat_merchant_risk_rolling=feat_merchant_risk_rolling,
+            merchant_category_rolling=merchant_category_rolling,
+            processed_at=processed_at,
+        )
 
     return GoldBuildFrames(
         dim_date=dim_date,
@@ -1235,9 +1283,9 @@ def _nullable_ratio(numerator_column: str, denominator_column: str) -> Any:
 
 
 def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) -> list[GoldTableResult]:
-    """Write all Gold tables to their documented Parquet paths."""
+    """Write core Gold tables and optional feature tables."""
 
-    table_writes = (
+    table_writes = [
         ("dim_date", frames.dim_date, ()),
         ("dim_city", frames.dim_city, ()),
         ("dim_channel", frames.dim_channel, ()),
@@ -1253,11 +1301,16 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
         ("fact_merchant_daily", frames.fact_merchant_daily, ("feature_date",)),
         ("fact_city_category_daily", frames.fact_city_category_daily, ("feature_date",)),
         ("fact_device_ip_daily", frames.fact_device_ip_daily, ("feature_date",)),
-        ("feat_customer_rolling", frames.feat_customer_rolling, ("feature_date",)),
-        ("feat_customer_total_orders_90d", frames.feat_customer_total_orders_90d, ()),
-        ("feat_merchant_risk_rolling", frames.feat_merchant_risk_rolling, ("feature_date",)),
-        ("feat_transaction_training", frames.feat_transaction_training, ()),
-    )
+    ]
+    if config.include_features:
+        table_writes.extend(
+            [
+                ("feat_customer_rolling", frames.feat_customer_rolling, ("feature_date",)),
+                ("feat_customer_total_orders_90d", frames.feat_customer_total_orders_90d, ()),
+                ("feat_merchant_risk_rolling", frames.feat_merchant_risk_rolling, ("feature_date",)),
+                ("feat_transaction_training", frames.feat_transaction_training, ()),
+            ]
+        )
 
     results: list[GoldTableResult] = []
     for table_name, dataframe, partition_columns in table_writes:
@@ -1323,6 +1376,11 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _gold_processed_at.")
+    parser.add_argument(
+        "--core-only",
+        action="store_true",
+        help="Build dimensions, facts, and daily aggregates without offline feature tables.",
+    )
     add_spark_ui_arguments(parser)
     return parser
 
@@ -1336,6 +1394,7 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
+        include_features=not args.core_only,
         spark_ui=spark_ui_config_from_args(args),
     )
     try:

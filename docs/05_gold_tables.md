@@ -84,7 +84,8 @@ Implementation files:
 |---|---|
 | `docker-compose.yml` | Runs PostgreSQL and the one-shot schema initializer. |
 | `infra/postgres/init/001_create_fraudstream_schema.sql` | Defines schemas, tables, constraints, indexes, comments, and the Gold OBT view. |
-| `src/fraudstream/jobs/gold/transactions.py` | Builds Gold Parquet facts, dimensions, aggregates, and feature tables from Silver. |
+| `src/fraudstream/jobs/gold/transactions.py` | Builds core Gold dimensions, facts, and aggregates from Silver; direct runs may also include features. |
+| `src/fraudstream/jobs/gold/offline_features.py` | Builds offline feature tables from persisted core Gold facts. |
 | `src/fraudstream/jobs/postgres/publish.py` | Publishes Silver and Gold Parquet datasets into PostgreSQL tables. |
 
 ## Naming Standards
@@ -363,19 +364,32 @@ PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
   --write-mode overwrite
 ```
 
-To inspect Gold feature engineering in Spark UI:
+For the Airflow execution boundary, build core Gold first and features second:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
   --silver-dir data/silver/transactions \
   --output-dir data/gold \
   --write-mode overwrite \
+  --core-only
+
+PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features \
+  --gold-dir data/gold \
+  --write-mode overwrite
+```
+
+To inspect Gold feature engineering in Spark UI:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features \
+  --gold-dir data/gold \
+  --write-mode overwrite \
   --spark-ui \
   --spark-ui-retain-seconds 300
 ```
 
 Open the URL printed by Spark, normally `http://localhost:4040`. Each table has
-its own `Gold: materialize and write ...` job group. The most useful captures
+its own `Offline features: materialize and write ...` job group. The most useful captures
 for feature engineering are `feat_customer_rolling`,
 `feat_merchant_risk_rolling`, and `feat_transaction_training`; their SQL plans
 show rolling windows, daily pre-aggregation, broadcast category joins,
