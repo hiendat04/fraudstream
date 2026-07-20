@@ -21,14 +21,19 @@ Gold table schemas and physical storage details are documented in
 
 ## Source Contract
 
-Offline features are built from the selected Silver transaction table:
+Offline features are built from persisted core Gold facts derived from the
+selected Silver transaction table:
 
 ```text
-data/silver/transactions/
+data/gold/fact_transactions/
+data/gold/fact_customer_daily/
+data/gold/fact_account_daily/
+data/gold/fact_merchant_daily/
 ```
 
-Silver supplies one clean, typed, deterministic row per `transaction_id`.
-Important inputs are:
+`fact_transactions` preserves one clean, typed, deterministic row per selected
+Silver `transaction_id`; the daily facts provide reusable history. Important
+source fields are:
 
 | Input | Feature use |
 |---|---|

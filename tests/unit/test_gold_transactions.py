@@ -10,7 +10,12 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
 
+from fraudstream.jobs.gold.offline_features import (
+    OfflineFeatureConfig,
+    build_offline_features,
+)
 from fraudstream.jobs.gold.transactions import (
+    CORE_GOLD_TABLE_NAMES,
     GoldTransactionsConfig,
     _build_feat_merchant_risk_rolling,
     _build_merchant_category_rolling,
@@ -22,8 +27,8 @@ from fraudstream.jobs.gold.transactions import (
 class GoldTransactionsTest(TestCase):
     """Tests for Silver to Gold transaction processing."""
 
-    def test_builds_gold_tables_from_silver_transactions(self) -> None:
-        """Gold should create facts, dimensions, aggregates, and features."""
+    def test_builds_core_gold_then_offline_features_as_separate_jobs(self) -> None:
+        """Core Gold and feature materialization should preserve transaction grain."""
 
         with TemporaryDirectory() as tmp_dir:
             root_dir = Path(tmp_dir)
@@ -37,10 +42,17 @@ class GoldTransactionsTest(TestCase):
                     output_dir=gold_dir,
                     write_mode="overwrite",
                     processed_at=datetime.fromisoformat("2026-07-09T00:00:00+00:00"),
+                    include_features=False,
                 )
             )
 
             self.assertEqual(result.fact_transaction_count, 5)
+            self.assertEqual(result.build_scope, "core")
+            self.assertEqual(
+                {table.table_name for table in result.table_results},
+                set(CORE_GOLD_TABLE_NAMES),
+            )
+            self.assertFalse((gold_dir / "feat_transaction_training").exists())
             self.assertTrue((gold_dir / "_gold_transactions_summary.json").exists())
 
             fact_rows = {row["transaction_id"]: row for row in _read_parquet_rows(gold_dir / "fact_transactions")}
@@ -55,6 +67,17 @@ class GoldTransactionsTest(TestCase):
             self.assertEqual(len(_read_parquet_rows(gold_dir / "fact_transaction_quality_issue")), 1)
             self.assertEqual(len(_read_parquet_rows(gold_dir / "fact_customer_daily")), 5)
             self.assertEqual(len(_read_parquet_rows(gold_dir / "fact_account_daily")), 4)
+
+            feature_result = build_offline_features(
+                OfflineFeatureConfig(
+                    gold_dir=gold_dir,
+                    write_mode="overwrite",
+                    processed_at=datetime.fromisoformat("2026-07-09T00:05:00+00:00"),
+                )
+            )
+            self.assertEqual(feature_result.source_fact_transaction_count, 5)
+            self.assertEqual(feature_result.training_row_count, 5)
+            self.assertEqual(feature_result.training_distinct_transaction_count, 5)
 
             merchant_rows = _read_parquet_rows(gold_dir / "feat_merchant_risk_rolling")
             self.assertNotIn("UNKNOWN", {row["merchant_dim_id"] for row in merchant_rows})
@@ -74,8 +97,15 @@ class GoldTransactionsTest(TestCase):
             summary = _read_json(gold_dir / "_gold_transactions_summary.json")
             table_names = {table["table_name"] for table in summary["tables"]}
             self.assertIn("fact_transactions", table_names)
-            self.assertIn("feat_customer_total_orders_90d", table_names)
-            self.assertIn("feat_merchant_risk_rolling", table_names)
+            self.assertNotIn("feat_merchant_risk_rolling", table_names)
+
+            feature_summary = _read_json(gold_dir / "_offline_features_summary.json")
+            feature_table_names = {
+                table["table_name"] for table in feature_summary["tables"]
+            }
+            self.assertIn("feat_customer_total_orders_90d", feature_table_names)
+            self.assertIn("feat_merchant_risk_rolling", feature_table_names)
+            self.assertTrue(feature_summary["training_row_count_matches_fact"])
 
     def test_builds_merchant_burst_fraud_rate_and_category_features(self) -> None:
         """Merchant features should use calendar windows and omit the skewed unknown key."""

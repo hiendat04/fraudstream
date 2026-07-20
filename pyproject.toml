@@ -18,6 +18,7 @@ fraudstream-stream-features = "fraudstream.jobs.flink.transactions:main"
 fraudstream-validate-bronze = "fraudstream.jobs.bronze.validate_transactions:main"
 fraudstream-build-silver-transactions = "fraudstream.jobs.silver.transactions:main"
 fraudstream-build-gold-transactions = "fraudstream.jobs.gold.transactions:main"
+fraudstream-build-offline-features = "fraudstream.jobs.gold.offline_features:main"
 fraudstream-publish-postgres = "fraudstream.jobs.postgres.publish:main"
 
 [tool.pytest.ini_options]

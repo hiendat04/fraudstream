@@ -34,6 +34,7 @@ The repository currently includes:
 | PostgreSQL serving schema | Creates Bronze, Silver, Gold, and metadata schemas for DBeaver and governance workflows | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
 | Fraud feature engineering design | Defines explainable, point-in-time-safe customer, merchant, amount, device/IP, and late-arrival features | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Merchant risk features | Builds rolling merchant burst, historical fraud-rate, and merchant-category comparison signals | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
+| Airflow batch orchestration | Runs raw-to-Bronze, Bronze-to-Silver/Gold, and offline-feature DAGs with validation gates and asset dependencies | [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -44,6 +45,7 @@ FraudStream separates source simulation from processing layers. Raw CSV and JSON
 ```mermaid
 flowchart LR
     generator[Data Generator]
+    airflow[Airflow Batch DAGs]
     raw[Raw CSV and JSONL]
     kafka[Kafka]
     spark[Spark Jobs]
@@ -55,6 +57,8 @@ flowchart LR
     api[Fraud Scoring API]
     monitor[Monitoring]
 
+    airflow --> generator
+    airflow --> spark
     generator --> raw
     raw --> spark
     spark --> bronze
@@ -101,6 +105,7 @@ That log can be replayed into Kafka topic `financial_transactions`. Each event k
 
 ```text
 financial-fraud-detection/
+├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
 ├── configs/generator/        # Generator runtime configs
 ├── data/                     # Generated local data outputs
 ├── docs/                     # Detailed implementation documentation
@@ -110,7 +115,7 @@ financial-fraud-detection/
 │   ├── jobs/                 # Spark, Flink, and PostgreSQL data jobs
 │   └── producers/            # Kafka replay producer
 ├── tests/unit/               # Unit tests
-├── docker-compose.yml        # Local Kafka stack
+├── docker-compose.yml        # Local Kafka, PostgreSQL, and Airflow services
 ├── main.py
 ├── pyproject.toml
 └── uv.lock
@@ -223,6 +228,25 @@ Build Gold transaction facts, dimensions, aggregates, and feature tables:
 PYTHONPATH=src python -m fraudstream.jobs.gold.transactions
 ```
 
+Run core Gold and offline features as separate orchestration boundaries:
+
+```bash
+PYTHONPATH=src python -m fraudstream.jobs.gold.transactions --core-only
+PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features
+```
+
+Start Airflow for the three batch DAGs:
+
+```bash
+docker compose --profile orchestration up --build -d \
+  airflow-db airflow-init airflow-api-server \
+  airflow-dag-processor airflow-scheduler
+```
+
+Open `http://localhost:18081`, unpause the three `fraudstream_*` DAGs, and
+trigger `fraudstream_raw_to_bronze`. Validated asset events start the other DAGs
+in order. See [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md).
+
 ### Observe the offline pipeline in Spark UI
 
 The raw-data generator is Python, so Spark UI begins at Bronze. Enable it on
@@ -290,6 +314,7 @@ PYTHONPATH=src python -m unittest \
   tests.unit.test_bronze_validate_transactions \
   tests.unit.test_silver_transactions \
   tests.unit.test_gold_transactions \
+  tests.unit.test_orchestration_validation \
   tests.unit.test_postgres_publish \
   tests.unit.test_postgres_schema_sql
 ```
@@ -313,6 +338,9 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/05_gold_tables.md](docs/05_gold_tables.md) | Gold fact, dimension, OBT, feature, and PostgreSQL serving schema design |
 | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) | Fraud feature definitions, event-time windows, point-in-time joins, leakage rules, and validation expectations |
 | [docs/07_flink_streaming_pipeline.md](docs/07_flink_streaming_pipeline.md) | Flink Kafka topology, watermarks, deduplication, streaming features, alerts, late events, state, and recovery |
+| [docs/08_flink_window_processing.md](docs/08_flink_window_processing.md) | Keyed five-minute Flink windows and late-event side outputs |
+| [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) | Airflow DAGs, ingest/validate stages, asset dependencies, shared configuration, and local startup |
+| [docs/10_airflow_workflow_demonstration.md](docs/10_airflow_workflow_demonstration.md) | Airflow UI evidence for the successful Raw, Bronze, Silver, Gold, and offline-feature workflow |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 

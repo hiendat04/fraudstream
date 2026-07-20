@@ -1,0 +1,13 @@
+{
+  "fraudstream_project_root": "/opt/airflow/project",
+  "fraudstream_offline_generator_config": "/opt/airflow/project/configs/generator/offline_transactions.json",
+  "fraudstream_raw_transactions_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
+  "fraudstream_bronze_transactions_dir": "/opt/airflow/project/data/bronze/raw_transactions",
+  "fraudstream_bronze_validation_report": "/opt/airflow/project/data/bronze/raw_transactions/_bronze_validation_summary.json",
+  "fraudstream_silver_transactions_dir": "/opt/airflow/project/data/silver/transactions",
+  "fraudstream_silver_quality_dir": "/opt/airflow/project/data/silver/transaction_quality_issues",
+  "fraudstream_gold_dir": "/opt/airflow/project/data/gold",
+  "fraudstream_spark_master": "local[4]",
+  "fraudstream_spark_pool_slots": "1",
+  "fraudstream_write_mode": "overwrite"
+}
