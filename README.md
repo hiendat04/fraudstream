@@ -35,6 +35,7 @@ The repository currently includes:
 | Fraud feature engineering design | Defines explainable, point-in-time-safe customer, merchant, amount, device/IP, and late-arrival features | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Merchant risk features | Builds rolling merchant burst, historical fraud-rate, and merchant-category comparison signals | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Airflow batch orchestration | Runs raw-to-Bronze, Bronze-to-Silver/Gold, and offline-feature DAGs with validation gates and asset dependencies | [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) |
+| DataHub governance | Catalogs the three batch pipelines, PostgreSQL schemas, table lineage, versioned contracts, and measured validation assertions | [docs/11_data_governance_datahub.md](docs/11_data_governance_datahub.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -53,6 +54,7 @@ flowchart LR
     bronze[Bronze Parquet]
     silver[Silver Tables]
     gold[Gold Facts and Features]
+    datahub[DataHub Governance]
     mlflow[MLflow]
     api[Fraud Scoring API]
     monitor[Monitoring]
@@ -66,6 +68,10 @@ flowchart LR
     spark --> silver
     silver --> spark
     spark --> gold
+    airflow --> datahub
+    bronze --> datahub
+    silver --> datahub
+    gold --> datahub
 
     generator --> kafka
     kafka --> flink
@@ -108,6 +114,7 @@ financial-fraud-detection/
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
 ├── configs/generator/        # Generator runtime configs
 ├── data/                     # Generated local data outputs
+├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── src/fraudstream/          # Python source code
@@ -246,6 +253,19 @@ docker compose --profile orchestration up --build -d \
 Open `http://localhost:18081`, unpause the three `fraudstream_*` DAGs, and
 trigger `fraudstream_raw_to_bronze`. Validated asset events start the other DAGs
 in order. See [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md).
+
+Start DataHub and publish the governed batch-pipeline catalog:
+
+```bash
+uv sync --project datahub --python 3.11
+docker compose up -d postgres postgres-schema-init
+./datahub/scripts/start.sh
+./datahub/scripts/publish.sh
+```
+
+Open `http://localhost:9002` with `datahub` / `datahub`. See
+[docs/11_data_governance_datahub.md](docs/11_data_governance_datahub.md) for the
+lineage, validation, and contract screenshot workflow.
 
 ### Observe the offline pipeline in Spark UI
 

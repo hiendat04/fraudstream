@@ -1,0 +1,25 @@
+contractFormat: fraudstream-data-contract/v1
+metadata:
+  id: fraudstream.raw-to-bronze
+  version: 1.0.0
+  status: active
+  owner: fraudstream-data-platform
+  pipeline: fraudstream_raw_to_bronze
+datasets:
+  - name: fraudstream.bronze.raw_transaction_ingest_runs
+    grain: one row per Bronze ingestion run
+    requiredFields: [ingest_run_id, ingest_date, source_file_count, row_count, status]
+  - name: fraudstream.bronze.raw_transactions
+    grain: one source record per Bronze row, including deliberate duplicates
+    requiredFields: [transaction_id, event_timestamp, _ingest_run_id, _source_file_path, _raw_record_hash]
+qualityRules:
+  - id: bronze-row-reconciliation
+    target: fraudstream.bronze.raw_transactions
+    description: Source and Bronze row counts must be equal and greater than zero.
+    evaluator: bronze_row_reconciliation
+    severity: HIGH
+  - id: bronze-source-file-coverage
+    target: fraudstream.bronze.raw_transactions
+    description: Every generated source CSV must appear in Bronze source metadata.
+    evaluator: bronze_file_coverage
+    severity: HIGH

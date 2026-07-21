@@ -1,0 +1,31 @@
+contractFormat: fraudstream-data-contract/v1
+metadata:
+  id: fraudstream.offline-features
+  version: 1.0.0
+  status: active
+  owner: fraudstream-data-platform
+  pipeline: fraudstream_offline_features
+datasets:
+  - name: fraudstream.gold.feat_customer_rolling
+    grain: one row per customer and event timestamp
+    requiredFields: [customer_key, customer_id, event_timestamp, feature_date, txn_count_7d, txn_count_30d]
+  - name: fraudstream.gold.feat_customer_total_orders_90d
+    grain: one row per customer and event timestamp
+    requiredFields: [customer_key, customer_id, event_timestamp, total_orders_90d, feature_window_end_ts]
+  - name: fraudstream.gold.feat_merchant_risk_rolling
+    grain: one row per merchant and feature_date
+    requiredFields: [merchant_key, merchant_dim_id, event_timestamp, feature_date, merchant_txn_count_1d, merchant_prior_fraud_rate_30d]
+  - name: fraudstream.gold.feat_transaction_training
+    grain: exactly one point-in-time-safe feature row per transaction_id
+    requiredFields: [transaction_id, event_timestamp, customer_key, account_key, amount, is_fraud]
+qualityRules:
+  - id: training-row-grain
+    target: fraudstream.gold.feat_transaction_training
+    description: Training row count must equal the source fact transaction count.
+    evaluator: training_row_grain
+    severity: HIGH
+  - id: training-transaction-id-uniqueness
+    target: fraudstream.gold.feat_transaction_training
+    description: Every training transaction_id must be unique.
+    evaluator: training_id_uniqueness
+    severity: HIGH

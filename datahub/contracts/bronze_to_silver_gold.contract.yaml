@@ -1,0 +1,80 @@
+contractFormat: fraudstream-data-contract/v1
+metadata:
+  id: fraudstream.bronze-to-silver-and-core-gold
+  version: 1.0.0
+  status: active
+  owner: fraudstream-data-platform
+  pipeline: fraudstream_bronze_to_silver_gold
+datasets:
+  - name: fraudstream.silver.stg_transactions
+    grain: one selected row per transaction_id after deterministic deduplication
+    requiredFields: [transaction_id, account_id, customer_id, amount, event_time, event_date, quality_status]
+  - name: fraudstream.silver.stg_transaction_quality_issues
+    grain: one quality-evidence row per selected, quarantined, or duplicate-rejected record
+    requiredFields: [transaction_id, quality_issue_codes, _silver_record_action, _silver_quality_reported_at]
+  - name: fraudstream.gold.dim_date
+    grain: one row per calendar date
+    requiredFields: [date_key, event_date]
+  - name: fraudstream.gold.dim_city
+    grain: one row per normalized city
+    requiredFields: [city_key, city]
+  - name: fraudstream.gold.dim_channel
+    grain: one row per transaction channel
+    requiredFields: [channel_key, channel]
+  - name: fraudstream.gold.dim_quality_issue
+    grain: one row per quality issue code
+    requiredFields: [quality_issue_code, severity]
+  - name: fraudstream.gold.dim_merchant_category
+    grain: one row per merchant category
+    requiredFields: [merchant_category_key, merchant_category]
+  - name: fraudstream.gold.dim_customer
+    grain: one current customer dimension row per customer_id
+    requiredFields: [customer_key, customer_id, valid_from_ts, is_current]
+  - name: fraudstream.gold.dim_account
+    grain: one current account dimension row per account_id
+    requiredFields: [account_key, account_id, customer_key, valid_from_ts, is_current]
+  - name: fraudstream.gold.dim_merchant
+    grain: one current merchant dimension row per merchant_dim_id
+    requiredFields: [merchant_key, merchant_dim_id, valid_from_ts, is_current]
+  - name: fraudstream.gold.fact_transactions
+    grain: one row per selected transaction_id
+    requiredFields: [transaction_id, event_time, event_date, customer_key, account_key, amount, is_fraud]
+  - name: fraudstream.gold.fact_transaction_quality_issue
+    grain: one row per transaction and quality issue position
+    requiredFields: [transaction_id, quality_issue_code, issue_position]
+  - name: fraudstream.gold.fact_customer_daily
+    grain: one row per customer and feature_date
+    requiredFields: [customer_key, feature_date, txn_count_1d, amount_sum_1d]
+  - name: fraudstream.gold.fact_account_daily
+    grain: one row per account and feature_date
+    requiredFields: [account_key, feature_date, txn_count_1d, amount_sum_1d]
+  - name: fraudstream.gold.fact_merchant_daily
+    grain: one row per merchant and feature_date
+    requiredFields: [merchant_key, feature_date, txn_count_1d, fraud_rate_1d]
+  - name: fraudstream.gold.fact_city_category_daily
+    grain: one row per city, merchant category, and feature_date
+    requiredFields: [city_key, merchant_category_key, feature_date, txn_count_1d]
+  - name: fraudstream.gold.fact_device_ip_daily
+    grain: one row per network identifier, identifier type, and feature_date
+    requiredFields: [network_identifier, identifier_type, feature_date, txn_count_1d]
+qualityRules:
+  - id: silver-row-accounting
+    target: fraudstream.silver.stg_transactions
+    description: Selected, quarantined, and duplicate-rejected rows must account for every Bronze input row.
+    evaluator: silver_row_accounting
+    severity: HIGH
+  - id: silver-status-accounting
+    target: fraudstream.silver.stg_transactions
+    description: Every selected Silver row must have either valid or warning status.
+    evaluator: silver_status_accounting
+    severity: HIGH
+  - id: gold-fact-matches-silver
+    target: fraudstream.gold.fact_transactions
+    description: Gold fact_transactions must contain exactly one row for every selected Silver transaction.
+    evaluator: gold_fact_matches_silver
+    severity: HIGH
+  - id: core-gold-table-completeness
+    target: fraudstream.gold.fact_transactions
+    description: All required core Gold tables must be materialized with at least one row.
+    evaluator: gold_core_table_completeness
+    severity: HIGH
