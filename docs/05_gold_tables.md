@@ -333,9 +333,9 @@ Pipeline loading pattern:
 
 | Pipeline | Spark Output | PostgreSQL Publish Target |
 |---|---|---|
-| DP1 Bronze ingestion | `data/bronze/raw_transactions/` | `bronze.raw_transaction_ingest_runs`, `bronze.raw_transactions` |
-| DP2 Silver and Gold build | `data/silver/transactions/`, `data/gold/*` | `silver.stg_*`, `gold.dim_*`, `gold.fact_*`, `gold.obt_*` |
-| DP3 Offline features | `data/gold/feat_*` | `gold.feat_*` |
+| Bronze ingestion | `data/bronze/raw_transactions/` | `bronze.raw_transaction_ingest_runs`, `bronze.raw_transactions` |
+| Silver and Gold build | `data/silver/transactions/`, `data/gold/*` | `silver.stg_*`, `gold.dim_*`, `gold.fact_*`, `gold.obt_*` |
+| Offline features | `data/gold/feat_*` | `gold.feat_*` |
 
 For local development, full refresh loading is acceptable for facts, daily
 aggregates, and feature tables. SCD2 dimensions require change detection before
