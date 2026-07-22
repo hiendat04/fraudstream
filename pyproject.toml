@@ -20,6 +20,7 @@ fraudstream-build-silver-transactions = "fraudstream.jobs.silver.transactions:ma
 fraudstream-build-gold-transactions = "fraudstream.jobs.gold.transactions:main"
 fraudstream-build-offline-features = "fraudstream.jobs.gold.offline_features:main"
 fraudstream-publish-postgres = "fraudstream.jobs.postgres.publish:main"
+fraudstream-data-quality = "fraudstream.reports.data_quality:main"
 
 [tool.pytest.ini_options]
 pythonpath = ["src"]

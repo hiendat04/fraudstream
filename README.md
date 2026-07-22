@@ -30,9 +30,9 @@ The repository currently includes:
 
 | Component | Purpose | Details |
 |---|---|---|
-| Offline transaction generator | Creates partitioned raw CSV transaction extracts with realistic source problems | [docs/01_data_generator.md](docs/01_data_generator.md) |
-| Streaming transaction generator | Creates a reproducible JSONL event log that behaves like a Kafka topic export | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
-| Kafka replay producer | Publishes generated stream events to Kafka for Flink processing | [docs/02_streaming_generator.md](docs/02_streaming_generator.md) |
+| Offline transaction generator | Creates partitioned raw CSV transaction extracts with realistic source problems | [docs/01_data_generator.md](docs/01_offline_data_generator.md) |
+| Streaming transaction generator | Creates a reproducible JSONL event log that behaves like a Kafka topic export | [docs/02_streaming_generator.md](docs/02_streaming_data_generator.md) |
+| Kafka replay producer | Publishes generated stream events to Kafka for Flink processing | [docs/02_streaming_generator.md](docs/02_streaming_data_generator.md) |
 | Flink streaming feature job | Validates and deduplicates Kafka events, uses a p95-measured watermark delay, computes event-time customer and merchant features, and emits alerts | [docs/07_flink_streaming_pipeline.md](docs/07_flink_streaming_pipeline.md) |
 | Local Kafka stack | Runs Kafka, topic initialization, and Kafka UI with Docker Compose | [docker-compose.yml](docker-compose.yml) |
 | Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
@@ -43,6 +43,7 @@ The repository currently includes:
 | Merchant risk features | Builds rolling merchant burst, historical fraud-rate, and merchant-category comparison signals | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Airflow batch orchestration | Runs raw-to-Bronze, Bronze-to-Silver/Gold, and offline-feature DAGs with validation gates and asset dependencies | [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) |
 | DataHub governance | Catalogs the three batch pipelines, PostgreSQL schemas, table lineage, versioned contracts, and measured validation assertions | [docs/11_data_governance_datahub.md](docs/11_data_governance_datahub.md) |
+| Generated data quality report | Generates a readable HTML report of offline and streaming characteristics from existing evidence artifacts | [docs/13_data_quality_report.md](docs/13_data_quality_report.md) |
 
 Default configs generate more than 500,000 offline rows and more than 500,000 streaming records. Generated evidence files such as `_manifest.json`, `_quality_summary.json`, and `_stream_summary.json` capture row counts, quality issues, timing behavior, partitions, and output metadata.
 
@@ -167,6 +168,14 @@ Generate streaming event data:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.generators.streaming_transactions
+```
+
+Generate a readable offline and streaming data-quality report:
+
+```bash
+PYTHONPATH=src python -m fraudstream.reports.data_quality \
+  --dataset all \
+  --output reports/data_quality_report.html
 ```
 
 Start local Kafka:
@@ -339,8 +348,8 @@ Use the README for the project-level view. Use the docs for implementation detai
 
 | Document | Covers |
 |---|---|
-| [docs/01_data_generator.md](docs/01_data_generator.md) | Offline generator behavior, configuration, output layout, and Bronze ingestion contract |
-| [docs/02_streaming_generator.md](docs/02_streaming_generator.md) | Streaming generator, Kafka replay, event shape, streaming problems, and Flink contract |
+| [docs/01_data_generator.md](docs/01_offline_data_generator.md) | Offline generator behavior, configuration, output layout, and Bronze ingestion contract |
+| [docs/02_streaming_generator.md](docs/02_streaming_data_generator.md) | Streaming generator, Kafka replay, event shape, streaming problems, and Flink contract |
 | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) | Bronze transaction schema, metadata fields, partitioning, and raw-preservation rules |
 | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) | Silver transaction schema, cleaned types, standardization, deduplication, and quality rules |
 | [docs/05_gold_tables.md](docs/05_gold_tables.md) | Gold fact, dimension, OBT, feature, and PostgreSQL serving schema design |
