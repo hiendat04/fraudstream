@@ -1,0 +1,25 @@
+source:
+  type: postgres
+  config:
+    host_port: "${FRAUDSTREAM_POSTGRES_HOST_PORT}"
+    database: "${FRAUDSTREAM_POSTGRES_DATABASE}"
+    username: "${FRAUDSTREAM_POSTGRES_USER}"
+    password: "${FRAUDSTREAM_POSTGRES_PASSWORD}"
+    platform_instance: fraudstream-local
+    env: PROD
+    schema_pattern:
+      allow:
+        - bronze
+        - silver
+        - gold
+        - metadata
+    include_tables: true
+    include_views: true
+    profiling:
+      enabled: false
+sink:
+  type: datahub-rest
+  config:
+    server: "${DATAHUB_GMS_URL}"
+    token: "${DATAHUB_TOKEN}"
+

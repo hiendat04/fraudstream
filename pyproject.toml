@@ -1,0 +1,26 @@
+[project]
+name = "financial-fraud-detection"
+version = "0.1.0"
+requires-python = ">=3.14"
+dependencies = []
+
+[project.optional-dependencies]
+kafka = ["confluent-kafka"]
+postgres = ["psycopg[binary]>=3.2,<4"]
+spark = ["pyspark>=4.1,<4.2"]
+
+[project.scripts]
+fraudstream-generate-offline = "fraudstream.generators.offline_transactions:main"
+fraudstream-generate-streaming = "fraudstream.generators.streaming_transactions:main"
+fraudstream-replay-stream = "fraudstream.producers.stream_replay:main"
+fraudstream-calibrate-watermark = "fraudstream.jobs.flink.watermark_calibration:main"
+fraudstream-stream-features = "fraudstream.jobs.flink.transactions:main"
+fraudstream-validate-bronze = "fraudstream.jobs.bronze.validate_transactions:main"
+fraudstream-build-silver-transactions = "fraudstream.jobs.silver.transactions:main"
+fraudstream-build-gold-transactions = "fraudstream.jobs.gold.transactions:main"
+fraudstream-build-offline-features = "fraudstream.jobs.gold.offline_features:main"
+fraudstream-publish-postgres = "fraudstream.jobs.postgres.publish:main"
+fraudstream-data-quality = "fraudstream.reports.data_quality:main"
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]

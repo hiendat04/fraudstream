@@ -1,0 +1,245 @@
+x-airflow-common: &airflow-common
+  build:
+    context: .
+    dockerfile: airflow/Dockerfile
+  user: "${AIRFLOW_UID:-50000}:0"
+  environment: &airflow-common-environment
+    AIRFLOW__CORE__EXECUTOR: LocalExecutor
+    AIRFLOW__CORE__DAGS_FOLDER: /opt/airflow/dags
+    AIRFLOW__CORE__LOAD_EXAMPLES: "false"
+    AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
+    AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
+    AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
+    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}"
+    AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
+    AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET:-fraudstream-local-jwt-secret-change-me}"
+    AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:-fraudstream-local-api-secret-change-me}"
+    AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    FRAUDSTREAM_POSTGRES_HOST: postgres
+    FRAUDSTREAM_POSTGRES_DATABASE: "${POSTGRES_DB:-fraudstream}"
+    FRAUDSTREAM_POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
+    FRAUDSTREAM_POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+    PYTHONPATH: /opt/airflow/project/src:/opt/airflow/include
+  volumes:
+    - ./:/opt/airflow/project
+    - ./airflow/dags:/opt/airflow/dags:ro
+    - ./airflow/include:/opt/airflow/include:ro
+    - ./airflow/config:/opt/airflow/config:ro
+    - ./airflow/scripts:/opt/airflow/scripts:ro
+    - ./airflow/logs:/opt/airflow/logs
+  depends_on:
+    airflow-db:
+      condition: service_healthy
+  profiles: ["orchestration"]
+
+services:
+  kafka:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: fraudstream-kafka
+    ports:
+      - "9092:9092"
+    environment:
+      CLUSTER_ID: "MkU3OEVBNTcwNTJENDM2Qk"
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: "broker,controller"
+      KAFKA_CONTROLLER_QUORUM_VOTERS: "1@kafka:29093"
+      KAFKA_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://0.0.0.0:9092,CONTROLLER://kafka:29093"
+      KAFKA_ADVERTISED_LISTENERS: "INTERNAL://kafka:29092,EXTERNAL://localhost:9092"
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: "INTERNAL:PLAINTEXT,EXTERNAL:PLAINTEXT,CONTROLLER:PLAINTEXT"
+      KAFKA_INTER_BROKER_LISTENER_NAME: "INTERNAL"
+      KAFKA_CONTROLLER_LISTENER_NAMES: "CONTROLLER"
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "false"
+      KAFKA_NUM_PARTITIONS: 24
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_REPLICATION_FACTOR: 1
+      KAFKA_TRANSACTION_STATE_LOG_MIN_ISR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+      KAFKA_LOG_RETENTION_HOURS: 168
+      KAFKA_HEAP_OPTS: "-Xms512m -Xmx512m"
+    volumes:
+      - kafka-data:/var/lib/kafka/data
+    healthcheck:
+      test: ["CMD-SHELL", "kafka-topics --bootstrap-server localhost:9092 --list >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 10s
+      retries: 12
+      start_period: 20s
+
+  kafka-topic-init:
+    image: confluentinc/cp-kafka:7.7.1
+    container_name: fraudstream-kafka-topic-init
+    depends_on:
+      kafka:
+        condition: service_healthy
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        kafka-topics --bootstrap-server kafka:29092 \
+          --create \
+          --if-not-exists \
+          --topic financial_transactions \
+          --partitions 24 \
+          --replication-factor 1 \
+          --config retention.ms=604800000 \
+          --config cleanup.policy=delete
+
+        kafka-topics --bootstrap-server kafka:29092 \
+          --describe \
+          --topic financial_transactions
+
+        for topic in \
+          financial_transactions_clean \
+          financial_transactions_invalid \
+          financial_transactions_duplicate \
+          financial_transactions_late \
+          fraud_features_customer_5m \
+          fraud_features_merchant_5m \
+          fraud_alerts
+        do
+          kafka-topics --bootstrap-server kafka:29092 \
+            --create \
+            --if-not-exists \
+            --topic "$$topic" \
+            --partitions 24 \
+            --replication-factor 1 \
+            --config retention.ms=604800000 \
+            --config cleanup.policy=delete \
+            --config message.timestamp.type=LogAppendTime
+
+          kafka-configs --bootstrap-server kafka:29092 \
+            --alter \
+            --entity-type topics \
+            --entity-name "$$topic" \
+            --add-config message.timestamp.type=LogAppendTime
+        done
+
+        kafka-topics --bootstrap-server kafka:29092 --list
+
+  kafka-ui:
+    image: provectuslabs/kafka-ui:v0.7.2
+    container_name: fraudstream-kafka-ui
+    depends_on:
+      kafka:
+        condition: service_healthy
+    ports:
+      - "${KAFKA_UI_PORT:-18080}:8080"
+    environment:
+      KAFKA_CLUSTERS_0_NAME: "fraudstream-local"
+      KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
+      DYNAMIC_CONFIG_ENABLED: "false"
+
+  postgres:
+    image: postgres:16-alpine
+    container_name: fraudstream-postgres
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
+      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraudstream} -d ${POSTGRES_DB:-fraudstream}"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  postgres-schema-init:
+    image: postgres:16-alpine
+    container_name: fraudstream-postgres-schema-init
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
+      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
+      PGPASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    volumes:
+      - ./infra/postgres/init/001_create_fraudstream_schema.sql:/schema/001_create_fraudstream_schema.sql:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        psql \
+          --host postgres \
+          --username "${POSTGRES_USER:-fraudstream}" \
+          --dbname "${POSTGRES_DB:-fraudstream}" \
+          --set ON_ERROR_STOP=1 \
+          --file /schema/001_create_fraudstream_schema.sql
+
+  airflow-db:
+    image: postgres:16-alpine
+    container_name: fraudstream-airflow-db
+    environment:
+      POSTGRES_DB: airflow
+      POSTGRES_USER: airflow
+      POSTGRES_PASSWORD: airflow
+    volumes:
+      - airflow-db-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow -d airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+    profiles: ["orchestration"]
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: fraudstream-airflow-init
+    command: ["bash", "/opt/airflow/scripts/initialize.sh"]
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: fraudstream-airflow-scheduler
+    command: scheduler
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "airflow jobs check --job-type SchedulerJob --local"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+  airflow-dag-processor:
+    <<: *airflow-common
+    container_name: fraudstream-airflow-dag-processor
+    command: dag-processor
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+      airflow-api-server:
+        condition: service_healthy
+
+  airflow-api-server:
+    <<: *airflow-common
+    container_name: fraudstream-airflow-api-server
+    command: api-server
+    ports:
+      - "${AIRFLOW_UI_PORT:-18081}:8080"
+    depends_on:
+      airflow-db:
+        condition: service_healthy
+      airflow-init:
+        condition: service_completed_successfully
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8080/api/v2/monitor/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+
+volumes:
+  kafka-data:
+  postgres-data:
+  airflow-db-data:
