@@ -1,6 +1,9 @@
 # FraudStream: Real-Time Financial Transaction Intelligence Platform
 
-FraudStream is a data engineering and MLOps project for building a production-style fraud analytics platform. It generates realistic financial transaction data, preserves raw source behavior, and prepares the foundation for Spark, Flink, Parquet lakehouse processing, feature engineering, and model operations.
+FraudStream is a data engineering project for building production-style fraud
+analytics pipelines. It uses Python, Spark, Kafka, Flink, Airflow, PostgreSQL,
+and DataHub to process realistic batch and streaming transactions while
+preserving data quality and lineage.
 
 The project is built around a practical idea: fraud detection depends on reliable data pipelines before any model can be trusted. Real transaction systems produce late records, duplicates, schema changes, traffic spikes, high-cardinality IDs, skewed entities, and messy source values. FraudStream turns those problems into controlled, reproducible engineering scenarios.
 
@@ -15,6 +18,9 @@ FraudStream focuses on the data platform skills behind fraud analytics:
 - Flink-oriented streaming path from Kafka events to event-time logic
 - deliberate data quality issues for Bronze, Silver, and Gold layers
 - reproducible configs, manifests, and summary artifacts for validation
+- asset-aware Airflow orchestration for the offline batch dependencies
+- PostgreSQL serving tables for engineering and analytical inspection
+- DataHub catalog, lineage, contract properties, and validation assertions
 
 Detailed generator behavior, schemas, and configuration notes live in the `docs/` directory so the README can stay focused on the project as a whole.
 
@@ -32,6 +38,7 @@ The repository currently includes:
 | Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
 | Silver transaction deduplication | Cleans typed transaction fields and writes one deterministic row per transaction ID | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
 | PostgreSQL serving schema | Creates Bronze, Silver, Gold, and metadata schemas for DBeaver and governance workflows | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
+| Database schema diagrams | Demonstrates the physical Bronze, Silver, and Gold models exported from DBeaver | [docs/12_database_schema.md](docs/12_database_schema.md) |
 | Fraud feature engineering design | Defines explainable, point-in-time-safe customer, merchant, amount, device/IP, and late-arrival features | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Merchant risk features | Builds rolling merchant burst, historical fraud-rate, and merchant-category comparison signals | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Airflow batch orchestration | Runs raw-to-Bronze, Bronze-to-Silver/Gold, and offline-feature DAGs with validation gates and asset dependencies | [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) |
@@ -41,53 +48,34 @@ Default configs generate more than 500,000 offline rows and more than 500,000 st
 
 ## Architecture
 
-FraudStream separates source simulation from processing layers. Raw CSV and JSONL files represent producer-owned source data. Spark will handle offline ingestion and Parquet transformation. Kafka and Flink support the streaming path.
+FraudStream has two implemented processing paths. Airflow orchestrates the
+offline Spark jobs that build local Parquet layers. The streaming path replays
+generated events through Kafka and uses PyFlink to produce cleaned events,
+windowed features, late-event records, and fraud alerts as Kafka topics.
 
-```mermaid
-flowchart LR
-    generator[Data Generator]
-    airflow[Airflow Batch DAGs]
-    raw[Raw CSV and JSONL]
-    kafka[Kafka]
-    spark[Spark Jobs]
-    flink[Flink Jobs]
-    bronze[Bronze Parquet]
-    silver[Silver Tables]
-    gold[Gold Facts and Features]
-    datahub[DataHub Governance]
-    mlflow[MLflow]
-    api[Fraud Scoring API]
-    monitor[Monitoring]
+![FraudStream deployable data-platform architecture](images/architecture/data_engineering_architecture.png)
 
-    airflow --> generator
-    airflow --> spark
-    generator --> raw
-    raw --> spark
-    spark --> bronze
-    bronze --> spark
-    spark --> silver
-    silver --> spark
-    spark --> gold
-    airflow --> datahub
-    bronze --> datahub
-    silver --> datahub
-    gold --> datahub
-
-    generator --> kafka
-    kafka --> flink
-    flink --> gold
-
-    gold --> mlflow
-    mlflow --> api
-    api --> monitor
-    gold --> monitor
-```
-
-The intended lakehouse flow is:
+The implemented offline data flow is:
 
 ```text
-raw source data -> Bronze Parquet -> Silver clean tables -> Gold features -> model and monitoring workflows
+raw CSV -> Bronze Parquet -> Silver Parquet -> Gold Parquet -> PostgreSQL serving tables
 ```
+
+The implemented streaming flow is separate:
+
+```text
+JSONL event log -> Kafka -> PyFlink -> derived Kafka topics
+```
+
+The streaming outputs are not yet persisted into the offline Gold or PostgreSQL
+tables. Airflow currently orchestrates the batch path only. DataHub catalogs the
+PostgreSQL schemas and publishes governance metadata for the three batch
+pipelines.
+
+Docker Compose runs Kafka, Kafka UI, PostgreSQL, and Airflow. The generators and
+Spark jobs use the root `uv` project; PyFlink uses the isolated `flink/` project
+on Python 3.12; and DataHub uses the isolated `datahub/` project on Python 3.11
+plus its Docker quickstart services.
 
 ## Data Design
 
@@ -110,7 +98,7 @@ That log can be replayed into Kafka topic `financial_transactions`. Each event k
 ## Repository Structure
 
 ```text
-financial-fraud-detection/
+fraudstream/
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
 ├── configs/generator/        # Generator runtime configs
 ├── data/                     # Generated local data outputs
@@ -361,11 +349,16 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/08_flink_window_processing.md](docs/08_flink_window_processing.md) | Keyed five-minute Flink windows and late-event side outputs |
 | [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) | Airflow DAGs, ingest/validate stages, asset dependencies, shared configuration, and local startup |
 | [docs/10_airflow_workflow_demonstration.md](docs/10_airflow_workflow_demonstration.md) | Airflow UI evidence for the successful Raw, Bronze, Silver, Gold, and offline-feature workflow |
+| [docs/11_data_governance_datahub.md](docs/11_data_governance_datahub.md) | DataHub catalog, batch lineage, validation assertions, and repository-owned data contracts |
+| [docs/12_database_schema.md](docs/12_database_schema.md) | DBeaver diagrams for the physical Bronze, Silver, and Gold PostgreSQL schemas |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
-## Engineering Direction
+## Current Engineering Scope
 
-The offline path runs from raw CSV through Bronze, Silver, and Gold Parquet. The streaming path replays generated events through Kafka and uses Flink for validation, deduplication, event-time features, late-event handling, and fraud alerts.
-
-The long-term platform direction is an end-to-end fraud data system with orchestration, lineage, feature generation, model tracking, scoring, and monitoring built around the generated transaction data.
+The offline path runs from raw CSV through Bronze, Silver, and Gold Parquet,
+with Silver and Gold published to PostgreSQL for serving. The streaming path
+replays generated events through Kafka and uses Flink for validation,
+deduplication, event-time windows, late-event handling, features, and alerts.
+Airflow orchestrates the offline dependencies, while DataHub presents the batch
+catalog, lineage, contract metadata, and validation results.
