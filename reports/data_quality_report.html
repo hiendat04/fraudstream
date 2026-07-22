@@ -1,0 +1,109 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>FraudStream Data Quality Report</title>
+  <style>
+    :root { color-scheme: light dark; --bg:#f5f7fb; --surface:#ffffff; --text:#172033; --muted:#667085; --line:#d9dfeb; --accent:#3157d5; --stream:#e1702c; --soft:#eef2ff; --good:#176b4d; }
+    @media (prefers-color-scheme: dark) { :root { --bg:#111521; --surface:#191f2e; --text:#eef2ff; --muted:#aab4c8; --line:#343d52; --soft:#222b43; --good:#68d4aa; } }
+    * { box-sizing:border-box; }
+    body { margin:0; background:var(--bg); color:var(--text); font-family:Inter,ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif; line-height:1.45; }
+    main { width:min(1180px,calc(100% - 32px)); margin:32px auto 64px; }
+    header { margin-bottom:28px; }
+    h1 { margin:4px 0 6px; font-size:clamp(28px,4vw,44px); letter-spacing:-.03em; }
+    h2 { margin:2px 0 0; font-size:26px; }
+    h3 { margin:0 0 14px; font-size:17px; }
+    p { margin:0; }
+    .eyebrow { color:var(--accent); font-size:12px; font-weight:700; letter-spacing:.09em; text-transform:uppercase; }
+    .subtitle,.hint,.source,small { color:var(--muted); }
+    .subtitle { max-width:760px; }
+    section { margin-top:24px; padding:24px; background:var(--surface); border:1px solid var(--line); border-radius:18px; }
+    .section-heading { display:flex; justify-content:space-between; align-items:flex-start; gap:16px; margin-bottom:20px; }
+    .badge { padding:5px 10px; border-radius:999px; font-size:12px; font-weight:700; white-space:nowrap; }
+    .measured { color:var(--good); background:color-mix(in srgb,var(--good) 12%,transparent); }
+    .configured { color:var(--stream); background:color-mix(in srgb,var(--stream) 12%,transparent); }
+    .metric-grid { display:grid; grid-template-columns:repeat(4,minmax(0,1fr)); gap:12px; margin-bottom:22px; }
+    .metric { padding:16px; background:var(--soft); border-radius:12px; }
+    .metric span,.metric small { display:block; }
+    .metric strong { display:block; margin:5px 0 2px; font-size:24px; letter-spacing:-.02em; }
+    .two-column { display:grid; grid-template-columns:repeat(2,minmax(0,1fr)); gap:26px; margin-top:24px; }
+    table { width:100%; border-collapse:collapse; font-size:14px; }
+    th,td { padding:8px 0; border-bottom:1px solid var(--line); vertical-align:top; }
+    th { width:52%; color:var(--muted); font-weight:500; text-align:left; }
+    td { text-align:right; overflow-wrap:anywhere; }
+    .bar-row { display:grid; grid-template-columns:minmax(110px,1.2fr) minmax(90px,2fr) 64px; gap:10px; align-items:center; margin:10px 0; font-size:14px; }
+    .bar-row small { grid-column:3; text-align:right; }
+    .bar-track { height:10px; overflow:hidden; border-radius:999px; background:var(--line); }
+    .bar-fill { height:100%; border-radius:inherit; background:var(--accent); }
+    .bar-fill.stream { background:var(--stream); }
+    .bar-row strong { text-align:right; font-variant-numeric:tabular-nums; }
+    .rate-row { display:flex; justify-content:space-between; padding:9px 0; border-bottom:1px solid var(--line); }
+    .notice { padding:12px 14px; background:var(--soft); border-left:4px solid var(--stream); }
+    .hint { margin:-8px 0 8px; font-size:12px; }
+    .source { margin-top:22px; font-size:12px; overflow-wrap:anywhere; }
+    code { font-family:"SFMono-Regular",Consolas,monospace; }
+    footer { margin-top:20px; color:var(--muted); font-size:12px; text-align:right; }
+    @media (max-width:760px) { .metric-grid,.two-column { grid-template-columns:1fr 1fr; } .metric-grid { grid-template-columns:1fr 1fr; } }
+    @media (max-width:520px) { main { width:min(100% - 20px,1180px); margin-top:16px; } section { padding:17px; } .metric-grid,.two-column { grid-template-columns:1fr; } .section-heading { align-items:flex-start; } .bar-row { grid-template-columns:100px 1fr 58px; } }
+    @media print { :root { color-scheme:light; } body { background:#fff; } main { width:100%; margin:0; } section { break-inside:avoid; box-shadow:none; } }
+  </style>
+</head>
+<body>
+  <main>
+    <header><span class="eyebrow">FraudStream evidence</span><h1>Generated Data Quality Report</h1><p class="subtitle">Measured offline and streaming characteristics from reproducible generator and Silver evidence artifacts.</p></header>
+    
+    <section>
+      <div class="section-heading">
+        <div><span class="eyebrow">Offline source → Silver</span><h2>Offline data characteristics</h2></div>
+        <span class="badge measured">Measured</span>
+      </div>
+      <div class="metric-grid">
+        <article class="metric"><span>Raw rows</span><strong>510,000</strong><small>Partitioned CSV</small></article>
+        <article class="metric"><span>Dominant city</span><strong>49.76%</strong><small>New York</small></article>
+        <article class="metric"><span>Raw duplicates</span><strong>1.96%</strong><small>10,000 rows</small></article>
+        <article class="metric"><span>After dedup</span><strong>0 retained</strong><small>500,000 Silver rows</small></article>
+      </div>
+      <div class="two-column">
+        <article><h3>Storage and volume</h3><table><tbody><tr><th scope='row'>Raw format</th><td>Partitioned CSV</td></tr><tr><th scope='row'>Raw rows</th><td>510,000</td></tr><tr><th scope='row'>CSV partitions</th><td>180</td></tr><tr><th scope='row'>Raw size on disk</th><td>84.5 MiB</td></tr><tr><th scope='row'>Silver format</th><td>Parquet</td></tr><tr><th scope='row'>Silver rows</th><td>500,000</td></tr><tr><th scope='row'>Silver Parquet files</th><td>1,440</td></tr><tr><th scope='row'>Silver size on disk</th><td>79.3 MiB</td></tr></tbody></table></article>
+        <article><h3>Duplicate handling</h3><table><tbody><tr><th scope='row'>Before Silver</th><td>10,000 / 510,000 (1.96%)</td></tr><tr><th scope='row'>Removed by Silver</th><td>10,000</td></tr><tr><th scope='row'>Retained duplicates</th><td>0 retained</td></tr></tbody></table></article>
+      </div>
+      <div class="two-column">
+        <article><h3>City skew</h3><div class='bar-row'><span>New York</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:49.76%'></div></div><strong>49.76%</strong></div><div class='bar-row'><span>Phoenix</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:4.54%'></div></div><strong>4.54%</strong></div><div class='bar-row'><span>Chicago</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:4.53%'></div></div><strong>4.53%</strong></div><div class='bar-row'><span>Seattle</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:4.52%'></div></div><strong>4.52%</strong></div><div class='bar-row'><span>Los Angeles</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:4.49%'></div></div><strong>4.49%</strong></div></article>
+        <article><h3>Merchant-category skew</h3><div class='bar-row'><span>online_marketplace</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:39.83%'></div></div><strong>39.83%</strong></div><div class='bar-row'><span>healthcare</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:8.96%'></div></div><strong>8.96%</strong></div><div class='bar-row'><span>fuel</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:8.66%'></div></div><strong>8.66%</strong></div><div class='bar-row'><span>electronics</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:8.64%'></div></div><strong>8.64%</strong></div><div class='bar-row'><span>travel</span><div class='bar-track' aria-hidden='true'><div class='bar-fill' style='width:8.63%'></div></div><strong>8.63%</strong></div></article>
+      </div>
+      <div class="two-column">
+        <article><h3>ID cardinality</h3><p class="hint">Generator evidence fields named approx_count_distinct.</p><table><tbody><tr><th scope='row'>transaction_id</th><td>500,000</td></tr><tr><th scope='row'>customer_id</th><td>197,404</td></tr><tr><th scope='row'>account_id</th><td>138,377</td></tr><tr><th scope='row'>merchant_id</th><td>40,000</td></tr><tr><th scope='row'>device_id</th><td>193,863</td></tr></tbody></table></article>
+        <article><h3>Schema evolution</h3><table><tbody><tr><th scope='row'>Change date</th><td>2026-04-01</td></tr><tr><th scope='row'>Old v1 rows</th><td>245,715</td></tr><tr><th scope='row'>New v2 rows</th><td>264,285</td></tr><tr><th scope='row'>Columns absent from v1</th><td>device_id, ip_address, authentication_method, risk_signal_version</td></tr><tr><th scope='row'>Nulls after unification</th><td>245,715 per evolved column</td></tr></tbody></table></article>
+      </div>
+      <div class="two-column">
+        <article><h3>Other source problems</h3><table><tbody><tr><th scope='row'>Late-arrival rate</th><td>4.03%</td></tr><tr><th scope='row'>Missing-value row rate</th><td>1.50%</td></tr><tr><th scope='row'>Inconsistent-format rate</th><td>1.00%</td></tr></tbody></table></article>
+        <article><h3>Generator configuration</h3><table><tbody><tr><th scope='row'>random_seed</th><td>42</td></tr><tr><th scope='row'>n_transactions</th><td>500000</td></tr><tr><th scope='row'>n_customers</th><td>220000</td></tr><tr><th scope='row'>n_accounts</th><td>260000</td></tr><tr><th scope='row'>n_merchants</th><td>40000</td></tr><tr><th scope='row'>skew_city_ratio</th><td>0.5</td></tr><tr><th scope='row'>skew_merchant_category_ratio</th><td>0.4</td></tr><tr><th scope='row'>duplicate_rate</th><td>0.02</td></tr><tr><th scope='row'>late_arrival_rate</th><td>0.04</td></tr><tr><th scope='row'>schema_change_date</th><td>2026-04-01</td></tr></tbody></table></article>
+      </div>
+      <p class="source">Evidence: <code>data/raw_source/offline_transactions/_quality_summary.json</code> · Config: <code>configs/generator/offline_transactions.json</code></p>
+    </section>
+    <section>
+      <div class="section-heading">
+        <div><span class="eyebrow">Streaming source</span><h2>Streaming data characteristics</h2></div>
+        <span class="badge measured">Measured</span>
+      </div>
+      <div class="metric-grid">
+        <article class="metric"><span>Records</span><strong>512,500</strong><small>500,000 base events</small></article>
+        <article class="metric"><span>Burst rate</span><strong>30.01%</strong><small>153,776 events</small></article>
+        <article class="metric"><span>Late rate</span><strong>6.51%</strong><small>33,341 events</small></article>
+        <article class="metric"><span>Duplicate rate</span><strong>2.44%</strong><small>12,500 records</small></article>
+      </div>
+      <div class="two-column">
+        <article><h3>Storage and volume</h3><table><tbody><tr><th scope='row'>Format</th><td>local_jsonl — JSONL Kafka replay source</td></tr><tr><th scope='row'>Kafka topic</th><td>financial_transactions</td></tr><tr><th scope='row'>Partitions</th><td>24</td></tr><tr><th scope='row'>JSONL files</th><td>1</td></tr><tr><th scope='row'>Size on disk</th><td>473.5 MiB</td></tr></tbody></table></article>
+        <article><h3>Measured problem rates</h3><div class='bar-row'><span>Burst events</span><div class='bar-track' aria-hidden='true'><div class='bar-fill stream' style='width:30.01%'></div></div><strong>30.01%</strong><small>153,776</small></div><div class='bar-row'><span>Late events</span><div class='bar-track' aria-hidden='true'><div class='bar-fill stream' style='width:6.51%'></div></div><strong>6.51%</strong><small>33,341</small></div><div class='bar-row'><span>Duplicate records</span><div class='bar-track' aria-hidden='true'><div class='bar-fill stream' style='width:2.44%'></div></div><strong>2.44%</strong><small>12,500</small></div></article>
+      </div>
+      <div class="two-column">
+        <article><h3>Event-time behavior</h3><table><tbody><tr><th scope='row'>Window length</th><td>5 minutes</td></tr><tr><th scope='row'>Distinct windows</th><td>2,151</td></tr><tr><th scope='row'>Maximum records in one window</th><td>3,250</td></tr><tr><th scope='row'>Observed out-of-order events</th><td>66,107</td></tr></tbody></table></article>
+        <article><h3>Generator configuration</h3><table><tbody><tr><th scope='row'>random_seed</th><td>2026</td></tr><tr><th scope='row'>n_events</th><td>500000</td></tr><tr><th scope='row'>n_customers</th><td>220000</td></tr><tr><th scope='row'>n_merchants</th><td>45000</td></tr><tr><th scope='row'>topic</th><td>financial_transactions</td></tr><tr><th scope='row'>n_partitions</th><td>24</td></tr><tr><th scope='row'>window_minutes</th><td>5</td></tr><tr><th scope='row'>burst_window_count</th><td>42</td></tr><tr><th scope='row'>burst_event_ratio</th><td>0.3</td></tr><tr><th scope='row'>late_event_rate</th><td>0.065</td></tr><tr><th scope='row'>out_of_order_rate</th><td>0.055</td></tr><tr><th scope='row'>duplicate_rate</th><td>0.025</td></tr></tbody></table></article>
+      </div>
+      <p class="source">Evidence: <code>data/raw_stream/transactions/_stream_summary.json</code> · Config: <code>configs/generator/streaming_transactions.json</code></p>
+    </section>
+    <footer>Generated 2026-07-22T01:21:32Z</footer>
+  </main>
+</body>
+</html>
