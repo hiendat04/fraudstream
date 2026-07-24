@@ -344,16 +344,15 @@ PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
 
 Open the printed URL while the command is running. The retention option keeps
 the live UI open for five minutes after the final Spark action so there is time
-to inspect and capture screenshots. It does not slow the transformations; it
-only delays `spark.stop()` after processing finishes.
+to inspect. It does not slow the transformations;
 
 The Spark Jobs page uses readable FraudStream groups:
 
-| Layer | What to capture in Spark UI |
-|---|---|
-| Bronze | Raw CSV scans, schema-version unions, source-lineage columns, Parquet partition writes, and duplicate profiling. |
+| Layer | What to notice in Spark UI                                                                                                                           |
+|---|------------------------------------------------------------------------------------------------------------------------------------------------------|
+| Bronze | Raw CSV scans, schema-version unions, source-lineage columns, Parquet partition writes, and duplicate profiling.                                     |
 | Silver | Type cleanup, late-arrival rules, quality classification, the shuffle/sort window used for deterministic deduplication, and quality-evidence writes. |
-| Gold | Daily aggregations, rolling windows, point-in-time feature joins, merchant category broadcast joins, and adaptive skew handling. |
+| Gold | Daily aggregations, rolling windows, point-in-time feature joins, merchant category broadcast joins, and adaptive skew handling.                     |
 
 Use **Jobs** for the named business steps, **SQL/DataFrame** for physical query
 plans, **Stages** for shuffle and task details, and **Storage** for the reused

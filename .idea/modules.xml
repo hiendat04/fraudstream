@@ -3,7 +3,7 @@
   <component name="ProjectModuleManager">
     <modules>
       <module fileurl="file://$PROJECT_DIR$/.idea/financial-fraud-detection.iml" filepath="$PROJECT_DIR$/.idea/financial-fraud-detection.iml" />
-      <module fileurl="file://$PROJECT_DIR$/.idea/financial-fraud-detection@1.iml" filepath="$PROJECT_DIR$/.idea/financial-fraud-detection@1.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream.iml" filepath="$PROJECT_DIR$/.idea/fraudstream.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-datahub.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-datahub.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" />
     </modules>
