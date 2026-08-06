@@ -49,7 +49,7 @@ wheels = [
 
 [[package]]
 name = "apache-flink"
-version = "2.2.1"
+version = "2.1.3"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "apache-beam" },
@@ -69,21 +69,18 @@ dependencies = [
     { name = "requests" },
     { name = "ruamel-yaml" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/e7/68/ebaddf5ed167d67de692aec47ecdbd2b20ce7923ba0191c4cec5e1200e80/apache_flink-2.2.1.tar.gz", hash = "sha256:4f282f520dac147a9cbc92ce0db04544c9731adcce594c1cf6a3ce9d4e737095", size = 1698528, upload-time = "2026-05-15T13:49:38.29Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/23/35011a2bbd1d06606e71e1c92d1bda2a008c23df3c3eb7c3854a1b1e6ccb/apache_flink-2.1.3.tar.gz", hash = "sha256:ca0ed75e1d8cb3671e0a22867430154307aa4c0af1ef077de6e75d779d546d20", size = 1681747, upload-time = "2026-06-12T02:04:14.684Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/b6/b7/8391ab8abe17fc5afdebd57fd568c4d5da9404a35da35b60004030d81a92/apache_flink-2.2.1-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:990e187ecc8061eff81467920fd0cf9d30bb47b1b6c6143b7f8a07cab1a9aa0f", size = 2652797, upload-time = "2026-05-11T10:48:22.196Z" },
-    { url = "https://files.pythonhosted.org/packages/aa/7a/29f860ce38e0e5badf3010f3bdf8d24986e9c7adf88b8aeeece815902afa/apache_flink-2.2.1-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:ee1cc61e0a33fe437c70a0508a4848ac371e3c97f70c4d71871272d712e6469e", size = 2629683, upload-time = "2026-05-11T10:48:25.944Z" },
-    { url = "https://files.pythonhosted.org/packages/d4/bb/c4603c395734edab8ebacc435ea09f50a324900767344a069d9f29a3522b/apache_flink-2.2.1-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:5fab3a13e7cffd63c81af8d8250ac5bdc4418ab7995443aff5695689f37607d5", size = 2868062, upload-time = "2026-05-11T10:48:29.728Z" },
+    { url = "https://files.pythonhosted.org/packages/1e/31/1c9d9be8b497052278f9b06471a26004f1494481f43736367286c1de6bd0/apache_flink-2.1.3-cp312-cp312-macosx_10_9_x86_64.whl", hash = "sha256:601c563f1efd68e830c7e84f39fe59e477b91c1aad17ab92ea970a581c7cdf3b", size = 2627208, upload-time = "2026-06-12T02:02:09.45Z" },
+    { url = "https://files.pythonhosted.org/packages/c3/ae/60c5c382ec7fcafebd51c45162adc5dbca906e9b4a084e81d8ab8d12b9a6/apache_flink-2.1.3-cp312-cp312-macosx_11_0_arm64.whl", hash = "sha256:87030ec32f7edf9c1975ab786b237287cfd687f4fc887dd2bd61ebaad8b76fd0", size = 2606444, upload-time = "2026-06-12T02:02:14.401Z" },
+    { url = "https://files.pythonhosted.org/packages/fa/e2/f314b37fe2d32cb10809a02c6139af9c0b74b3b4778aa871c8cc26c47276/apache_flink-2.1.3-cp312-cp312-manylinux_2_5_x86_64.manylinux1_x86_64.manylinux_2_17_x86_64.manylinux2014_x86_64.whl", hash = "sha256:898f6336008d249557685395d68ceb6bad0858e2f59afa79401b722f5b33f3be", size = 2843111, upload-time = "2026-06-12T02:02:18.401Z" },
 ]
 
 [[package]]
 name = "apache-flink-libraries"
-version = "2.2.1"
+version = "2.1.3"
 source = { registry = "https://pypi.org/simple" }
-sdist = { url = "https://files.pythonhosted.org/packages/b8/2c/14808bef075a611bc0d6ad19bddade9c3375587486236f41cb4cdc87f8d0/apache_flink_libraries-2.2.1.tar.gz", hash = "sha256:eec27ffa86d01184de7f5ab668c479c83cdb75ebc7fba8091307da4f1a9d3348", size = 312504331, upload-time = "2026-05-15T13:49:10.784Z" }
-wheels = [
-    { url = "https://files.pythonhosted.org/packages/5e/92/45c039bbc685a194c61ecccb3367457f855579123c330252c3eda4f90e4c/apache_flink_libraries-2.2.1-py2.py3-none-any.whl", hash = "sha256:74dc5546fbd9add8fbcdf1222a237e09491f9b80296241aef8676ec56f8e686e", size = 312587297, upload-time = "2026-05-15T13:55:02.154Z" },
-]
+sdist = { url = "https://files.pythonhosted.org/packages/d2/2c/101a7adafec66f9a845367023f1be8de13e6439bde1500e2e2be5c25c203/apache_flink_libraries-2.1.3.tar.gz", hash = "sha256:b48d3944755b9303f99d205ea1a9bcb798fc563a872c782393fb466f16d4f91c", size = 310160572, upload-time = "2026-06-12T02:03:49.489Z" }
 
 [[package]]
 name = "attrs"
@@ -212,7 +209,7 @@ dependencies = [
 ]
 
 [package.metadata]
-requires-dist = [{ name = "apache-flink", specifier = "==2.2.1" }]
+requires-dist = [{ name = "apache-flink", specifier = "==2.1.3" }]
 
 [[package]]
 name = "grpcio"

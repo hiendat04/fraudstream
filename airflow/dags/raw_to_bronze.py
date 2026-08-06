@@ -33,6 +33,7 @@ with DAG(
                 """
                 --config "{{ var.value.fraudstream_offline_generator_config }}"
                 --output-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
+                --raw-uri "{{ var.value.fraudstream_raw_uri }}"
                 """,
             ),
         )
@@ -42,7 +43,6 @@ with DAG(
             python_callable=validate_source_manifest,
             op_kwargs={
                 "source_dir": "{{ var.value.fraudstream_raw_transactions_dir }}",
-                "project_root": "{{ var.value.fraudstream_project_root }}",
             },
         )
 
@@ -53,8 +53,10 @@ with DAG(
                 "fraudstream.jobs.bronze.ingest_transactions",
                 """
                 --source-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
+                --source-uri "{{ var.value.fraudstream_raw_uri }}"
                 --output-dir "{{ var.value.fraudstream_bronze_transactions_dir }}"
                 --manifest-path "{{ var.value.fraudstream_raw_transactions_dir }}/_manifest.json"
+                --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --ingest-run-id "{{ run_id }}"
@@ -74,7 +76,8 @@ with DAG(
                 "fraudstream.jobs.bronze.validate_transactions",
                 """
                 --source-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
-                --bronze-dir "{{ var.value.fraudstream_bronze_transactions_dir }}"
+                --source-uri "{{ var.value.fraudstream_raw_uri }}"
+                --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
                 --report-path "{{ var.value.fraudstream_bronze_validation_report }}"
                 """,

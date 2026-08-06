@@ -10,6 +10,7 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import sys
 from dataclasses import dataclass, field
@@ -17,13 +18,14 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from fraudstream import storage
 from fraudstream.jobs.bronze.ingest_transactions import (
     DEFAULT_MASTER,
-    DEFAULT_OUTPUT_DIR,
     DEFAULT_SOURCE_DIR,
+    DEFAULT_SOURCE_URI,
     SCHEMA_VERSION_V1,
     SCHEMA_VERSION_V2,
-    TRANSACTION_FILE_GLOB,
+    TRANSACTION_FILE_SUFFIX,
 )
 from fraudstream.jobs.spark_ui import (
     SparkUIConfig,
@@ -34,6 +36,19 @@ from fraudstream.jobs.spark_ui import (
     retain_spark_ui,
     set_spark_job_group,
     spark_ui_config_from_args,
+)
+from fraudstream.jobs.warehouse import (
+    IcebergCatalogConfig,
+    PostgresJdbcConfig,
+    WarehouseConfig,
+    add_iceberg_arguments,
+    add_postgres_arguments,
+    add_warehouse_arguments,
+    configure_iceberg_catalog,
+    configure_object_storage,
+    iceberg_config_from_args,
+    postgres_config_from_args,
+    warehouse_config_from_args,
 )
 
 
@@ -53,22 +68,34 @@ PARTITION_COLUMNS = ("schema_version", "transaction_date")
 
 @dataclass(frozen=True)
 class BronzeValidationConfig:
-    """Runtime settings for Bronze transaction validation."""
+    """Runtime settings for Bronze transaction validation.
+
+    `source_dir` is local -- it only holds the generator's `_manifest.json`
+    evidence file. The raw CSV partitions themselves live in MinIO under
+    `source_uri`; the no-manifest fallback lists that prefix directly.
+    """
 
     source_dir: Path = DEFAULT_SOURCE_DIR
-    bronze_dir: Path = DEFAULT_OUTPUT_DIR
+    source_uri: str = DEFAULT_SOURCE_URI
     master: str = DEFAULT_MASTER
     report_path: Path | None = None
     spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
+    iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
+    postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
 
     def validate(self) -> None:
         """Raise when the validation inputs are not available."""
 
         if not self.source_dir.exists():
             raise FileNotFoundError(f"source_dir does not exist: {self.source_dir}")
-        if not self.bronze_dir.exists():
-            raise FileNotFoundError(f"bronze_dir does not exist: {self.bronze_dir}")
         self.spark_ui.validate()
+
+    @property
+    def bronze_table(self) -> str:
+        """Return the Iceberg-catalog-qualified name of the Bronze table."""
+
+        return f"{self.iceberg.catalog_name}.bronze.raw_transactions"
 
 
 @dataclass(frozen=True)
@@ -117,10 +144,11 @@ class BronzeValidationStats:
 
 @dataclass(frozen=True)
 class BronzeValidationResult:
-    """Result of comparing raw source files to Bronze Parquet."""
+    """Result of comparing raw source files to the Bronze Iceberg table."""
 
     source_dir: Path
-    bronze_dir: Path
+    source_uri: str
+    bronze_table: str
     passed: bool
     checks: Mapping[str, Any]
     source: SourceValidationStats
@@ -132,7 +160,8 @@ class BronzeValidationResult:
 
         return {
             "source_dir": str(self.source_dir),
-            "bronze_dir": str(self.bronze_dir),
+            "source_uri": self.source_uri,
+            "bronze_table": self.bronze_table,
             "passed": self.passed,
             "checks": dict(self.checks),
             "source": self.source.to_dict(),
@@ -145,10 +174,10 @@ def validate_bronze_transactions(config: BronzeValidationConfig) -> BronzeValida
     """Compare raw source CSV files with Bronze Parquet output."""
 
     config.validate()
-    source_files = _discover_source_files(config.source_dir)
-    source_stats = _collect_source_stats(source_files)
+    source_files = _discover_source_files(config.source_dir, config.source_uri, config.warehouse)
+    source_stats = _collect_source_stats(source_files, config.warehouse)
 
-    spark = _build_spark_session(config.master, config.spark_ui)
+    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
     try:
         announce_spark_ui(spark, config.spark_ui)
         set_spark_job_group(
@@ -156,7 +185,7 @@ def validate_bronze_transactions(config: BronzeValidationConfig) -> BronzeValida
             "bronze-validate-raw-preservation",
             "Bronze validation: reconcile rows, source files, partitions, and raw format problems",
         )
-        bronze_stats = _collect_bronze_stats(spark, config.bronze_dir)
+        bronze_stats = _collect_bronze_stats(spark, config.bronze_table)
         clear_spark_job_group(spark)
         retain_spark_ui(spark, config.spark_ui)
     finally:
@@ -165,7 +194,8 @@ def validate_bronze_transactions(config: BronzeValidationConfig) -> BronzeValida
     checks = _build_validation_checks(source_stats, bronze_stats)
     result = BronzeValidationResult(
         source_dir=config.source_dir,
-        bronze_dir=config.bronze_dir,
+        source_uri=config.source_uri,
+        bronze_table=config.bronze_table,
         passed=_all_checks_passed(checks),
         checks=checks,
         source=source_stats,
@@ -179,62 +209,48 @@ def validate_bronze_transactions(config: BronzeValidationConfig) -> BronzeValida
     return result
 
 
-def _discover_source_files(source_dir: Path) -> tuple[Path, ...]:
-    """Return source CSV files from manifest when available, otherwise glob."""
+def _discover_source_files(source_dir: Path, source_uri: str, warehouse: WarehouseConfig) -> tuple[str, ...]:
+    """Return source CSV file URIs from manifest when available, otherwise list MinIO."""
 
     manifest_path = source_dir / "_manifest.json"
     if manifest_path.exists():
         with manifest_path.open("r", encoding="utf-8") as file:
             manifest = json.load(file)
-        files = tuple(_resolve_source_file(path, source_dir) for path in manifest.get("files", []))
+        files = tuple(manifest.get("files", []))
     else:
-        files = tuple(sorted(source_dir.glob(TRANSACTION_FILE_GLOB)))
+        files = tuple(storage.list_keys(warehouse, source_uri, suffix=TRANSACTION_FILE_SUFFIX))
 
     if not files:
-        raise FileNotFoundError(f"No source CSV files found under {source_dir}")
+        raise FileNotFoundError(f"No source CSV files found under {source_uri}")
 
-    missing_files = [path for path in files if not path.exists()]
+    missing_files = [uri for uri in files if not storage.object_exists(warehouse, uri)]
     if missing_files:
         raise FileNotFoundError(f"Source file does not exist: {missing_files[0]}")
 
     return tuple(sorted(files))
 
 
-def _resolve_source_file(raw_path: str, source_dir: Path) -> Path:
-    """Resolve a manifest file path relative to the validation source directory."""
-
-    path = Path(raw_path)
-    if path.is_absolute() or path.exists():
-        return path
-
-    source_relative_path = source_dir / path
-    if source_relative_path.exists():
-        return source_relative_path
-
-    return path
-
-
-def _collect_source_stats(source_files: Sequence[Path]) -> SourceValidationStats:
-    """Collect row, partition, and raw-quality counts directly from CSV files."""
+def _collect_source_stats(source_files: Sequence[str], warehouse: WarehouseConfig) -> SourceValidationStats:
+    """Collect row, partition, and raw-quality counts directly from CSV files in MinIO."""
 
     row_count = 0
     format_issues = _empty_format_issue_counts()
     partitions: set[tuple[str, str]] = set()
 
-    for path in source_files:
-        schema_version = _extract_partition_value(path, "schema_version")
-        transaction_date = _extract_partition_value(path, "transaction_date")
+    for uri in source_files:
+        schema_version = _extract_partition_value(uri, "schema_version")
+        transaction_date = _extract_partition_value(uri, "transaction_date")
         partitions.add((schema_version, transaction_date))
 
-        with path.open("r", encoding="utf-8", newline="") as file:
-            reader = csv.DictReader(file)
-            if reader.fieldnames is None:
-                raise ValueError(f"Source CSV file is missing a header: {path}")
+        text = storage.get_text(warehouse, uri)
+        reader = csv.DictReader(io.StringIO(text))
+        if reader.fieldnames is None:
+            raise ValueError(f"Source CSV file is missing a header: {uri}")
 
-            has_device_id_column = "device_id" in reader.fieldnames
-            for row in reader:
-                row_count += 1
-                _count_source_format_issues(format_issues, schema_version, has_device_id_column, row)
+        has_device_id_column = "device_id" in reader.fieldnames
+        for row in reader:
+            row_count += 1
+            _count_source_format_issues(format_issues, schema_version, has_device_id_column, row)
 
     return SourceValidationStats(
         row_count=row_count,
@@ -275,12 +291,12 @@ def _count_source_format_issues(
         format_issues["v2_blank_device_id_rows"] += 1
 
 
-def _collect_bronze_stats(spark: Any, bronze_dir: Path) -> BronzeValidationStats:
-    """Collect row, partition, and raw-quality counts from Bronze Parquet."""
+def _collect_bronze_stats(spark: Any, bronze_table: str) -> BronzeValidationStats:
+    """Collect row, partition, and raw-quality counts from the Bronze Iceberg table."""
 
     from pyspark.sql import functions as spark_functions
 
-    bronze_dataframe = spark.read.parquet(str(bronze_dir))
+    bronze_dataframe = spark.table(bronze_table)
     checks = bronze_dataframe.agg(
         spark_functions.count("*").alias("row_count"),
         spark_functions.countDistinct("_source_file_path").alias("distinct_source_file_count"),
@@ -337,9 +353,9 @@ def _collect_bronze_stats(spark: Any, bronze_dir: Path) -> BronzeValidationStats
     format_issues = {name: _safe_int(checks[name]) for name in FORMAT_ISSUE_NAMES}
     return BronzeValidationStats(
         row_count=_safe_int(checks["row_count"]),
-        parquet_data_file_count=_count_bronze_data_files(bronze_dir),
+        parquet_data_file_count=_count_bronze_data_files(spark, bronze_table),
         distinct_source_file_count=_safe_int(checks["distinct_source_file_count"]),
-        partition_count=_count_bronze_partition_dirs(bronze_dir),
+        partition_count=_count_bronze_partition_dirs(spark, bronze_table),
         distinct_schema_date_partition_count=_safe_int(checks["distinct_schema_date_partition_count"]),
         format_issues=format_issues,
     )
@@ -407,28 +423,33 @@ def _empty_format_issue_counts() -> dict[str, int]:
     return {name: 0 for name in FORMAT_ISSUE_NAMES}
 
 
-def _extract_partition_value(path: Path, partition_name: str) -> str:
-    """Extract a partition value such as schema_version from a path."""
+def _extract_partition_value(uri: str, partition_name: str) -> str:
+    """Extract a partition value such as schema_version from a URI."""
 
     prefix = f"{partition_name}="
-    for part in path.parts:
+    for part in uri.split("/"):
         if part.startswith(prefix):
             return part.removeprefix(prefix)
-    raise ValueError(f"Path is missing {partition_name} partition: {path}")
+    raise ValueError(f"URI is missing {partition_name} partition: {uri}")
 
 
-def _count_bronze_data_files(bronze_dir: Path) -> int:
-    """Count physical Bronze Parquet data files."""
+def _count_bronze_data_files(spark: Any, bronze_table: str) -> int:
+    """Count physical Bronze Parquet data files currently live in the Iceberg table.
 
-    return sum(1 for _ in bronze_dir.glob("ingest_date=*/schema_version=*/transaction_date=*/*.parquet"))
+    Iceberg's `<table>.files` metadata table lists one row per data file the
+    current table snapshot references -- this is the Iceberg-native
+    replacement for walking the MinIO partition tree with `pathlib.glob`
+    (which can't address an `s3a://` URI), and it's exact where the older
+    `input_file_name()`-distinct approach was only an approximation.
+    """
+
+    return spark.sql(f"SELECT COUNT(*) AS file_count FROM {bronze_table}.files").first()["file_count"]
 
 
-def _count_bronze_partition_dirs(bronze_dir: Path) -> int:
-    """Count physical Bronze transaction-date partition directories."""
+def _count_bronze_partition_dirs(spark: Any, bronze_table: str) -> int:
+    """Count distinct Bronze partitions using Iceberg's `<table>.partitions` metadata table."""
 
-    return len(
-        {path.parent for path in bronze_dir.glob("ingest_date=*/schema_version=*/transaction_date=*/*.parquet")}
-    )
+    return spark.sql(f"SELECT COUNT(*) AS partition_count FROM {bronze_table}.partitions").first()["partition_count"]
 
 
 def _safe_int(value: Any) -> int:
@@ -437,7 +458,13 @@ def _safe_int(value: Any) -> int:
     return int(value or 0)
 
 
-def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
+def _build_spark_session(
+    master: str,
+    spark_ui: SparkUIConfig | None = None,
+    warehouse: WarehouseConfig | None = None,
+    iceberg: IcebergCatalogConfig | None = None,
+    postgres: PostgresJdbcConfig | None = None,
+) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
     try:
@@ -452,6 +479,8 @@ def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> 
         .master(master)
         .config("spark.sql.shuffle.partitions", "8")
     )
+    builder = configure_object_storage(builder, warehouse or WarehouseConfig())
+    builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
     return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
@@ -467,13 +496,25 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser for Bronze validation."""
 
     parser = argparse.ArgumentParser(
-        description="Validate Bronze transaction Parquet against raw source CSV files."
+        description="Validate the Bronze Iceberg table against raw source CSV files."
     )
-    parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
-    parser.add_argument("--bronze-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        default=DEFAULT_SOURCE_DIR,
+        help="Local directory holding the generator's _manifest.json evidence file.",
+    )
+    parser.add_argument(
+        "--source-uri",
+        default=DEFAULT_SOURCE_URI,
+        help="MinIO location of the raw CSV partitions, used when no manifest is found.",
+    )
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--report-path", type=Path)
     add_spark_ui_arguments(parser)
+    add_warehouse_arguments(parser)
+    add_iceberg_arguments(parser)
+    add_postgres_arguments(parser)
     return parser
 
 
@@ -483,10 +524,13 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = BronzeValidationConfig(
         source_dir=args.source_dir,
-        bronze_dir=args.bronze_dir,
+        source_uri=args.source_uri,
         master=args.master,
         report_path=args.report_path,
         spark_ui=spark_ui_config_from_args(args),
+        warehouse=warehouse_config_from_args(args),
+        iceberg=iceberg_config_from_args(args),
+        postgres=postgres_config_from_args(args),
     )
 
     try:

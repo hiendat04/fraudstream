@@ -11,18 +11,27 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import random
-import shutil
 from collections import Counter
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 from typing import Any, Mapping, Sequence
 
+from fraudstream import storage
+from fraudstream.jobs.warehouse import (
+    WarehouseConfig,
+    add_warehouse_arguments,
+    warehouse_config_from_args,
+)
+
 
 TransactionRow = dict[str, str]
+
+DEFAULT_RAW_URI = "s3a://fraudstream/raw/offline_transactions"
 
 BASE_COLUMNS = [
     "transaction_id",
@@ -212,7 +221,14 @@ class GenerationContext:
 
 @dataclass(frozen=True)
 class OfflineGeneratorConfig:
-    """Validated runtime settings for the offline transaction generator."""
+    """Validated runtime settings for the offline transaction generator.
+
+    `output_dir` is local -- it only holds `_manifest.json` and the
+    `_quality_summary.*` evidence files, the same "local = evidence only"
+    convention every downstream layer's own summary JSON already follows.
+    The generated CSV partitions themselves are the actual raw source data
+    and live in MinIO under `raw_uri` (see `fraudstream.storage`).
+    """
 
     random_seed: int
     n_transactions: int
@@ -229,6 +245,8 @@ class OfflineGeneratorConfig:
     duplicate_rate: float
     schema_change_date: date
     output_dir: Path
+    raw_uri: str = DEFAULT_RAW_URI
+    warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     late_arrival_rate: float = 0.04
     missing_value_rate: float = 0.015
     inconsistent_format_rate: float = 0.01
@@ -258,6 +276,7 @@ class OfflineGeneratorConfig:
             duplicate_rate=float(raw["duplicate_rate"]),
             schema_change_date=date.fromisoformat(raw["schema_change_date"]),
             output_dir=Path(raw["output_dir"]),
+            raw_uri=str(raw.get("raw_uri", DEFAULT_RAW_URI)),
             late_arrival_rate=float(raw.get("late_arrival_rate", 0.04)),
             missing_value_rate=float(raw.get("missing_value_rate", 0.015)),
             inconsistent_format_rate=float(raw.get("inconsistent_format_rate", 0.01)),
@@ -309,6 +328,7 @@ def generate_offline_transactions(config: OfflineGeneratorConfig) -> dict[str, A
     config.validate()
     rng = random.Random(config.random_seed)
     _prepare_output_dir(config.output_dir)
+    storage.delete_prefix(config.warehouse, config.raw_uri)
 
     context = _build_generation_context(config, rng)
     rows = [_generate_transaction(index, config, context, rng) for index in range(config.n_transactions)]
@@ -324,17 +344,19 @@ def generate_offline_transactions(config: OfflineGeneratorConfig) -> dict[str, A
 
 
 def _prepare_output_dir(output_dir: Path) -> None:
-    """Remove prior generator artifacts without deleting unrelated local files."""
+    """Remove prior local evidence artifacts without deleting unrelated local files.
+
+    The raw CSV partitions themselves live in MinIO now (see
+    `storage.delete_prefix(config.warehouse, config.raw_uri)` in
+    `generate_offline_transactions`) -- this only clears the local
+    `_manifest.json` / `_quality_summary.*` evidence files.
+    """
 
     output_dir.mkdir(parents=True, exist_ok=True)
     for artifact in ["_manifest.json", "_quality_summary.json", "_quality_summary.csv"]:
         artifact_path = output_dir / artifact
         if artifact_path.exists():
             artifact_path.unlink()
-
-    for partition_dir in output_dir.glob("schema_version=*"):
-        if partition_dir.is_dir():
-            shutil.rmtree(partition_dir)
 
 
 def _build_generation_context(config: OfflineGeneratorConfig, rng: random.Random) -> GenerationContext:
@@ -651,7 +673,12 @@ def _duplicate_rows(
 
 
 def _write_partitioned_csv(rows: list[TransactionRow], config: OfflineGeneratorConfig) -> list[str]:
-    """Write raw rows partitioned by schema version and transaction date."""
+    """Write raw rows partitioned by schema version and transaction date to MinIO.
+
+    Returns the `s3a://` (or `file://`, in tests) URI of each partition file
+    written, in the same role the old local `Path` strings played -- the
+    manifest stores exactly these URIs for Bronze to read back.
+    """
 
     partitions: dict[tuple[str, str], list[TransactionRow]] = {}
     for row in rows:
@@ -661,15 +688,16 @@ def _write_partitioned_csv(rows: list[TransactionRow], config: OfflineGeneratorC
 
     written_files: list[str] = []
     for (schema_version, event_date), partition_rows in sorted(partitions.items()):
-        partition_dir = config.output_dir / f"schema_version={schema_version}" / f"transaction_date={event_date}"
-        partition_dir.mkdir(parents=True, exist_ok=True)
-        output_path = partition_dir / "transactions.csv"
+        uri = storage.join_uri(
+            config.raw_uri, f"schema_version={schema_version}", f"transaction_date={event_date}", "transactions.csv"
+        )
         columns = EVOLVED_COLUMNS if schema_version == "v2" else BASE_COLUMNS
-        with output_path.open("w", encoding="utf-8", newline="") as file:
-            writer = csv.DictWriter(file, fieldnames=columns, extrasaction="ignore")
-            writer.writeheader()
-            writer.writerows(partition_rows)
-        written_files.append(str(output_path))
+        buffer = io.StringIO()
+        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+        writer.writeheader()
+        writer.writerows(partition_rows)
+        storage.put_text(config.warehouse, uri, buffer.getvalue())
+        written_files.append(uri)
     return written_files
 
 
@@ -714,6 +742,7 @@ def _build_quality_summary(
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "output_dir": str(config.output_dir),
+        "raw_uri": config.raw_uri,
         "data_format": "partitioned_csv",
         "written_file_count": len(written_files),
         "base_row_count": len(base_rows),
@@ -912,8 +941,15 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument(
         "--output-dir",
         type=Path,
-        help="Optional output directory override. Defaults to the value in the config file.",
+        help="Optional local output directory override for manifest/summary evidence files. "
+        "Defaults to the value in the config file.",
     )
+    parser.add_argument(
+        "--raw-uri",
+        help=f"Optional MinIO URI override for the raw CSV partitions. Defaults to {DEFAULT_RAW_URI} "
+        "(or the config file's raw_uri, if set).",
+    )
+    add_warehouse_arguments(parser)
     return parser
 
 
@@ -924,6 +960,9 @@ def main(argv: list[str] | None = None) -> int:
     config = OfflineGeneratorConfig.from_json(args.config)
     if args.output_dir:
         config = replace(config, output_dir=args.output_dir)
+    if args.raw_uri:
+        config = replace(config, raw_uri=args.raw_uri)
+    config = replace(config, warehouse=warehouse_config_from_args(args))
     summary = generate_offline_transactions(config)
     print(json.dumps(summary, indent=2))
     return 0

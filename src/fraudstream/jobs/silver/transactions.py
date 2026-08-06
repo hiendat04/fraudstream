@@ -19,7 +19,6 @@ from typing import Any, Iterable, Sequence
 
 from fraudstream.jobs.bronze.ingest_transactions import (
     DEFAULT_MASTER,
-    DEFAULT_OUTPUT_DIR as DEFAULT_BRONZE_DIR,
     SCHEMA_VERSION_V2,
     SUPPORTED_WRITE_MODES,
 )
@@ -32,6 +31,21 @@ from fraudstream.jobs.spark_ui import (
     retain_spark_ui,
     set_spark_job_group,
     spark_ui_config_from_args,
+)
+from fraudstream.jobs.warehouse import (
+    IcebergCatalogConfig,
+    PostgresJdbcConfig,
+    WarehouseConfig,
+    add_iceberg_arguments,
+    add_postgres_arguments,
+    add_warehouse_arguments,
+    configure_iceberg_catalog,
+    configure_object_storage,
+    iceberg_config_from_args,
+    postgres_config_from_args,
+    warehouse_config_from_args,
+    write_iceberg_table,
+    write_jdbc_table,
 )
 
 
@@ -125,13 +139,16 @@ QUALITY_ISSUE_COLUMNS = [
 class SilverTransactionsConfig:
     """Runtime settings for the Silver transaction build."""
 
-    bronze_dir: Path = DEFAULT_BRONZE_DIR
     output_dir: Path = DEFAULT_OUTPUT_DIR
     quality_output_dir: Path | None = None
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
     spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
+    iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
+    postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
+    write_to_postgres: bool = True
 
     def validate(self) -> None:
         """Raise when the Silver job cannot run with this config."""
@@ -139,8 +156,6 @@ class SilverTransactionsConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
-        if not self.bronze_dir.exists():
-            raise FileNotFoundError(f"bronze_dir does not exist: {self.bronze_dir}")
         self.spark_ui.validate()
 
     @property
@@ -149,12 +164,30 @@ class SilverTransactionsConfig:
 
         return self.quality_output_dir or self.output_dir.parent / QUALITY_OUTPUT_DIR_NAME
 
+    @property
+    def bronze_table(self) -> str:
+        """Return the Iceberg-catalog-qualified name of the Bronze table."""
+
+        return f"{self.iceberg.catalog_name}.bronze.raw_transactions"
+
+    @property
+    def silver_table(self) -> str:
+        """Return the Iceberg-catalog-qualified name of the Silver transactions table."""
+
+        return f"{self.iceberg.catalog_name}.silver.stg_transactions"
+
+    @property
+    def silver_quality_table(self) -> str:
+        """Return the Iceberg-catalog-qualified name of the Silver quality-issues table."""
+
+        return f"{self.iceberg.catalog_name}.silver.stg_transaction_quality_issues"
+
 
 @dataclass(frozen=True)
 class SilverTransactionsResult:
     """Summary of one Silver transaction build."""
 
-    bronze_dir: Path
+    bronze_table: str
     output_dir: Path
     quality_output_dir: Path
     quality_report_path: Path
@@ -176,7 +209,7 @@ class SilverTransactionsResult:
         """Return a JSON-serializable job summary."""
 
         return {
-            "bronze_dir": str(self.bronze_dir),
+            "bronze_table": self.bronze_table,
             "output_dir": str(self.output_dir),
             "quality_output_dir": str(self.quality_output_dir),
             "quality_report_path": str(self.quality_report_path),
@@ -215,12 +248,12 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
     """Read Bronze transactions, deduplicate, and write Silver Parquet."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui)
+    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
     ranked_dataframe = None
     try:
         announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
-        bronze_dataframe = spark.read.parquet(str(config.bronze_dir))
+        bronze_dataframe = spark.table(config.bronze_table)
         cleaned_dataframe = _clean_bronze_transactions(bronze_dataframe, processed_at)
         ranked_dataframe = _persist_for_reuse(_rank_transactions_for_deduplication(cleaned_dataframe))
         silver_dataframe = _select_silver_rows(ranked_dataframe)
@@ -229,15 +262,25 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         set_spark_job_group(
             spark,
             "silver-write-selected-transactions",
-            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows",
+            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows to MinIO + PostgreSQL",
         )
-        _write_silver_parquet(silver_dataframe, config)
+        _write_silver_iceberg(silver_dataframe, config)
+        if config.write_to_postgres:
+            write_jdbc_table(silver_dataframe, "silver.stg_transactions", config.postgres, mode=config.write_mode)
+
         set_spark_job_group(
             spark,
             "silver-write-quality-evidence",
             "Silver: write quarantined, warning, and duplicate-rejected evidence",
         )
-        _write_quality_issue_parquet(quality_issue_dataframe, config)
+        _write_quality_issue_iceberg(quality_issue_dataframe, config)
+        if config.write_to_postgres:
+            write_jdbc_table(
+                quality_issue_dataframe,
+                "silver.stg_transaction_quality_issues",
+                config.postgres,
+                mode=config.write_mode,
+            )
 
         set_spark_job_group(
             spark,
@@ -261,7 +304,13 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         spark.stop()
 
 
-def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
+def _build_spark_session(
+    master: str,
+    spark_ui: SparkUIConfig | None = None,
+    warehouse: WarehouseConfig | None = None,
+    iceberg: IcebergCatalogConfig | None = None,
+    postgres: PostgresJdbcConfig | None = None,
+) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
     try:
@@ -277,6 +326,8 @@ def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> 
         .config("spark.sql.shuffle.partitions", "8")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
     )
+    builder = configure_object_storage(builder, warehouse or WarehouseConfig())
+    builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
     return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
@@ -594,24 +645,16 @@ def _persist_for_reuse(dataframe: Any) -> Any:
     return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
 
 
-def _write_silver_parquet(silver_dataframe: Any, config: SilverTransactionsConfig) -> None:
-    """Write selected Silver rows as partitioned Parquet."""
+def _write_silver_iceberg(silver_dataframe: Any, config: SilverTransactionsConfig) -> None:
+    """Write selected Silver rows into the `silver.stg_transactions` Iceberg table."""
 
-    (
-        silver_dataframe.write.mode(config.write_mode)
-        .partitionBy("event_date")
-        .parquet(str(config.output_dir))
-    )
+    write_iceberg_table(silver_dataframe, config.silver_table, ["event_date"], config.write_mode)
 
 
-def _write_quality_issue_parquet(quality_issue_dataframe: Any, config: SilverTransactionsConfig) -> None:
-    """Write rows needing quality evidence to a separate Parquet table."""
+def _write_quality_issue_iceberg(quality_issue_dataframe: Any, config: SilverTransactionsConfig) -> None:
+    """Write rows needing quality evidence into the `silver.stg_transaction_quality_issues` Iceberg table."""
 
-    (
-        quality_issue_dataframe.write.mode(config.write_mode)
-        .partitionBy("quality_status")
-        .parquet(str(config.resolved_quality_output_dir))
-    )
+    write_iceberg_table(quality_issue_dataframe, config.silver_quality_table, ["quality_status"], config.write_mode)
 
 
 def _build_result(
@@ -625,7 +668,7 @@ def _build_result(
     metrics = _collect_metrics(ranked_dataframe)
 
     return SilverTransactionsResult(
-        bronze_dir=config.bronze_dir,
+        bronze_table=config.bronze_table,
         output_dir=config.output_dir,
         quality_output_dir=config.resolved_quality_output_dir,
         quality_report_path=config.output_dir / QUALITY_REPORT_FILE_NAME,
@@ -711,7 +754,7 @@ def _build_quality_report(ranked_dataframe: Any, result: SilverTransactionsResul
     return {
         "report_version": 1,
         "generated_at": result.completed_at,
-        "bronze_dir": str(result.bronze_dir),
+        "bronze_table": result.bronze_table,
         "silver_output_dir": str(result.output_dir),
         "quality_output_dir": str(result.quality_output_dir),
         "no_silent_drop_policy": (
@@ -823,7 +866,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         description="Build deduplicated Silver transaction Parquet from Bronze."
     )
-    parser.add_argument("--bronze-dir", type=Path, default=DEFAULT_BRONZE_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument(
         "--quality-output-dir",
@@ -834,6 +876,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _silver_processed_at.")
     add_spark_ui_arguments(parser)
+    add_warehouse_arguments(parser)
+    add_iceberg_arguments(parser)
+    add_postgres_arguments(parser)
+    parser.add_argument(
+        "--skip-postgres-write",
+        action="store_true",
+        help="Skip the direct JDBC write to PostgreSQL (useful for local runs without a database).",
+    )
     return parser
 
 
@@ -842,13 +892,16 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     config = SilverTransactionsConfig(
-        bronze_dir=args.bronze_dir,
         output_dir=args.output_dir,
         quality_output_dir=args.quality_output_dir,
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
         spark_ui=spark_ui_config_from_args(args),
+        warehouse=warehouse_config_from_args(args),
+        iceberg=iceberg_config_from_args(args),
+        postgres=postgres_config_from_args(args),
+        write_to_postgres=not args.skip_postgres_write,
     )
     try:
         result = build_silver_transactions(config)

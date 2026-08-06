@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from typing import Any, Mapping
 
+from fraudstream import storage
 from fraudstream.jobs.gold.offline_features import SUMMARY_FILE_NAME as FEATURE_SUMMARY_FILE_NAME
 from fraudstream.jobs.gold.transactions import (
     CORE_GOLD_TABLE_NAMES,
@@ -13,6 +14,7 @@ from fraudstream.jobs.gold.transactions import (
     SUMMARY_FILE_NAME as GOLD_SUMMARY_FILE_NAME,
 )
 from fraudstream.jobs.silver.transactions import SUMMARY_FILE_NAME as SILVER_SUMMARY_FILE_NAME
+from fraudstream.jobs.warehouse import WarehouseConfig
 
 
 class PipelineValidationError(ValueError):
@@ -21,12 +23,20 @@ class PipelineValidationError(ValueError):
 
 def validate_source_manifest(
     source_dir: str | Path,
-    project_root: str | Path,
+    warehouse: WarehouseConfig | None = None,
 ) -> dict[str, int]:
-    """Verify the generated source manifest, files, and row-count evidence."""
+    """Verify the generated source manifest, files, and row-count evidence.
 
+    `files` entries are MinIO URIs (`s3a://...`, or `file://...` in tests) --
+    the generator writes the raw CSV partitions there now. `warehouse`
+    defaults to `WarehouseConfig.from_env()` since this runs as an Airflow
+    `PythonOperator` callable (arguments come from `op_kwargs`, not CLI
+    parsing) inside a container that already has
+    `MINIO_ENDPOINT`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` set.
+    """
+
+    warehouse = warehouse or WarehouseConfig.from_env()
     source_path = Path(source_dir)
-    root_path = Path(project_root)
     manifest = _load_json(source_path / "_manifest.json")
     quality_summary = _load_json(source_path / "_quality_summary.json")
     files = manifest.get("files")
@@ -35,16 +45,14 @@ def validate_source_manifest(
 
     missing_files: list[str] = []
     empty_files: list[str] = []
-    for raw_path in files:
-        if not isinstance(raw_path, str) or not raw_path.strip():
+    for uri in files:
+        if not isinstance(uri, str) or not uri.strip():
             raise PipelineValidationError("source manifest contains an invalid file path")
-        file_path = Path(raw_path)
-        if not file_path.is_absolute():
-            file_path = root_path / file_path
-        if not file_path.is_file():
-            missing_files.append(str(file_path))
-        elif file_path.stat().st_size == 0:
-            empty_files.append(str(file_path))
+        size = storage.object_size_or_none(warehouse, uri)
+        if size is None:
+            missing_files.append(uri)
+        elif size == 0:
+            empty_files.append(uri)
 
     if missing_files:
         raise PipelineValidationError(

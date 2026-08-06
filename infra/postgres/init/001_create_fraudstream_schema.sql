@@ -59,7 +59,7 @@ CREATE TABLE IF NOT EXISTS bronze.raw_transaction_ingest_runs (
     row_count BIGINT NOT NULL DEFAULT 0,
     source_file_count BIGINT NOT NULL DEFAULT 0,
     status TEXT NOT NULL CHECK (status IN ('running', 'success', 'failed')),
-    summary_json JSONB NOT NULL DEFAULT '{}'::JSONB,
+    summary_json TEXT NOT NULL DEFAULT '{}',
     created_at TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 

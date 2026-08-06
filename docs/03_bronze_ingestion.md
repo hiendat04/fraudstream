@@ -2,8 +2,10 @@
 
 This document defines the Bronze transaction table for the offline Spark path.
 Bronze is the first lakehouse layer after raw source files. Its job is to
-preserve source behavior, add ingestion metadata, and write queryable Parquet
-without cleaning business values.
+preserve source behavior, add ingestion metadata, and write a queryable
+Iceberg table without cleaning business values. See
+[docs/15_lakehouse_iceberg.md](15_lakehouse_iceberg.md) for the shared
+Iceberg catalog design; this document covers Bronze's own schema and rules.
 
 ## Core Principle
 
@@ -24,10 +26,10 @@ changes belong in Silver. This means Bronze intentionally keeps:
 
 ## Source Input
 
-Default raw source path:
+Raw CSV partitions live in MinIO, under the default `raw_uri`:
 
 ```text
-data/raw_source/offline_transactions/
+s3a://fraudstream/raw/offline_transactions/
 ```
 
 Source layout:
@@ -37,8 +39,11 @@ schema_version=v1/transaction_date=YYYY-MM-DD/transactions.csv
 schema_version=v2/transaction_date=YYYY-MM-DD/transactions.csv
 ```
 
-The Bronze Spark job should read `_manifest.json` for file discovery when
-possible. The manifest records the generated files and source generation config.
+The Bronze Spark job reads the local `_manifest.json` (under `--source-dir`,
+default `data/raw_source/offline_transactions/`) for file discovery when
+possible -- the manifest's `files` list holds the MinIO URI of every source
+partition. When no manifest is present, the job falls back to listing
+`--source-uri` in MinIO directly.
 
 ## Target Table
 
@@ -48,23 +53,25 @@ Recommended table name:
 bronze.raw_transactions
 ```
 
-Recommended local output path:
+Iceberg table (data in MinIO, catalog metadata in PostgreSQL):
+
+```text
+iceberg.bronze.raw_transactions
+```
+
+Physical Parquet data files live under the same MinIO location as before
+(`s3a://fraudstream/warehouse/bronze/raw_transactions/`), but Iceberg manages
+that layout -- read/write through the table name above, not the raw path.
+
+Local output path (job summary JSON evidence only, not the table itself):
 
 ```text
 data/bronze/raw_transactions/
 ```
 
-Future object-storage path:
-
-```text
-s3a://fraudstream/bronze/raw_transactions/
-```
-
-Recommended storage format:
-
-```text
-Parquet
-```
+The ingestion job also writes `bronze.raw_transaction_ingest_runs` and
+`bronze.raw_transactions` directly to PostgreSQL over JDBC after the Iceberg
+write, using the same Spark session (see "Run Bronze Ingestion" below).
 
 ## Local Spark Setup
 
@@ -113,14 +120,21 @@ Generate the raw offline source files first:
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions
 ```
 
-Then ingest the raw CSV partitions into Bronze Parquet:
+Start MinIO and PostgreSQL first (see the README Quick Start), then ingest the
+raw CSV partitions into the `iceberg.bronze.raw_transactions` table in MinIO
+and write the ingest-run and raw-transaction tables directly to PostgreSQL:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
   --source-dir data/raw_source/offline_transactions \
+  --source-uri s3a://fraudstream/raw/offline_transactions \
   --output-dir data/bronze/raw_transactions \
+  --warehouse-uri s3a://fraudstream/warehouse \
   --write-mode overwrite
 ```
+
+Add `--skip-postgres-write` to build the Iceberg table only, for example when
+PostgreSQL is not running locally.
 
 To capture this ingestion in Spark UI, add the observation flags:
 
@@ -149,11 +163,15 @@ Default output:
 
 ```text
 data/bronze/raw_transactions/
-|-- _bronze_ingestion_summary.json
-`-- ingest_date=YYYY-MM-DD/
-    `-- schema_version=v1|v2/
-        `-- transaction_date=YYYY-MM-DD/
-            `-- part-*.parquet
+`-- _bronze_ingestion_summary.json
+
+Iceberg table iceberg.bronze.raw_transactions (data files under
+s3a://fraudstream/warehouse/bronze/raw_transactions/, managed by Iceberg,
+partitioned by ingest_date, schema_version, transaction_date)
+
+PostgreSQL:
+bronze.raw_transaction_ingest_runs (one row per ingestion run)
+bronze.raw_transactions            (one row per raw source record)
 ```
 
 Use `overwrite` for local regeneration and `append` when preserving multiple
@@ -167,12 +185,13 @@ PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
 ## Validate Bronze Output
 
 Run the validator after ingestion to compare the raw source files with the
-Bronze Parquet output:
+Bronze Iceberg table:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.bronze.validate_transactions \
   --source-dir data/raw_source/offline_transactions \
-  --bronze-dir data/bronze/raw_transactions \
+  --source-uri s3a://fraudstream/raw/offline_transactions \
+  --warehouse-uri s3a://fraudstream/warehouse \
   --report-path data/bronze/raw_transactions/_bronze_validation_summary.json
 ```
 
@@ -182,7 +201,7 @@ the Spark-side reconciliation query in the live UI.
 The validator prints a JSON report and exits with a non-zero status when a
 check fails. It compares:
 
-- source CSV row count against Bronze Parquet row count
+- source CSV row count against Bronze Iceberg table row count
 - source CSV file count against distinct `_source_file_path` values in Bronze
 - source partition count against Bronze `schema_version` and `transaction_date`
   coverage
@@ -271,7 +290,7 @@ Bronze should use low-cardinality, source-aligned partitions:
 Recommended layout:
 
 ```text
-data/bronze/raw_transactions/
+s3a://fraudstream/warehouse/bronze/raw_transactions/
 `-- ingest_date=YYYY-MM-DD/
     `-- schema_version=v1/
         `-- transaction_date=YYYY-MM-DD/
@@ -285,10 +304,12 @@ not from cleaned business logic.
 
 The first Spark implementation should use an explicit schema and disable schema
 inference. This keeps the Bronze contract stable even when source values are
-messy.
+messy. The actual table is created via `write_iceberg_table(...)`
+(`createOrReplace()`), which is equivalent to this DDL run against the
+`iceberg` catalog:
 
 ```sql
-CREATE TABLE IF NOT EXISTS bronze.raw_transactions (
+CREATE TABLE IF NOT EXISTS iceberg.bronze.raw_transactions (
   transaction_id STRING,
   account_id STRING,
   customer_id STRING,
@@ -321,7 +342,7 @@ CREATE TABLE IF NOT EXISTS bronze.raw_transactions (
   schema_version STRING,
   transaction_date STRING
 )
-USING PARQUET
+USING iceberg
 PARTITIONED BY (ingest_date, schema_version, transaction_date);
 ```
 

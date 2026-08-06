@@ -18,6 +18,7 @@ class OfflineTransactionGeneratorTest(TestCase):
 
         with TemporaryDirectory() as tmp_dir:
             output_dir = Path(tmp_dir) / "offline_transactions"
+            raw_dir = Path(tmp_dir) / "raw"
             config = OfflineGeneratorConfig(
                 random_seed=7,
                 n_transactions=500,
@@ -39,6 +40,7 @@ class OfflineTransactionGeneratorTest(TestCase):
                 fraud_ring_count=3,
                 schema_change_date=date(2026, 1, 10),
                 output_dir=output_dir,
+                raw_uri=f"file://{raw_dir}",
             )
 
             summary = generate_offline_transactions(config)
@@ -57,8 +59,8 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertGreater(summary["schema_evolution"]["new_partition_row_count"], 0)
             self.assertTrue((config.output_dir / "_manifest.json").exists())
             self.assertTrue((config.output_dir / "_quality_summary.json").exists())
-            self.assertTrue(any(config.output_dir.glob("schema_version=v1/transaction_date=*/transactions.csv")))
-            self.assertTrue(any(config.output_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
+            self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv")))
+            self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
 
 
 if __name__ == "__main__":

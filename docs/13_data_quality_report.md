@@ -62,7 +62,7 @@ Use `--top-n 3` to limit the displayed city and merchant-category distributions.
 | Dataset | Stored data | Default volume | Evidence read by the report |
 |---|---|---:|---|
 | Offline source | CSV partitioned by schema version and transaction date | 500,000 base rows plus 2% duplicates | `_quality_summary.json` |
-| Silver offline | Parquet partitioned by event date | One selected row per transaction ID | `_silver_transactions_summary.json` |
+| Silver offline | Iceberg table partitioned by event date | One selected row per transaction ID | `_silver_transactions_summary.json` |
 | Streaming source | JSONL Kafka-replay log | 500,000 base events plus 2.5% duplicates | `_stream_summary.json` |
 
 The offline section shows measured city/category skew, ID cardinality, old-schema

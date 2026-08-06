@@ -33,32 +33,36 @@ bronze.raw_transactions
 Target table:
 
 ```text
-silver.transactions
+iceberg.silver.stg_transactions
 ```
 
 Quality evidence table:
 
 ```text
-silver.transaction_quality_issues
+iceberg.silver.stg_transaction_quality_issues
 ```
 
-Recommended local output path:
+See [docs/15_lakehouse_iceberg.md](15_lakehouse_iceberg.md) for the shared
+Iceberg catalog design. Physical Parquet data files live under the same MinIO
+location as before, managed by Iceberg:
+
+```text
+s3a://fraudstream/warehouse/silver/transactions/
+s3a://fraudstream/warehouse/silver/transaction_quality_issues/
+```
+
+Local output path (job summary and quality-report JSON evidence only, not the
+tables themselves):
 
 ```text
 data/silver/transactions/
-```
-
-Recommended local quality evidence path:
-
-```text
 data/silver/transaction_quality_issues/
 ```
 
-Recommended storage format:
-
-```text
-Parquet
-```
+The job also writes `silver.stg_transactions` and
+`silver.stg_transaction_quality_issues` directly to PostgreSQL over JDBC after
+the Iceberg write, using the same Spark session -- the same table names, just
+one destination is the shared Iceberg catalog and the other is PostgreSQL.
 
 Recommended partition column:
 
@@ -78,22 +82,24 @@ Build Bronze first:
 PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions
 ```
 
-Then build deduplicated Silver transactions:
+Then build deduplicated Silver transactions, reading Bronze from the Iceberg
+catalog and writing the Silver Iceberg tables plus its PostgreSQL tables
+directly:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
-  --bronze-dir data/bronze/raw_transactions \
   --output-dir data/silver/transactions \
   --quality-output-dir data/silver/transaction_quality_issues \
   --write-mode overwrite
 ```
+
+Add `--skip-postgres-write` to build the Iceberg tables only.
 
 For a live view of the cleanup and deduplication plan, enable Spark UI and keep
 it open briefly after the job finishes:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
-  --bronze-dir data/bronze/raw_transactions \
   --output-dir data/silver/transactions \
   --quality-output-dir data/silver/transaction_quality_issues \
   --write-mode overwrite \
@@ -104,7 +110,7 @@ PYTHONPATH=src python -m fraudstream.jobs.silver.transactions \
 Open the printed URL, normally `http://localhost:4040`. In **Jobs**, select
 `Silver: clean types, detect late arrivals, rank duplicates, and write selected
 rows`; then use **SQL/DataFrame** and **Stages** to inspect the projection,
-window sort, transaction-ID shuffle, and Parquet write. The separate quality
+window sort, transaction-ID shuffle, and Iceberg write. The separate quality
 jobs show how warning, quarantined, and duplicate-rejected rows are measured and
 written without hiding them.
 
@@ -117,12 +123,17 @@ Default output:
 data/silver/
 |-- transactions/
 |   |-- _silver_transactions_summary.json
-|   |-- _silver_quality_report.json
-|   `-- event_date=YYYY-MM-DD/
-|       `-- part-*.parquet
+|   `-- _silver_quality_report.json
 `-- transaction_quality_issues/
-    `-- quality_status=valid|warning|quarantined/
-        `-- part-*.parquet
+
+Iceberg tables (data files under s3a://fraudstream/warehouse/silver/,
+managed by Iceberg):
+iceberg.silver.stg_transactions             (partitioned by event_date)
+iceberg.silver.stg_transaction_quality_issues (partitioned by quality_status)
+
+PostgreSQL:
+silver.stg_transactions
+silver.stg_transaction_quality_issues
 ```
 
 The job writes one selected non-quarantined row per `transaction_id`. It also
@@ -306,7 +317,7 @@ disappear silently.
 ## Spark Table Definition
 
 ```sql
-CREATE TABLE IF NOT EXISTS silver.transactions (
+CREATE TABLE IF NOT EXISTS iceberg.silver.stg_transactions (
   transaction_id STRING NOT NULL,
   account_id STRING NOT NULL,
   customer_id STRING NOT NULL,
@@ -336,7 +347,7 @@ CREATE TABLE IF NOT EXISTS silver.transactions (
   _silver_processed_at TIMESTAMP NOT NULL,
   event_date DATE NOT NULL
 )
-USING PARQUET
+USING iceberg
 PARTITIONED BY (event_date);
 ```
 

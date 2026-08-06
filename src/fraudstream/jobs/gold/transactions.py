@@ -11,8 +11,6 @@ from pathlib import Path
 from typing import Any, Sequence
 
 from fraudstream.jobs.bronze.ingest_transactions import DEFAULT_MASTER, SUPPORTED_WRITE_MODES
-from fraudstream.jobs.postgres.publish import GOLD_TABLE_COLUMNS
-from fraudstream.jobs.silver.transactions import DEFAULT_OUTPUT_DIR as DEFAULT_SILVER_DIR
 from fraudstream.jobs.spark_ui import (
     SparkUIConfig,
     add_spark_ui_arguments,
@@ -22,6 +20,22 @@ from fraudstream.jobs.spark_ui import (
     retain_spark_ui,
     set_spark_job_group,
     spark_ui_config_from_args,
+)
+from fraudstream.jobs.warehouse import (
+    IcebergCatalogConfig,
+    PostgresJdbcConfig,
+    WarehouseConfig,
+    add_iceberg_arguments,
+    add_postgres_arguments,
+    add_warehouse_arguments,
+    configure_iceberg_catalog,
+    configure_object_storage,
+    iceberg_config_from_args,
+    postgres_config_from_args,
+    truncate_tables_cascade,
+    warehouse_config_from_args,
+    write_iceberg_table,
+    write_jdbc_table,
 )
 
 
@@ -72,18 +86,351 @@ QUALITY_ISSUE_DEFINITIONS = (
     ("missing_evolved_value", "warning", "silver", "A schema-evolved field is missing on a row where it is expected."),
 )
 
+# Documented Gold column contract for each table -- the projection used before
+# every Parquet write and the column list used for the matching PostgreSQL
+# JDBC write, so both destinations always agree on schema.
+GOLD_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
+    "dim_date": (
+        "date_key",
+        "event_date",
+        "year",
+        "quarter",
+        "month",
+        "month_name",
+        "day_of_month",
+        "day_of_week",
+        "day_name",
+        "week_start_date",
+        "month_start_date",
+        "is_weekend",
+    ),
+    "dim_city": (
+        "city_key",
+        "city",
+        "state_code",
+        "country_code",
+        "_gold_processed_at",
+    ),
+    "dim_channel": (
+        "channel_key",
+        "channel",
+        "channel_group",
+        "is_digital",
+        "is_card_present",
+        "description",
+        "_gold_processed_at",
+    ),
+    "dim_quality_issue": (
+        "quality_issue_code",
+        "severity",
+        "layer_origin",
+        "description",
+        "_gold_processed_at",
+    ),
+    "dim_merchant_category": (
+        "merchant_category_key",
+        "merchant_category",
+        "category_group",
+        "description",
+        "_gold_processed_at",
+    ),
+    "dim_customer": (
+        "customer_key",
+        "customer_id",
+        "first_seen_at",
+        "last_seen_at",
+        "first_event_date",
+        "last_event_date",
+        "primary_city_key",
+        "primary_city",
+        "account_count",
+        "lifetime_transaction_count",
+        "lifetime_amount",
+        "average_transaction_amount",
+        "fraud_transaction_count",
+        "fraud_rate",
+        "warning_transaction_count",
+        "valid_from_ts",
+        "valid_to_ts",
+        "is_current",
+        "_gold_processed_at",
+    ),
+    "dim_account": (
+        "account_key",
+        "account_id",
+        "customer_key",
+        "customer_id",
+        "customer_count",
+        "first_seen_at",
+        "last_seen_at",
+        "transaction_count",
+        "lifetime_amount",
+        "distinct_merchant_count",
+        "fraud_transaction_count",
+        "warning_transaction_count",
+        "valid_from_ts",
+        "valid_to_ts",
+        "is_current",
+        "_gold_processed_at",
+    ),
+    "dim_merchant": (
+        "merchant_key",
+        "merchant_dim_id",
+        "merchant_id",
+        "merchant_category_key",
+        "merchant_category",
+        "primary_city_key",
+        "primary_city",
+        "first_seen_at",
+        "last_seen_at",
+        "transaction_count",
+        "distinct_customer_count",
+        "lifetime_amount",
+        "average_transaction_amount",
+        "fraud_transaction_count",
+        "fraud_rate",
+        "warning_transaction_count",
+        "valid_from_ts",
+        "valid_to_ts",
+        "is_current",
+        "_gold_processed_at",
+    ),
+    "fact_transactions": (
+        "transaction_id",
+        "event_time",
+        "event_date",
+        "date_key",
+        "customer_key",
+        "customer_id",
+        "account_key",
+        "account_id",
+        "merchant_key",
+        "merchant_dim_id",
+        "merchant_id",
+        "merchant_category_key",
+        "merchant_category",
+        "city_key",
+        "city",
+        "channel_key",
+        "channel",
+        "transaction_status",
+        "currency",
+        "amount",
+        "transaction_count",
+        "is_approved",
+        "is_declined",
+        "is_reversed",
+        "is_fraud",
+        "source_created_at",
+        "arrival_delay_minutes",
+        "quality_status",
+        "quality_issue_codes",
+        "quality_issue_count",
+        "duplicate_record_count",
+        "_bronze_raw_record_hash",
+        "_silver_processed_at",
+        "_gold_processed_at",
+    ),
+    "fact_transaction_quality_issue": (
+        "transaction_id",
+        "quality_issue_code",
+        "issue_position",
+        "_gold_processed_at",
+    ),
+    "fact_customer_daily": (
+        "customer_key",
+        "customer_id",
+        "date_key",
+        "feature_date",
+        "txn_count_1d",
+        "approved_txn_count_1d",
+        "declined_txn_count_1d",
+        "reversed_txn_count_1d",
+        "amount_sum_1d",
+        "amount_avg_1d",
+        "amount_max_1d",
+        "distinct_merchant_count_1d",
+        "distinct_city_count_1d",
+        "online_txn_count_1d",
+        "card_present_txn_count_1d",
+        "fraud_txn_count_1d",
+        "warning_txn_count_1d",
+        "late_arrival_txn_count_1d",
+        "_gold_processed_at",
+    ),
+    "fact_account_daily": (
+        "account_key",
+        "account_id",
+        "customer_key",
+        "customer_id",
+        "date_key",
+        "feature_date",
+        "txn_count_1d",
+        "amount_sum_1d",
+        "amount_max_1d",
+        "distinct_merchant_count_1d",
+        "distinct_city_count_1d",
+        "declined_txn_count_1d",
+        "fraud_txn_count_1d",
+        "_gold_processed_at",
+    ),
+    "fact_merchant_daily": (
+        "merchant_key",
+        "merchant_dim_id",
+        "date_key",
+        "feature_date",
+        "merchant_category",
+        "txn_count_1d",
+        "amount_sum_1d",
+        "amount_avg_1d",
+        "distinct_customer_count_1d",
+        "declined_txn_count_1d",
+        "fraud_txn_count_1d",
+        "fraud_rate_1d",
+        "warning_txn_count_1d",
+        "_gold_processed_at",
+    ),
+    "fact_city_category_daily": (
+        "city_key",
+        "merchant_category_key",
+        "city",
+        "merchant_category",
+        "date_key",
+        "feature_date",
+        "txn_count_1d",
+        "amount_sum_1d",
+        "distinct_customer_count_1d",
+        "distinct_merchant_count_1d",
+        "fraud_txn_count_1d",
+        "fraud_rate_1d",
+        "_gold_processed_at",
+    ),
+    "fact_device_ip_daily": (
+        "network_identifier",
+        "identifier_type",
+        "date_key",
+        "feature_date",
+        "txn_count_1d",
+        "distinct_customer_count_1d",
+        "distinct_account_count_1d",
+        "distinct_merchant_count_1d",
+        "fraud_txn_count_1d",
+        "warning_txn_count_1d",
+        "_gold_processed_at",
+    ),
+    "feat_customer_rolling": (
+        "customer_key",
+        "customer_id",
+        "event_timestamp",
+        "created",
+        "feature_date",
+        "window_start_date",
+        "window_end_date",
+        "txn_count_7d",
+        "txn_count_30d",
+        "amount_sum_7d",
+        "amount_sum_30d",
+        "amount_avg_7d",
+        "amount_avg_30d",
+        "distinct_merchant_count_7d",
+        "distinct_merchant_count_30d",
+        "declined_txn_count_7d",
+        "fraud_txn_count_30d",
+        "_gold_processed_at",
+    ),
+    "feat_customer_total_orders_90d": (
+        "customer_key",
+        "customer_id",
+        "event_timestamp",
+        "created",
+        "total_orders_90d",
+        "feature_window_start_ts",
+        "feature_window_end_ts",
+        "_gold_processed_at",
+    ),
+    "feat_merchant_risk_rolling": (
+        "merchant_key",
+        "merchant_dim_id",
+        "merchant_category",
+        "event_timestamp",
+        "created",
+        "feature_date",
+        "window_start_date",
+        "window_end_date",
+        "baseline_window_start_date",
+        "baseline_window_end_date",
+        "merchant_txn_count_1d",
+        "merchant_txn_count_7d",
+        "merchant_txn_count_30d",
+        "merchant_txn_count_prior_30d",
+        "merchant_amount_sum_1d",
+        "merchant_amount_sum_7d",
+        "merchant_amount_sum_30d",
+        "merchant_amount_avg_30d",
+        "merchant_distinct_customer_count_1d",
+        "merchant_declined_txn_count_1d",
+        "merchant_fraud_rate_1d",
+        "merchant_fraud_txn_count_30d",
+        "merchant_prior_fraud_rate_30d",
+        "merchant_burst_ratio_1d_to_prior_30d",
+        "merchant_category_txn_count_1d",
+        "merchant_category_txn_count_30d",
+        "merchant_category_amount_avg_30d",
+        "merchant_category_prior_fraud_rate_30d",
+        "merchant_vs_category_amount_ratio_30d",
+        "_gold_processed_at",
+    ),
+    "feat_transaction_training": (
+        "transaction_id",
+        "event_timestamp",
+        "created",
+        "customer_key",
+        "account_key",
+        "merchant_key",
+        "date_key",
+        "amount",
+        "channel",
+        "transaction_status",
+        "customer_txn_count_7d",
+        "customer_amount_sum_30d",
+        "customer_distinct_merchant_count_7d",
+        "account_txn_count_1d",
+        "account_amount_sum_1d",
+        "merchant_feature_available",
+        "merchant_txn_count_1d",
+        "merchant_txn_count_7d",
+        "merchant_txn_count_30d",
+        "merchant_fraud_rate_1d",
+        "merchant_prior_fraud_rate_30d",
+        "merchant_burst_ratio_1d_to_prior_30d",
+        "merchant_category_txn_count_1d",
+        "merchant_category_prior_fraud_rate_30d",
+        "merchant_vs_category_amount_ratio_30d",
+        "device_distinct_customer_count_1d",
+        "ip_distinct_account_count_1d",
+        "quality_issue_count",
+        "duplicate_record_count",
+        "arrival_delay_minutes",
+        "is_fraud",
+        "_gold_processed_at",
+    ),
+}
+
 
 @dataclass(frozen=True)
 class GoldTransactionsConfig:
     """Runtime settings for the Gold transaction build."""
 
-    silver_dir: Path = DEFAULT_SILVER_DIR
     output_dir: Path = DEFAULT_OUTPUT_DIR
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
     include_features: bool = True
     spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
+    iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
+    postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
+    write_to_postgres: bool = True
 
     def validate(self) -> None:
         """Raise when the Gold build cannot run with this config."""
@@ -91,9 +438,18 @@ class GoldTransactionsConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
-        if not self.silver_dir.exists():
-            raise FileNotFoundError(f"silver_dir does not exist: {self.silver_dir}")
         self.spark_ui.validate()
+
+    @property
+    def silver_table(self) -> str:
+        """Return the Iceberg-catalog-qualified name of the Silver transactions table."""
+
+        return f"{self.iceberg.catalog_name}.silver.stg_transactions"
+
+    def gold_table_name(self, table_name: str) -> str:
+        """Return the Iceberg-catalog-qualified name of one Gold table."""
+
+        return f"{self.iceberg.catalog_name}.gold.{table_name}"
 
 
 @dataclass(frozen=True)
@@ -101,7 +457,7 @@ class GoldTableResult:
     """Row count for one Gold output table."""
 
     table_name: str
-    output_path: Path
+    iceberg_table: str
     row_count: int
 
     def to_dict(self) -> dict[str, Any]:
@@ -109,7 +465,7 @@ class GoldTableResult:
 
         return {
             "table_name": self.table_name,
-            "output_path": str(self.output_path),
+            "iceberg_table": self.iceberg_table,
             "row_count": self.row_count,
         }
 
@@ -118,7 +474,7 @@ class GoldTableResult:
 class GoldTransactionsResult:
     """Summary of one Gold transaction build."""
 
-    silver_dir: Path
+    silver_table: str
     output_dir: Path
     write_mode: str
     build_scope: str
@@ -140,7 +496,7 @@ class GoldTransactionsResult:
         """Return a JSON-serializable job summary."""
 
         return {
-            "silver_dir": str(self.silver_dir),
+            "silver_table": self.silver_table,
             "output_dir": str(self.output_dir),
             "write_mode": self.write_mode,
             "build_scope": self.build_scope,
@@ -181,12 +537,12 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
     """Build core Gold tables and, when requested, offline feature tables."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui)
+    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
     persisted_frames: list[Any] = []
     try:
         announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
-        silver_dataframe = _prepare_silver_dataframe(spark.read.parquet(str(config.silver_dir)))
+        silver_dataframe = _prepare_silver_dataframe(spark.table(config.silver_table))
         frames = _build_gold_frames(
             spark,
             silver_dataframe,
@@ -212,7 +568,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
 
         table_results = _write_gold_tables(frames, config)
         result = GoldTransactionsResult(
-            silver_dir=config.silver_dir,
+            silver_table=config.silver_table,
             output_dir=config.output_dir,
             write_mode=config.write_mode,
             build_scope="all" if config.include_features else "core",
@@ -231,7 +587,13 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
         spark.stop()
 
 
-def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
+def _build_spark_session(
+    master: str,
+    spark_ui: SparkUIConfig | None = None,
+    warehouse: WarehouseConfig | None = None,
+    iceberg: IcebergCatalogConfig | None = None,
+    postgres: PostgresJdbcConfig | None = None,
+) -> Any:
     """Create a Spark session for Gold processing."""
 
     try:
@@ -250,6 +612,8 @@ def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> 
         .config("spark.sql.adaptive.enabled", "true")
         .config("spark.sql.adaptive.skewJoin.enabled", "true")
     )
+    builder = configure_object_storage(builder, warehouse or WarehouseConfig())
+    builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
     return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
@@ -1312,21 +1676,27 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
             ]
         )
 
+    if config.write_to_postgres and config.write_mode == "overwrite":
+        spark = table_writes[0][1].sparkSession
+        truncate_tables_cascade(spark, [f"gold.{name}" for name, _, _ in table_writes], config.postgres)
+
     results: list[GoldTableResult] = []
     for table_name, dataframe, partition_columns in table_writes:
-        output_path = config.output_dir / table_name
+        iceberg_table = config.gold_table_name(table_name)
         selected_dataframe = _select_gold_columns(dataframe, table_name)
         set_spark_job_group(
             selected_dataframe.sparkSession,
             f"gold-build-{table_name}",
-            f"Gold: materialize and write {table_name}",
+            f"Gold: materialize and write {table_name} to MinIO + PostgreSQL",
         )
         row_count = selected_dataframe.count()
-        writer = selected_dataframe.write.mode(config.write_mode)
-        if partition_columns:
-            writer = writer.partitionBy(*partition_columns)
-        writer.parquet(str(output_path))
-        results.append(GoldTableResult(table_name=table_name, output_path=output_path, row_count=row_count))
+        write_iceberg_table(selected_dataframe, iceberg_table, partition_columns, config.write_mode)
+        if config.write_to_postgres:
+            # The cascade truncate above already cleared every gold table together
+            # (foreign keys span dims -> facts -> daily aggregates -> features), so
+            # each table is appended here in that same dependency-respecting order.
+            write_jdbc_table(selected_dataframe, f"gold.{table_name}", config.postgres, mode="append")
+        results.append(GoldTableResult(table_name=table_name, iceberg_table=iceberg_table, row_count=row_count))
     return results
 
 
@@ -1371,7 +1741,6 @@ def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser for Gold transactions."""
 
     parser = argparse.ArgumentParser(description="Build Gold transaction Parquet tables from Silver.")
-    parser.add_argument("--silver-dir", type=Path, default=DEFAULT_SILVER_DIR)
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
@@ -1382,6 +1751,14 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build dimensions, facts, and daily aggregates without offline feature tables.",
     )
     add_spark_ui_arguments(parser)
+    add_warehouse_arguments(parser)
+    add_iceberg_arguments(parser)
+    add_postgres_arguments(parser)
+    parser.add_argument(
+        "--skip-postgres-write",
+        action="store_true",
+        help="Skip the direct JDBC write to PostgreSQL (useful for local runs without a database).",
+    )
     return parser
 
 def main(argv: list[str] | None = None) -> int:
@@ -1389,13 +1766,16 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     config = GoldTransactionsConfig(
-        silver_dir=args.silver_dir,
         output_dir=args.output_dir,
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
         include_features=not args.core_only,
         spark_ui=spark_ui_config_from_args(args),
+        warehouse=warehouse_config_from_args(args),
+        iceberg=iceberg_config_from_args(args),
+        postgres=postgres_config_from_args(args),
+        write_to_postgres=not args.skip_postgres_write,
     )
     try:
         result = build_gold_transactions(config)

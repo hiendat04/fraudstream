@@ -23,6 +23,9 @@ flowchart LR
     features --> alerts[Alert topic]
     customer -->|too late| late[Late-event topic]
     merchant -->|too late| late
+    clean -.upsert.-> iceberg[(Iceberg lakehouse)]
+    customer -.upsert.-> iceberg
+    merchant -.upsert.-> iceberg
 ```
 
 For every Kafka record, the job:
@@ -184,6 +187,26 @@ Kafka sinks use transactional exactly-once delivery. Consumers should use
 `isolation.level=read_committed`. Derived topics use `LogAppendTime` so Kafka
 retention is based on when the result was written, not its historical event time.
 
+## Iceberg Outputs
+
+Alongside the Kafka topics above, three of the same streams also upsert into
+Iceberg tables in the shared lakehouse catalog -- see
+[docs/15_lakehouse_iceberg.md](15_lakehouse_iceberg.md) for the catalog design
+and the Table API bridge this uses:
+
+| Iceberg Table | Source Stream | Primary Key |
+|---|---|---|
+| `iceberg.streaming.clean_transactions` | `financial_transactions_clean` | `event_id` |
+| `iceberg.streaming.customer_features_5m` | `fraud_features_customer_5m` | `feature_id` |
+| `iceberg.streaming.merchant_features_5m` | `fraud_features_merchant_5m` | `feature_id` |
+
+Kafka stays the low-latency contract consumers subscribe to; the Iceberg
+copy is what lets a later batch job join today's streaming features against a
+fraud/chargeback label that only arrives weeks after the transaction. A late
+correction for a window that already emitted a row **replaces** it in Iceberg
+(`write.upsert.enabled`) rather than duplicating it, unlike the append-only
+Kafka topics.
+
 ## State And Recovery
 
 | Setting | Value |
@@ -212,10 +235,33 @@ Download the Kafka connector and start Kafka:
 
 ```bash
 mvn dependency:copy \
-  -Dartifact=org.apache.flink:flink-sql-connector-kafka:5.0.0-2.2 \
+  -Dartifact=org.apache.flink:flink-sql-connector-kafka:5.0.0-2.1 \
   -DoutputDirectory=flink/lib
 
 docker compose up -d kafka kafka-topic-init kafka-ui
+```
+
+Download the Iceberg lakehouse jars (Iceberg Flink runtime, the PostgreSQL
+JDBC driver for the Iceberg catalog, and hadoop-aws for MinIO access) and
+start MinIO + PostgreSQL. See
+[`docs/15_lakehouse_iceberg.md`](15_lakehouse_iceberg.md) for why these three
+jars specifically and what each one is for:
+
+```bash
+mvn dependency:copy \
+  -Dartifact=org.apache.iceberg:iceberg-flink-runtime-2.1:1.11.0 \
+  -DoutputDirectory=flink/lib/iceberg
+
+mvn dependency:copy \
+  -Dartifact=org.postgresql:postgresql:42.7.4 \
+  -DoutputDirectory=flink/lib/iceberg
+
+mvn dependency:copy-dependencies \
+  -Dartifact=org.apache.hadoop:hadoop-aws:3.4.1 \
+  -DoutputDirectory=flink/lib/iceberg \
+  -DincludeScope=runtime
+
+docker compose up -d minio minio-bucket-init postgres postgres-schema-init
 ```
 
 Start Flink:
@@ -272,6 +318,7 @@ valid deduplicated window memberships
 | File | Responsibility |
 |---|---|
 | `src/fraudstream/jobs/flink/transactions.py` | Configuration, validation, feature contracts, CLI |
-| `src/fraudstream/jobs/flink/runtime.py` | PyFlink operators and Kafka topology |
+| `src/fraudstream/jobs/flink/runtime.py` | PyFlink operators, Kafka topology, and Hadoop/Iceberg classpath setup |
+| `src/fraudstream/jobs/flink/iceberg_sink.py` | Table API bridge: Iceberg catalog/table DDL, typed row mapping, `StatementSet` wiring -- see [docs/15](15_lakehouse_iceberg.md) |
 | `src/fraudstream/jobs/flink/watermark_calibration.py` | Measures source delay and writes the p95 profile |
 | `configs/flink/streaming_latency_profile.json` | Current measured local profile |

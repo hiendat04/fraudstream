@@ -6,7 +6,7 @@ This document explains the streaming side of FraudStream. The goal is simple:
 generate realistic transaction events -> replay them to Kafka -> process them with Flink
 ```
 
-Spark is for the offline CSV/Parquet path. Flink is for the real-time streaming path.
+Spark is for the offline CSV-to-Iceberg path. Flink is for the real-time streaming path.
 
 ## Core Concept
 

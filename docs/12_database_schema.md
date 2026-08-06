@@ -73,5 +73,7 @@ The result is a clear progression:
 - Gold answers: **How can the cleaned data support reporting, investigation, and model training?**
 
 The complete DDL is defined in
-`infra/postgres/init/001_create_fraudstream_schema.sql`; Spark-to-PostgreSQL
-publication is implemented in `src/fraudstream/jobs/postgres/publish.py`.
+`infra/postgres/init/001_create_fraudstream_schema.sql`. Each Bronze, Silver,
+Gold, and offline-feature Spark job writes its own tables directly to
+PostgreSQL over JDBC using the shared helpers in
+`src/fraudstream/jobs/warehouse.py`; there is no separate publisher job.

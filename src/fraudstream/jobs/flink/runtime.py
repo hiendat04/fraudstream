@@ -8,6 +8,7 @@ Python 3.14 project can test them without importing PyFlink.
 from __future__ import annotations
 
 import json
+import os
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any, Iterable
@@ -37,6 +38,7 @@ from pyflink.datastream.output_tag import OutputTag
 from pyflink.datastream.state import ValueStateDescriptor
 from pyflink.datastream.window import Time, TumblingEventTimeWindows
 
+from fraudstream.jobs.flink.iceberg_sink import attach_iceberg_sinks
 from fraudstream.jobs.flink.transactions import (
     StreamingFeatureConfig,
     add_event_to_accumulator,
@@ -316,10 +318,63 @@ def build_streaming_feature_topology(config: StreamingFeatureConfig) -> StreamEx
     _sink(merchant_features, config.merchant_feature_topic, "merchant-features", config)
     _sink(alerts, config.alert_topic, "fraud-alerts", config)
 
+    # Kafka stays the low-latency contract for downstream consumers/alerts;
+    # Iceberg is the durable, joinable copy used to attach fraud/chargeback
+    # labels that arrive weeks after the transaction.
+    attach_iceberg_sinks(environment, deduplicated_events, customer_features, merchant_features, config)
+
     return environment
 
 
+def _register_hadoop_environment(config: StreamingFeatureConfig) -> None:
+    """Put the Iceberg/Postgres/hadoop-aws JARs and MinIO S3A settings in front of the gateway JVM.
+
+    `StreamExecutionEnvironment.add_jars()` only registers jars for job
+    submission -- the Iceberg catalog's `CREATE CATALOG`/`CREATE TABLE` DDL
+    executes immediately in the *local* client JVM (unlike `INSERT INTO`,
+    which just builds a plan), so `org.apache.iceberg.flink.*` and the
+    Hadoop/Postgres classes it needs must already be resolvable there. The
+    PyFlink gateway process only picks up `HADOOP_CLASSPATH` while it is
+    still launching (see `pyflink_gateway_server.construct_hadoop_classpath`),
+    so this must run before any other pyflink call triggers that launch.
+
+    MinIO's `fs.s3a.*` settings (endpoint, credentials) can't be passed
+    through the `CREATE CATALOG ... WITH (...)` SQL properties the way
+    `configure_iceberg_catalog` passes them to Spark -- Iceberg's Flink
+    catalog factory doesn't forward arbitrary properties to the Hadoop
+    `Configuration` `HadoopFileIO`/`S3AFileSystem` reads, so the real S3
+    calls Iceberg's Hadoop catalog/table operations make fail with no AWS
+    credentials. Writing them to a `core-site.xml` and pointing
+    `HADOOP_CONF_DIR` at it is Hadoop's own standard configuration
+    mechanism, and `construct_hadoop_classpath` picks that env var up the
+    same way it picks up `HADOOP_CLASSPATH`.
+    """
+
+    jar_paths = [str(config.connector_jar), *(str(p) for p in sorted(config.iceberg_jars_dir.glob("*.jar")))]
+    existing_classpath = os.environ.get("HADOOP_CLASSPATH", "")
+    os.environ["HADOOP_CLASSPATH"] = os.pathsep.join(path for path in (existing_classpath, *jar_paths) if path)
+
+    hadoop_conf_dir = config.checkpoint_dir / "_hadoop_conf"
+    hadoop_conf_dir.mkdir(parents=True, exist_ok=True)
+    s3a_properties = {
+        "fs.s3a.endpoint": config.warehouse.endpoint,
+        "fs.s3a.access.key": config.warehouse.access_key,
+        "fs.s3a.secret.key": config.warehouse.secret_key,
+        "fs.s3a.path.style.access": "true",
+        "fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
+        "fs.s3a.connection.ssl.enabled": "false",
+    }
+    properties_xml = "\n".join(
+        f"  <property><name>{key}</name><value>{value}</value></property>" for key, value in s3a_properties.items()
+    )
+    (hadoop_conf_dir / "core-site.xml").write_text(
+        f'<?xml version="1.0"?>\n<configuration>\n{properties_xml}\n</configuration>\n'
+    )
+    os.environ["HADOOP_CONF_DIR"] = str(hadoop_conf_dir)
+
+
 def _build_environment(config: StreamingFeatureConfig) -> StreamExecutionEnvironment:
+    _register_hadoop_environment(config)
     runtime_settings = Configuration()
     if config.flink_ui_enabled:
         runtime_settings.set_string("rest.address", "localhost")
@@ -333,6 +388,8 @@ def _build_environment(config: StreamingFeatureConfig) -> StreamExecutionEnviron
     if not config.operator_chaining_enabled:
         environment.disable_operator_chaining()
     environment.add_jars(_jar_uri(config.connector_jar))
+    for jar_path in sorted(config.iceberg_jars_dir.glob("*.jar")):
+        environment.add_jars(_jar_uri(jar_path))
     environment.get_config().set_auto_watermark_interval(1_000)
     environment.enable_checkpointing(
         config.checkpoint_interval_seconds * 1_000,

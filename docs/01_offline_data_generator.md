@@ -36,11 +36,12 @@ You can also run the project entry point:
 PYTHONPATH=src python main.py
 ```
 
-To write to a temporary directory instead of the default repo data path:
+To override the local evidence directory or the MinIO raw-data location:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions \
-  --output-dir /tmp/fraudstream_offline_transactions
+  --output-dir /tmp/fraudstream_offline_transactions \
+  --raw-uri s3a://fraudstream/raw/offline_transactions_dev
 ```
 
 ## Configuration
@@ -66,7 +67,8 @@ Important settings:
 | `burst_day_count` | Number of dates with unusually heavy transaction volume. |
 | `fraud_ring_count` | Number of reusable suspicious device/IP pairs used by a small fraud-ring scenario. |
 | `schema_change_date` | Splits older `v1` source files from newer `v2` source files. |
-| `output_dir` | Directory where raw files, manifest, and quality summaries are written. |
+| `output_dir` | Local directory for the manifest and quality-summary evidence files only (small files, not the raw CSVs). |
+| `raw_uri` | MinIO (`s3a://`) URI where the actual partitioned raw CSV files are written. Defaults to `s3a://fraudstream/raw/offline_transactions`. |
 
 ## Implementation Coverage
 
@@ -80,29 +82,31 @@ Important settings:
 | Simulate raw source messiness | Injects small, controlled rates of missing values and inconsistent formats. |
 | Simulate fraud behavior | Creates rare labels with higher risk for high-value, online, cross-border, high-risk merchant, late-night, and fraud-ring activity. |
 | Use generator configuration | All core parameters are read from `configs/generator/offline_transactions.json`. |
-| Store data for Bronze ingestion | Writes partitioned CSV source files plus `_manifest.json` under `data/raw_source/offline_transactions/`. |
+| Store data for Bronze ingestion | Writes partitioned raw CSV files to MinIO (`raw_uri`) and `_manifest.json`/quality-summary evidence locally (`output_dir`). The manifest's `files` list contains the MinIO URI of every partition. |
 
 ## Output Layout
 
-Default output path:
+Raw CSV partitions go to MinIO, under the `raw_uri` prefix (default
+`s3a://fraudstream/raw/offline_transactions`):
 
 ```text
-data/raw_source/offline_transactions/
-```
-
-Generated layout:
-
-```text
-data/raw_source/offline_transactions/
-|-- _manifest.json
-|-- _quality_summary.csv
-|-- _quality_summary.json
+s3a://fraudstream/raw/offline_transactions/
 |-- schema_version=v1/
 |   `-- transaction_date=YYYY-MM-DD/
 |       `-- transactions.csv
 `-- schema_version=v2/
     `-- transaction_date=YYYY-MM-DD/
         `-- transactions.csv
+```
+
+Small evidence files (manifest and quality summaries) stay local, under
+`output_dir` (default `data/raw_source/offline_transactions/`):
+
+```text
+data/raw_source/offline_transactions/
+|-- _manifest.json
+|-- _quality_summary.csv
+`-- _quality_summary.json
 ```
 
 `schema_version=v1` files intentionally do not contain these evolved columns:
@@ -130,7 +134,7 @@ Recommended ingestion behavior:
 
 | Concern | Recommendation |
 |---|---|
-| File discovery | Read `_manifest.json` to find the generated source files. |
+| File discovery | Read `_manifest.json` (local) for the list of MinIO source-file URIs, or list `raw_uri` directly in MinIO when no manifest is present. |
 | Dedup key | Use `transaction_id` to identify duplicate source records. |
 | Partitions | Preserve or derive `schema_version` and `transaction_date`. |
 | Schema evolution | Read `v1` and `v2` files with missing columns allowed. |

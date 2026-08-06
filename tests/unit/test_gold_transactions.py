@@ -21,6 +21,13 @@ from fraudstream.jobs.gold.transactions import (
     _build_merchant_category_rolling,
     build_gold_transactions,
 )
+from fraudstream.jobs.warehouse import (
+    IcebergCatalogConfig,
+    PostgresJdbcConfig,
+    WarehouseConfig,
+    configure_iceberg_catalog,
+    write_iceberg_table,
+)
 
 
 @skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
@@ -32,17 +39,21 @@ class GoldTransactionsTest(TestCase):
 
         with TemporaryDirectory() as tmp_dir:
             root_dir = Path(tmp_dir)
-            silver_dir = root_dir / "silver" / "transactions"
             gold_dir = root_dir / "gold"
-            _write_silver_fixture(silver_dir)
+            warehouse_dir = root_dir / "warehouse"
+            warehouse = WarehouseConfig(uri=f"file://{warehouse_dir}")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{warehouse_dir}/iceberg")
+            _write_silver_fixture(iceberg)
 
             result = build_gold_transactions(
                 GoldTransactionsConfig(
-                    silver_dir=silver_dir,
                     output_dir=gold_dir,
                     write_mode="overwrite",
                     processed_at=datetime.fromisoformat("2026-07-09T00:00:00+00:00"),
                     include_features=False,
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
 
@@ -52,37 +63,40 @@ class GoldTransactionsTest(TestCase):
                 {table.table_name for table in result.table_results},
                 set(CORE_GOLD_TABLE_NAMES),
             )
-            self.assertFalse((gold_dir / "feat_transaction_training").exists())
+            self.assertFalse(_iceberg_table_exists("iceberg.gold.feat_transaction_training", iceberg.warehouse_uri))
             self.assertTrue((gold_dir / "_gold_transactions_summary.json").exists())
 
-            fact_rows = {row["transaction_id"]: row for row in _read_parquet_rows(gold_dir / "fact_transactions")}
+            fact_rows = {row["transaction_id"]: row for row in _read_iceberg_rows("iceberg.gold.fact_transactions", iceberg.warehouse_uri)}
             self.assertEqual(set(fact_rows), {"txn_001", "txn_002", "txn_003", "txn_004", "txn_005"})
             self.assertEqual(fact_rows["txn_003"]["merchant_dim_id"], "UNKNOWN")
             self.assertEqual(fact_rows["txn_002"]["quality_issue_count"], 1)
 
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "dim_customer")), 2)
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "dim_account")), 2)
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "dim_merchant")), 3)
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "dim_date")), 3)
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "fact_transaction_quality_issue")), 1)
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "fact_customer_daily")), 5)
-            self.assertEqual(len(_read_parquet_rows(gold_dir / "fact_account_daily")), 4)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.dim_customer", iceberg.warehouse_uri)), 2)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.dim_account", iceberg.warehouse_uri)), 2)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.dim_merchant", iceberg.warehouse_uri)), 3)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.dim_date", iceberg.warehouse_uri)), 3)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.fact_transaction_quality_issue", iceberg.warehouse_uri)), 1)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.fact_customer_daily", iceberg.warehouse_uri)), 5)
+            self.assertEqual(len(_read_iceberg_rows("iceberg.gold.fact_account_daily", iceberg.warehouse_uri)), 4)
 
             feature_result = build_offline_features(
                 OfflineFeatureConfig(
                     gold_dir=gold_dir,
                     write_mode="overwrite",
                     processed_at=datetime.fromisoformat("2026-07-09T00:05:00+00:00"),
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
             self.assertEqual(feature_result.source_fact_transaction_count, 5)
             self.assertEqual(feature_result.training_row_count, 5)
             self.assertEqual(feature_result.training_distinct_transaction_count, 5)
 
-            merchant_rows = _read_parquet_rows(gold_dir / "feat_merchant_risk_rolling")
+            merchant_rows = _read_iceberg_rows("iceberg.gold.feat_merchant_risk_rolling", iceberg.warehouse_uri)
             self.assertNotIn("UNKNOWN", {row["merchant_dim_id"] for row in merchant_rows})
 
-            training_rows = _read_parquet_rows(gold_dir / "feat_transaction_training")
+            training_rows = _read_iceberg_rows("iceberg.gold.feat_transaction_training", iceberg.warehouse_uri)
             training_by_id = {row["transaction_id"]: row for row in training_rows}
             self.assertEqual(len(training_rows), 5)
             self.assertEqual(set(training_by_id), set(fact_rows))
@@ -190,19 +204,20 @@ class GoldTransactionsTest(TestCase):
         self.assertAlmostEqual(latest["merchant_vs_category_amount_ratio_30d"], 1.0)
 
 
-def _write_silver_fixture(output_dir: Path) -> None:
-    """Write a small Silver transaction Parquet fixture."""
+def _write_silver_fixture(iceberg: IcebergCatalogConfig) -> None:
+    """Write a small Silver transaction fixture into the `silver.stg_transactions` Iceberg table."""
 
     from pyspark.sql import SparkSession
     from pyspark.sql import types as spark_types
 
-    spark = (
+    builder = (
         SparkSession.builder.appName("GoldTransactionsTest")
         .master("local[*]")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    builder = configure_iceberg_catalog(builder, iceberg, PostgresJdbcConfig())
+    spark = builder.getOrCreate()
     try:
         schema = spark_types.StructType(
             [
@@ -390,25 +405,52 @@ def _write_silver_fixture(output_dir: Path) -> None:
         ]
 
         dataframe = spark.createDataFrame(rows, schema)
-        dataframe.write.mode("overwrite").partitionBy("event_date").parquet(str(output_dir))
+        write_iceberg_table(dataframe, "iceberg.silver.stg_transactions", ["event_date"], "overwrite")
     finally:
         spark.stop()
 
 
-def _read_parquet_rows(path: Path):
-    """Read a Parquet directory and return rows before stopping Spark."""
+def _read_iceberg_rows(table: str, iceberg_warehouse_uri: str):
+    """Read an Iceberg table through a fresh Hadoop-catalog session and return its rows."""
 
     from pyspark.sql import SparkSession
 
-    spark = (
+    builder = (
         SparkSession.builder.appName("GoldTransactionsTestReader")
         .master("local[*]")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    builder = configure_iceberg_catalog(
+        builder,
+        IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_warehouse_uri),
+        PostgresJdbcConfig(),
+    )
+    spark = builder.getOrCreate()
     try:
-        return spark.read.parquet(str(path)).collect()
+        return spark.table(table).collect()
+    finally:
+        spark.stop()
+
+
+def _iceberg_table_exists(table: str, iceberg_warehouse_uri: str) -> bool:
+    """Return whether an Iceberg table exists, through a fresh Hadoop-catalog session."""
+
+    from pyspark.sql import SparkSession
+
+    builder = (
+        SparkSession.builder.appName("GoldTransactionsTestExistenceCheck")
+        .master("local[*]")
+        .config("spark.ui.enabled", "false")
+    )
+    builder = configure_iceberg_catalog(
+        builder,
+        IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_warehouse_uri),
+        PostgresJdbcConfig(),
+    )
+    spark = builder.getOrCreate()
+    try:
+        return spark.catalog.tableExists(table)
     finally:
         spark.stop()
 

@@ -9,14 +9,16 @@ from __future__ import annotations
 
 import argparse
 import csv
+import io
 import json
 import sys
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Sequence
 from uuid import uuid4
 
+from fraudstream import storage
 from fraudstream.jobs.spark_ui import (
     SparkUIConfig,
     add_spark_ui_arguments,
@@ -27,17 +29,34 @@ from fraudstream.jobs.spark_ui import (
     set_spark_job_group,
     spark_ui_config_from_args,
 )
+from fraudstream.jobs.warehouse import (
+    IcebergCatalogConfig,
+    PostgresJdbcConfig,
+    WarehouseConfig,
+    add_iceberg_arguments,
+    add_postgres_arguments,
+    add_warehouse_arguments,
+    configure_iceberg_catalog,
+    configure_object_storage,
+    iceberg_config_from_args,
+    postgres_config_from_args,
+    truncate_tables_cascade,
+    warehouse_config_from_args,
+    write_iceberg_table,
+    write_jdbc_table,
+)
 
 
 APP_NAME = "FraudStreamBronzeTransactionIngestion"
 DEFAULT_MASTER = "local[*]"
 DEFAULT_SOURCE_DIR = Path("data/raw_source/offline_transactions")
+DEFAULT_SOURCE_URI = "s3a://fraudstream/raw/offline_transactions"
 DEFAULT_OUTPUT_DIR = Path("data/bronze/raw_transactions")
 DEFAULT_SOURCE_SYSTEM = "fraudstream_generator"
 DEFAULT_SOURCE_DATASET = "offline_transactions"
 DEFAULT_WRITE_MODE = "overwrite"
 SUMMARY_FILE_NAME = "_bronze_ingestion_summary.json"
-TRANSACTION_FILE_GLOB = "schema_version=*/transaction_date=*/transactions.csv"
+TRANSACTION_FILE_SUFFIX = "transactions.csv"
 SCHEMA_VERSION_V1 = "v1"
 SCHEMA_VERSION_V2 = "v2"
 RAW_HASH_NULL_TOKEN = "<NULL>"
@@ -88,9 +107,16 @@ SUPPORTED_WRITE_MODES = {"append", "overwrite", "errorifexists", "ignore"}
 
 @dataclass(frozen=True)
 class BronzeIngestionConfig:
-    """Runtime settings for the Bronze transaction ingestion job."""
+    """Runtime settings for the Bronze transaction ingestion job.
+
+    `source_dir` is local -- it only holds the generator's `_manifest.json`
+    evidence file (used to discover source files by default). The raw CSV
+    partitions themselves live in MinIO under `source_uri`; the no-manifest
+    fallback lists that prefix directly (see `fraudstream.storage`).
+    """
 
     source_dir: Path = DEFAULT_SOURCE_DIR
+    source_uri: str = DEFAULT_SOURCE_URI
     output_dir: Path = DEFAULT_OUTPUT_DIR
     manifest_path: Path | None = None
     master: str = DEFAULT_MASTER
@@ -100,6 +126,10 @@ class BronzeIngestionConfig:
     source_system: str = DEFAULT_SOURCE_SYSTEM
     source_dataset: str = DEFAULT_SOURCE_DATASET
     spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
+    iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
+    postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
+    write_to_postgres: bool = True
 
     def validate(self) -> None:
         """Raise ValueError when the ingestion config is not usable."""
@@ -116,20 +146,25 @@ class BronzeIngestionConfig:
 
 @dataclass(frozen=True)
 class SourceManifest:
-    """File-discovery metadata read from the raw source manifest."""
+    """File-discovery metadata read from the raw source manifest.
+
+    `files` holds MinIO URIs (`s3a://...`, or `file://...` in tests) --
+    already-resolved, absolute locations, not paths needing further
+    resolution against a local directory.
+    """
 
     path: Path | None
     created_at: str | None
-    files: tuple[Path, ...]
+    files: tuple[str, ...]
 
 
 @dataclass(frozen=True)
 class SourceFileGroups:
-    """Source CSV files grouped by supported schema version."""
+    """Source CSV file URIs grouped by supported schema version."""
 
-    v1_files: tuple[Path, ...]
-    v2_files: tuple[Path, ...]
-    unknown_files: tuple[Path, ...]
+    v1_files: tuple[str, ...]
+    v2_files: tuple[str, ...]
+    unknown_files: tuple[str, ...]
 
     @property
     def has_supported_files(self) -> bool:
@@ -140,10 +175,10 @@ class SourceFileGroups:
 
 @dataclass(frozen=True)
 class SourceCsvSchemaGroup:
-    """Source CSV files that share the same physical header."""
+    """Source CSV file URIs that share the same physical header."""
 
     columns: tuple[str, ...]
-    files: tuple[Path, ...]
+    files: tuple[str, ...]
 
 
 @dataclass(frozen=True)
@@ -161,6 +196,7 @@ class BronzeIngestionResult:
     """Summary of one Bronze ingestion run."""
 
     source_dir: Path
+    source_uri: str
     output_dir: Path
     source_file_count: int
     row_count: int
@@ -178,6 +214,7 @@ class BronzeIngestionResult:
 
         return {
             "source_dir": str(self.source_dir),
+            "source_uri": self.source_uri,
             "output_dir": str(self.output_dir),
             "source_file_count": self.source_file_count,
             "row_count": self.row_count,
@@ -193,16 +230,16 @@ class BronzeIngestionResult:
 
 
 def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngestionResult:
-    """Read raw transaction CSV partitions and write Bronze Parquet."""
+    """Read raw transaction CSV partitions from MinIO and write the Bronze Iceberg table."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui)
+    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
     bronze_dataframe = None
     try:
         announce_spark_ui(spark, config.spark_ui)
         context = _build_run_context(config)
 
-        raw_dataframe = _read_raw_source_files(spark, context.manifest.files)
+        raw_dataframe = _read_raw_source_files(spark, context.manifest.files, config.warehouse)
         enriched_dataframe = _add_bronze_metadata(
             raw_dataframe=raw_dataframe,
             context=context,
@@ -214,9 +251,9 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
         set_spark_job_group(
             spark,
             "bronze-write-raw-transactions",
-            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write Parquet",
+            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write to the Iceberg table on MinIO",
         )
-        _write_bronze_parquet(bronze_dataframe, config)
+        _write_bronze_iceberg(bronze_dataframe, config)
 
         set_spark_job_group(
             spark,
@@ -229,6 +266,15 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
             context=context,
             spark_version=spark.version,
         )
+
+        if config.write_to_postgres:
+            set_spark_job_group(
+                spark,
+                "bronze-write-postgres",
+                "Bronze: write raw_transaction_ingest_runs and raw_transactions directly to PostgreSQL",
+            )
+            _write_bronze_postgres(spark, bronze_dataframe, result, context, config)
+
         clear_spark_job_group(spark)
         _write_summary(result, config.output_dir)
         retain_spark_ui(spark, config.spark_ui)
@@ -255,7 +301,13 @@ def _build_run_context(config: BronzeIngestionConfig) -> BronzeRunContext:
     )
 
 
-def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> Any:
+def _build_spark_session(
+    master: str,
+    spark_ui: SparkUIConfig | None = None,
+    warehouse: WarehouseConfig | None = None,
+    iceberg: IcebergCatalogConfig | None = None,
+    postgres: PostgresJdbcConfig | None = None,
+) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
     try:
@@ -271,18 +323,20 @@ def _build_spark_session(master: str, spark_ui: SparkUIConfig | None = None) -> 
         .config("spark.sql.shuffle.partitions", "8")
         .config("spark.sql.sources.partitionOverwriteMode", "dynamic")
     )
+    builder = configure_object_storage(builder, warehouse or WarehouseConfig())
+    builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
     return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
 
 
 def _discover_source_manifest(config: BronzeIngestionConfig) -> SourceManifest:
-    """Return source files from the manifest when available, otherwise glob CSV files."""
+    """Return source files from the manifest when available, otherwise list MinIO."""
 
     manifest_path = config.manifest_path or config.source_dir / "_manifest.json"
     if manifest_path.exists():
         with manifest_path.open("r", encoding="utf-8") as file:
             manifest = json.load(file)
-        files = tuple(_resolve_source_file(path, config.source_dir) for path in manifest.get("files", []))
-        missing_files = [path for path in files if not path.exists()]
+        files = tuple(manifest.get("files", []))
+        missing_files = [uri for uri in files if not storage.object_exists(config.warehouse, uri)]
         if missing_files:
             raise FileNotFoundError(f"Manifest references a missing source file: {missing_files[0]}")
         return SourceManifest(
@@ -291,26 +345,11 @@ def _discover_source_manifest(config: BronzeIngestionConfig) -> SourceManifest:
             files=files,
         )
 
-    files = tuple(sorted(config.source_dir.glob(TRANSACTION_FILE_GLOB)))
+    files = tuple(storage.list_keys(config.warehouse, config.source_uri, suffix=TRANSACTION_FILE_SUFFIX))
     return SourceManifest(path=None, created_at=None, files=files)
 
 
-def _resolve_source_file(raw_path: str, source_dir: Path) -> Path:
-    """Resolve a source file path from manifest JSON into a local path."""
-
-    path = Path(raw_path)
-    if path.is_absolute():
-        return path
-    if path.exists():
-        return path
-    source_relative_path = source_dir / path
-    if source_relative_path.exists():
-        return source_relative_path
-    file_name_candidate = source_dir / path.name
-    return file_name_candidate if file_name_candidate.exists() else path
-
-
-def _read_raw_source_files(spark: Any, source_files: Sequence[Path]) -> Any:
+def _read_raw_source_files(spark: Any, source_files: Sequence[str], warehouse: WarehouseConfig) -> Any:
     """Read source CSV files by schema version and union them into one DataFrame."""
 
     dataframes = []
@@ -328,6 +367,7 @@ def _read_raw_source_files(spark: Any, source_files: Sequence[Path]) -> Any:
                 source_files=grouped_files.v1_files,
                 required_columns=BASE_COLUMNS,
                 allowed_columns=BASE_COLUMNS,
+                warehouse=warehouse,
             )
         )
     if grouped_files.v2_files:
@@ -337,6 +377,7 @@ def _read_raw_source_files(spark: Any, source_files: Sequence[Path]) -> Any:
                 source_files=grouped_files.v2_files,
                 required_columns=BASE_COLUMNS,
                 allowed_columns=RAW_COLUMNS,
+                warehouse=warehouse,
             )
         )
 
@@ -345,33 +386,35 @@ def _read_raw_source_files(spark: Any, source_files: Sequence[Path]) -> Any:
 
 def _read_versioned_csv_files(
     spark: Any,
-    source_files: Sequence[Path],
+    source_files: Sequence[str],
     required_columns: Sequence[str],
     allowed_columns: Sequence[str],
+    warehouse: WarehouseConfig,
 ) -> list[Any]:
     """Read versioned source files while allowing optional evolved columns."""
 
     return [
         _select_raw_columns(_read_csv_files(spark, schema_group.files, schema_group.columns))
-        for schema_group in _group_files_by_header(source_files, required_columns, allowed_columns)
+        for schema_group in _group_files_by_header(source_files, required_columns, allowed_columns, warehouse)
     ]
 
 
 def _group_files_by_header(
-    source_files: Sequence[Path],
+    source_files: Sequence[str],
     required_columns: Sequence[str],
     allowed_columns: Sequence[str],
+    warehouse: WarehouseConfig,
 ) -> tuple[SourceCsvSchemaGroup, ...]:
     """Group files by physical CSV header after validating the source contract."""
 
     allowed_column_set = set(allowed_columns)
-    grouped_files: dict[tuple[str, ...], list[Path]] = {}
+    grouped_files: dict[tuple[str, ...], list[str]] = {}
 
-    for path in source_files:
-        header_columns = _read_csv_header(path)
-        _validate_source_header(path, header_columns, required_columns, allowed_columns)
+    for uri in source_files:
+        header_columns = _read_csv_header(uri, warehouse)
+        _validate_source_header(uri, header_columns, required_columns, allowed_columns)
         source_columns = tuple(column for column in header_columns if column in allowed_column_set)
-        grouped_files.setdefault(source_columns, []).append(path)
+        grouped_files.setdefault(source_columns, []).append(uri)
 
     return tuple(
         SourceCsvSchemaGroup(columns=columns, files=tuple(sorted(files)))
@@ -379,19 +422,19 @@ def _group_files_by_header(
     )
 
 
-def _read_csv_header(path: Path) -> tuple[str, ...]:
-    """Read the physical CSV header from one source file."""
+def _read_csv_header(uri: str, warehouse: WarehouseConfig) -> tuple[str, ...]:
+    """Read the physical CSV header from one source file in MinIO."""
 
-    with path.open("r", encoding="utf-8", newline="") as file:
-        reader = csv.reader(file)
-        try:
-            return tuple(next(reader))
-        except StopIteration as exc:
-            raise ValueError(f"Source CSV file is empty: {path}") from exc
+    text = storage.get_text(warehouse, uri)
+    reader = csv.reader(io.StringIO(text))
+    try:
+        return tuple(next(reader))
+    except StopIteration as exc:
+        raise ValueError(f"Source CSV file is empty: {uri}") from exc
 
 
 def _validate_source_header(
-    path: Path,
+    uri: str,
     header_columns: Sequence[str],
     required_columns: Sequence[str],
     allowed_columns: Sequence[str],
@@ -405,11 +448,11 @@ def _validate_source_header(
     unsupported_columns = [column for column in header_columns if column not in allowed_column_set]
 
     if duplicate_columns:
-        raise ValueError(f"Source CSV file has duplicate columns {duplicate_columns}: {path}")
+        raise ValueError(f"Source CSV file has duplicate columns {duplicate_columns}: {uri}")
     if missing_required_columns:
-        raise ValueError(f"Source CSV file is missing required columns {missing_required_columns}: {path}")
+        raise ValueError(f"Source CSV file is missing required columns {missing_required_columns}: {uri}")
     if unsupported_columns:
-        raise ValueError(f"Source CSV file has unsupported columns {unsupported_columns}: {path}")
+        raise ValueError(f"Source CSV file has unsupported columns {unsupported_columns}: {uri}")
 
 
 def _duplicate_values(values: Sequence[str]) -> list[str]:
@@ -433,20 +476,20 @@ def _union_raw_dataframes(dataframes: Sequence[Any]) -> Any:
     return _select_raw_columns(dataframe)
 
 
-def _group_source_files(source_files: Sequence[Path]) -> SourceFileGroups:
-    """Group source files by the schema version encoded in their partition path."""
+def _group_source_files(source_files: Sequence[str]) -> SourceFileGroups:
+    """Group source file URIs by the schema version encoded in their partition path."""
 
-    v1_files: list[Path] = []
-    v2_files: list[Path] = []
-    unknown_files: list[Path] = []
+    v1_files: list[str] = []
+    v2_files: list[str] = []
+    unknown_files: list[str] = []
 
-    for path in source_files:
-        if _has_schema_version(path, SCHEMA_VERSION_V1):
-            v1_files.append(path)
-        elif _has_schema_version(path, SCHEMA_VERSION_V2):
-            v2_files.append(path)
+    for uri in source_files:
+        if _has_schema_version(uri, SCHEMA_VERSION_V1):
+            v1_files.append(uri)
+        elif _has_schema_version(uri, SCHEMA_VERSION_V2):
+            v2_files.append(uri)
         else:
-            unknown_files.append(path)
+            unknown_files.append(uri)
 
     return SourceFileGroups(
         v1_files=tuple(v1_files),
@@ -455,10 +498,10 @@ def _group_source_files(source_files: Sequence[Path]) -> SourceFileGroups:
     )
 
 
-def _has_schema_version(path: Path, schema_version: str) -> bool:
-    """Return true when the path contains a schema-version partition marker."""
+def _has_schema_version(uri: str, schema_version: str) -> bool:
+    """Return true when the URI contains a schema-version partition marker."""
 
-    return f"schema_version={schema_version}" in path.parts
+    return f"schema_version={schema_version}/" in uri
 
 
 def _source_schema(column_names: Sequence[str]) -> Any:
@@ -471,8 +514,14 @@ def _source_schema(column_names: Sequence[str]) -> Any:
     return spark_types.StructType(fields)
 
 
-def _read_csv_files(spark: Any, source_files: Sequence[Path], source_columns: Sequence[str]) -> Any:
-    """Read CSV files using a raw-preserving parser configuration."""
+def _read_csv_files(spark: Any, source_files: Sequence[str], source_columns: Sequence[str]) -> Any:
+    """Read CSV files using a raw-preserving parser configuration.
+
+    `source_files` are already `s3a://`/`file://` URI strings, and Spark's
+    own CSV reader already handles either scheme natively (via the Hadoop
+    S3A config `configure_object_storage` sets up) -- no local-vs-MinIO
+    branching needed here.
+    """
 
     schema = _source_schema(source_columns)
     dataframe = (
@@ -485,7 +534,7 @@ def _read_csv_files(spark: Any, source_files: Sequence[Path], source_columns: Se
         .option("ignoreLeadingWhiteSpace", "false")
         .option("ignoreTrailingWhiteSpace", "false")
         .schema(schema)
-        .csv([str(path) for path in source_files])
+        .csv(list(source_files))
     )
     return dataframe.na.fill("", subset=list(source_columns))
 
@@ -498,14 +547,100 @@ def _prepare_for_reuse(dataframe: Any) -> Any:
     return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
 
 
-def _write_bronze_parquet(bronze_dataframe: Any, config: BronzeIngestionConfig) -> None:
-    """Write Bronze rows as partitioned Parquet."""
+def _write_bronze_iceberg(bronze_dataframe: Any, config: BronzeIngestionConfig) -> None:
+    """Write Bronze rows into the `bronze.raw_transactions` Iceberg table on MinIO."""
 
-    (
-        bronze_dataframe.write.mode(config.write_mode)
-        .partitionBy(*PARTITION_COLUMNS)
-        .parquet(str(config.output_dir))
+    write_iceberg_table(
+        bronze_dataframe,
+        f"{config.iceberg.catalog_name}.bronze.raw_transactions",
+        PARTITION_COLUMNS,
+        config.write_mode,
     )
+
+
+def _write_bronze_postgres(
+    spark: Any,
+    bronze_dataframe: Any,
+    result: BronzeIngestionResult,
+    context: BronzeRunContext,
+    config: BronzeIngestionConfig,
+) -> None:
+    """Write the ingest-run audit row and raw Bronze rows directly to PostgreSQL.
+
+    `raw_transactions._ingest_run_id` references `raw_transaction_ingest_runs`,
+    so on a full refresh both tables are truncated together first (PostgreSQL
+    resolves the foreign-key order), then each table is appended in
+    parent-then-child order so the reference is always valid on insert.
+    """
+
+    ingest_runs_table = "bronze.raw_transaction_ingest_runs"
+    raw_transactions_table = "bronze.raw_transactions"
+
+    if config.write_mode == "overwrite":
+        truncate_tables_cascade(spark, [raw_transactions_table, ingest_runs_table], config.postgres)
+
+    ingest_run_dataframe = _build_ingest_run_dataframe(spark, result, context, config)
+    write_jdbc_table(ingest_run_dataframe, ingest_runs_table, config.postgres, mode="append")
+    write_jdbc_table(_cast_bronze_dates_for_postgres(bronze_dataframe), raw_transactions_table, config.postgres, mode="append")
+
+
+def _cast_bronze_dates_for_postgres(bronze_dataframe: Any) -> Any:
+    """Cast Bronze's raw string date partitions to `date` for the Postgres DDL's `DATE` columns.
+
+    `ingest_date`/`transaction_date` stay plain strings everywhere else --
+    including the Iceberg table -- to match Bronze's raw-preservation
+    contract; only the PostgreSQL write needs this cast, since
+    `bronze.raw_transactions` declares both columns `DATE NOT NULL`.
+    """
+
+    from pyspark.sql import functions as spark_functions
+
+    return bronze_dataframe.withColumn(
+        "ingest_date", spark_functions.to_date("ingest_date")
+    ).withColumn("transaction_date", spark_functions.to_date("transaction_date"))
+
+
+def _build_ingest_run_dataframe(
+    spark: Any,
+    result: BronzeIngestionResult,
+    context: BronzeRunContext,
+    config: BronzeIngestionConfig,
+) -> Any:
+    """Build the single-row audit DataFrame for `bronze.raw_transaction_ingest_runs`."""
+
+    from pyspark.sql import types as spark_types
+
+    schema = spark_types.StructType(
+        [
+            spark_types.StructField("ingest_run_id", spark_types.StringType(), nullable=False),
+            spark_types.StructField("source_system", spark_types.StringType(), nullable=False),
+            spark_types.StructField("source_dataset", spark_types.StringType(), nullable=False),
+            spark_types.StructField("source_path", spark_types.StringType(), nullable=False),
+            spark_types.StructField("manifest_path", spark_types.StringType(), nullable=True),
+            spark_types.StructField("ingest_date", spark_types.DateType(), nullable=False),
+            spark_types.StructField("started_at", spark_types.TimestampType(), nullable=True),
+            spark_types.StructField("completed_at", spark_types.TimestampType(), nullable=True),
+            spark_types.StructField("row_count", spark_types.LongType(), nullable=False),
+            spark_types.StructField("source_file_count", spark_types.LongType(), nullable=False),
+            spark_types.StructField("status", spark_types.StringType(), nullable=False),
+            spark_types.StructField("summary_json", spark_types.StringType(), nullable=False),
+        ]
+    )
+    row = (
+        context.ingest_run_id,
+        config.source_system,
+        config.source_dataset,
+        config.source_uri,
+        str(context.manifest.path) if context.manifest.path else None,
+        date.fromisoformat(context.ingest_date),
+        context.ingested_at,
+        datetime.now(UTC),
+        result.row_count,
+        result.source_file_count,
+        "success",
+        json.dumps(result.to_dict()),
+    )
+    return spark.createDataFrame([row], schema=schema)
 
 
 def _select_raw_columns(dataframe: Any) -> Any:
@@ -584,6 +719,7 @@ def _build_ingestion_result(
 
     return BronzeIngestionResult(
         source_dir=config.source_dir,
+        source_uri=config.source_uri,
         output_dir=config.output_dir,
         source_file_count=len(context.manifest.files),
         row_count=row_count,
@@ -639,8 +775,18 @@ def _write_summary(result: BronzeIngestionResult, output_dir: Path) -> None:
 def build_parser() -> argparse.ArgumentParser:
     """Build the command-line parser for Bronze transaction ingestion."""
 
-    parser = argparse.ArgumentParser(description="Ingest raw transaction CSV files into Bronze Parquet.")
-    parser.add_argument("--source-dir", type=Path, default=DEFAULT_SOURCE_DIR)
+    parser = argparse.ArgumentParser(description="Ingest raw transaction CSV files into the Bronze Iceberg table.")
+    parser.add_argument(
+        "--source-dir",
+        type=Path,
+        default=DEFAULT_SOURCE_DIR,
+        help="Local directory holding the generator's _manifest.json evidence file.",
+    )
+    parser.add_argument(
+        "--source-uri",
+        default=DEFAULT_SOURCE_URI,
+        help="MinIO location of the raw CSV partitions, used when no manifest is found.",
+    )
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--manifest-path", type=Path)
     parser.add_argument("--master", default=DEFAULT_MASTER)
@@ -648,6 +794,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ingest-run-id")
     parser.add_argument("--ingest-date")
     add_spark_ui_arguments(parser)
+    add_warehouse_arguments(parser)
+    add_iceberg_arguments(parser)
+    add_postgres_arguments(parser)
+    parser.add_argument(
+        "--skip-postgres-write",
+        action="store_true",
+        help="Skip the direct JDBC write to PostgreSQL (useful for local runs without a database).",
+    )
     return parser
 
 
@@ -657,6 +811,7 @@ def main(argv: list[str] | None = None) -> int:
     args = build_parser().parse_args(argv)
     config = BronzeIngestionConfig(
         source_dir=args.source_dir,
+        source_uri=args.source_uri,
         output_dir=args.output_dir,
         manifest_path=args.manifest_path,
         master=args.master,
@@ -664,6 +819,10 @@ def main(argv: list[str] | None = None) -> int:
         ingest_run_id=args.ingest_run_id,
         ingest_date=args.ingest_date,
         spark_ui=spark_ui_config_from_args(args),
+        warehouse=warehouse_config_from_args(args),
+        iceberg=iceberg_config_from_args(args),
+        postgres=postgres_config_from_args(args),
+        write_to_postgres=not args.skip_postgres_write,
     )
     try:
         result = ingest_transactions_to_bronze(config)

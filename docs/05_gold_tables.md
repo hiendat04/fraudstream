@@ -10,20 +10,21 @@ FraudStream uses two storage patterns:
 
 | Area | Storage | Purpose |
 |---|---|---|
-| Lakehouse processing | Parquet under `data/bronze/`, `data/silver/`, and `data/gold/` | Efficient Spark reads, writes, partitioning, and reproducible batch processing. |
+| Lakehouse processing | Apache Iceberg tables (`iceberg.bronze.*`, `iceberg.silver.*`, `iceberg.gold.*`) on Parquet data files in MinIO -- see [docs/15](15_lakehouse_iceberg.md) | Efficient Spark (and Flink) reads, writes, partitioning, and reproducible batch processing, with a shared table catalog instead of bare files. |
 | Serving and inspection | PostgreSQL database `fraudstream` | DBeaver exploration, ER diagrams, DataHub-style lineage, data contracts, and future API access. |
 
-PostgreSQL is not the replacement for Parquet. Spark still performs the core
-Bronze, Silver, and Gold transformations. PostgreSQL stores a relational serving
-copy of the curated tables so they are easy to inspect and connect to external
-tools.
+PostgreSQL is not the replacement for the Iceberg lakehouse. Spark still
+performs the core Bronze, Silver, and Gold transformations and writes their
+output to the Iceberg tables in MinIO. Each layer's Spark job also writes its
+own PostgreSQL tables directly over JDBC, right after its Iceberg write, so
+the relational serving copy of the curated tables stays in lockstep with the
+lakehouse tables without a separate publish step.
 
 ```text
 Raw CSV/JSONL
--> Bronze Parquet
--> Silver Parquet
--> Gold Parquet
--> PostgreSQL serving tables
+-> Spark (Bronze -> Silver -> Gold -> Features)
+     |-> Iceberg tables in MinIO
+     `-> PostgreSQL serving tables (direct JDBC write)
 ```
 
 ## PostgreSQL Layout
@@ -82,11 +83,11 @@ Implementation files:
 
 | File | Purpose |
 |---|---|
-| `docker-compose.yml` | Runs PostgreSQL and the one-shot schema initializer. |
+| `docker-compose.yml` | Runs MinIO, PostgreSQL, and the one-shot bucket/schema initializers. |
 | `infra/postgres/init/001_create_fraudstream_schema.sql` | Defines schemas, tables, constraints, indexes, comments, and the Gold OBT view. |
-| `src/fraudstream/jobs/gold/transactions.py` | Builds core Gold dimensions, facts, and aggregates from Silver; direct runs may also include features. |
-| `src/fraudstream/jobs/gold/offline_features.py` | Builds offline feature tables from persisted core Gold facts. |
-| `src/fraudstream/jobs/postgres/publish.py` | Publishes Silver and Gold Parquet datasets into PostgreSQL tables. |
+| `src/fraudstream/jobs/warehouse.py` | Shared MinIO (S3A), Iceberg catalog, and PostgreSQL JDBC configuration and write helpers used by every Spark job. |
+| `src/fraudstream/jobs/gold/transactions.py` | Builds core Gold dimensions, facts, and aggregates from Silver, writing Iceberg tables in MinIO and every table directly to PostgreSQL; direct runs may also include features. |
+| `src/fraudstream/jobs/gold/offline_features.py` | Builds offline feature tables from persisted core Gold facts, writing Iceberg tables in MinIO and PostgreSQL directly. |
 
 ## Naming Standards
 
@@ -124,11 +125,11 @@ Gold is built from Silver, not directly from Bronze.
 | `silver.stg_transactions` | Clean, typed, deduplicated transaction records. One selected row per `transaction_id`. |
 | `silver.stg_transaction_quality_issues` | Evidence rows for warnings, quarantines, and rejected duplicate candidates. |
 
-The canonical Spark source path remains:
+The canonical Spark source is the Iceberg table, not a raw path:
 
 ```text
-data/silver/transactions/
-data/silver/transaction_quality_issues/
+iceberg.silver.stg_transactions
+iceberg.silver.stg_transaction_quality_issues
 ```
 
 ## Snowflake Model
@@ -179,8 +180,8 @@ metadata into business fact tables.
 ## Bronze Serving Tables
 
 Bronze tables expose raw-preserved data in PostgreSQL for lineage and DBeaver
-inspection. They mirror the Bronze Parquet contract and keep source values as
-text.
+inspection. They mirror the Bronze Iceberg table's contract and keep source
+values as text.
 
 | Table | Grain | Purpose |
 |---|---|---|
@@ -326,40 +327,36 @@ dimension tables remain the authoritative model.
 
 ## Loading Pattern
 
-PostgreSQL data loading is handled by a publisher job that runs after Spark has
-produced Parquet outputs.
+Each Spark job writes its own Iceberg table in MinIO, then writes its own PostgreSQL tables directly over JDBC using the same Spark session, right after the Iceberg write.
 
 Pipeline loading pattern:
 
-| Pipeline | Spark Output | PostgreSQL Publish Target |
+| Pipeline | Iceberg Table (MinIO) | PostgreSQL Target (direct JDBC write) |
 |---|---|---|
-| Bronze ingestion | `data/bronze/raw_transactions/` | `bronze.raw_transaction_ingest_runs`, `bronze.raw_transactions` |
-| Silver and Gold build | `data/silver/transactions/`, `data/gold/*` | `silver.stg_*`, `gold.dim_*`, `gold.fact_*`, `gold.obt_*` |
-| Offline features | `data/gold/feat_*` | `gold.feat_*` |
+| Bronze ingestion | `iceberg.bronze.raw_transactions` | `bronze.raw_transaction_ingest_runs`, `bronze.raw_transactions` |
+| Silver build | `iceberg.silver.stg_transactions`, `iceberg.silver.stg_transaction_quality_issues` | `silver.stg_transactions`, `silver.stg_transaction_quality_issues` |
+| Core Gold build | `iceberg.gold.<table_name>` | `gold.dim_*`, `gold.fact_*` |
+| Offline features | `iceberg.gold.feat_*` | `gold.feat_*` |
 
 For local development, full refresh loading is acceptable for facts, daily
-aggregates, and feature tables. SCD2 dimensions require change detection before
-closing old records and inserting new current versions.
+aggregates, and feature tables. SCD2 dimensions currently reload in full too --
+the Gold job truncates every Gold table together (PostgreSQL resolves the
+foreign-key order) before reinserting, rather than performing true incremental
+change detection.
 
-Install the Spark and PostgreSQL extras:
-
-```bash
-uv sync --extra spark --extra postgres
-```
-
-Publish Silver Parquet tables:
+Install the Spark extra. The MinIO (S3A), Iceberg, and PostgreSQL JDBC driver
+jars are fetched automatically on first Spark session startup via
+`spark.jars.packages`:
 
 ```bash
-PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
-  --layer silver \
-  --write-mode overwrite
+uv sync --extra spark
 ```
 
-Build Gold Parquet tables from Silver:
+Build Gold Iceberg tables from Silver, writing every table to MinIO and
+PostgreSQL:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
-  --silver-dir data/silver/transactions \
   --output-dir data/gold \
   --write-mode overwrite
 ```
@@ -368,7 +365,6 @@ For the Airflow execution boundary, build core Gold first and features second:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
-  --silver-dir data/silver/transactions \
   --output-dir data/gold \
   --write-mode overwrite \
   --core-only
@@ -377,6 +373,8 @@ PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features \
   --gold-dir data/gold \
   --write-mode overwrite
 ```
+
+Add `--skip-postgres-write` to either command to build the Iceberg tables only.
 
 To inspect Gold feature engineering in Spark UI:
 
@@ -395,26 +393,9 @@ for feature engineering are `feat_customer_rolling`,
 show rolling windows, daily pre-aggregation, broadcast category joins,
 point-in-time lookups, and adaptive skew handling.
 
-Publish Gold Parquet tables:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
-  --layer gold \
-  --write-mode overwrite
-```
-
-During development, missing Gold tables can be skipped while individual tables
-are still being implemented:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.postgres.publish \
-  --layer gold \
-  --tables dim_customer,fact_transactions \
-  --skip-missing
-```
-
-The publisher validates source columns before writing. If a Parquet dataset is
-missing a required target column, the job fails before loading that table.
+Each job validates its documented column list (`GOLD_TABLE_COLUMNS` in
+`gold/transactions.py`) before writing. If a DataFrame is missing a required
+column, the job fails before writing either MinIO or PostgreSQL.
 
 ## Validation Expectations
 

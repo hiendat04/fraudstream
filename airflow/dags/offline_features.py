@@ -47,6 +47,7 @@ with DAG(
                 "fraudstream.jobs.gold.offline_features",
                 """
                 --gold-dir "{{ var.value.fraudstream_gold_dir }}"
+                --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"

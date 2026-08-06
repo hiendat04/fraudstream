@@ -4,17 +4,20 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
 
+from fraudstream import storage
 from fraudstream.jobs.bronze.ingest_transactions import (
     BASE_COLUMNS,
     RAW_COLUMNS,
     BronzeIngestionConfig,
     ingest_transactions_to_bronze,
 )
+from fraudstream.jobs.warehouse import IcebergCatalogConfig, WarehouseConfig
 
 
 @skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
@@ -28,13 +31,15 @@ class BronzeTransactionIngestionTest(TestCase):
             root_dir = Path(tmp_dir)
             source_dir = root_dir / "raw_source" / "offline_transactions"
             output_dir = root_dir / "bronze" / "raw_transactions"
-            v1_file = source_dir / "schema_version=v1" / "transaction_date=2026-01-01" / "transactions.csv"
-            v2_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
 
             _write_csv(v1_file, BASE_COLUMNS, [_v1_row(), _v1_row()])
             _write_csv(v2_file, RAW_COLUMNS, [_v2_row()])
             _write_manifest(source_dir, [v1_file, v2_file])
 
+            warehouse_dir = root_dir / "warehouse"
+            iceberg_uri = f"file://{warehouse_dir}/iceberg"
             result = ingest_transactions_to_bronze(
                 BronzeIngestionConfig(
                     source_dir=source_dir,
@@ -42,6 +47,9 @@ class BronzeTransactionIngestionTest(TestCase):
                     ingest_run_id="test_bronze_ingest",
                     ingest_date="2026-07-04",
                     write_mode="overwrite",
+                    warehouse=WarehouseConfig(uri=f"file://{warehouse_dir}"),
+                    iceberg=IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_uri),
+                    write_to_postgres=False,
                 )
             )
 
@@ -51,10 +59,8 @@ class BronzeTransactionIngestionTest(TestCase):
             self.assertEqual(result.schema_versions, ("v1", "v2"))
             self.assertEqual(result.transaction_date_count, 2)
             self.assertTrue((output_dir / "_bronze_ingestion_summary.json").exists())
-            self.assertTrue(any(output_dir.glob("ingest_date=2026-07-04/schema_version=v1/transaction_date=2026-01-01/*.parquet")))
-            self.assertTrue(any(output_dir.glob("ingest_date=2026-07-04/schema_version=v2/transaction_date=2026-04-01/*.parquet")))
 
-            rows = _read_parquet_rows(output_dir)
+            rows = _read_iceberg_rows("iceberg.bronze.raw_transactions", iceberg_uri)
             self.assertEqual(len(rows), 3)
 
             rows_by_version = {
@@ -90,14 +96,16 @@ class BronzeTransactionIngestionTest(TestCase):
             root_dir = Path(tmp_dir)
             source_dir = root_dir / "raw_source" / "offline_transactions"
             output_dir = root_dir / "bronze" / "raw_transactions"
-            v1_file = source_dir / "schema_version=v1" / "transaction_date=2026-01-01" / "transactions.csv"
-            v2_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
             partial_v2_columns = [*BASE_COLUMNS, "ip_address"]
 
             _write_csv(v1_file, BASE_COLUMNS, [_v1_row()])
             _write_csv(v2_file, partial_v2_columns, [_v2_row()])
             _write_manifest(source_dir, [v1_file, v2_file])
 
+            warehouse_dir = root_dir / "warehouse"
+            iceberg_uri = f"file://{warehouse_dir}/iceberg"
             result = ingest_transactions_to_bronze(
                 BronzeIngestionConfig(
                     source_dir=source_dir,
@@ -105,13 +113,16 @@ class BronzeTransactionIngestionTest(TestCase):
                     ingest_run_id="test_schema_evolution",
                     ingest_date="2026-07-04",
                     write_mode="overwrite",
+                    warehouse=WarehouseConfig(uri=f"file://{warehouse_dir}"),
+                    iceberg=IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_uri),
+                    write_to_postgres=False,
                 )
             )
 
             self.assertEqual(result.row_count, 2)
             self.assertEqual(result.schema_versions, ("v1", "v2"))
 
-            rows = _read_parquet_rows(output_dir)
+            rows = _read_iceberg_rows("iceberg.bronze.raw_transactions", iceberg_uri)
             rows_by_version = {row["schema_version"]: row for row in rows}
 
             self.assertIsNone(rows_by_version["v1"]["device_id"])
@@ -125,25 +136,27 @@ class BronzeTransactionIngestionTest(TestCase):
             self.assertIsNone(rows_by_version["v2"]["risk_signal_version"])
 
 
-def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
-    """Write a tiny source CSV partition for tests."""
+def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
+    """Write a tiny source CSV partition for tests, via the same `storage`
+    module the generator uses (a local `file://` URI stands in for MinIO)."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    storage.put_text(WarehouseConfig(), uri, buffer.getvalue())
 
 
-def _write_manifest(source_dir: Path, files: list[Path]) -> None:
+def _write_manifest(source_dir: Path, files: list[str]) -> None:
     """Write a small source manifest for file discovery."""
 
     manifest = {
         "dataset": "offline_transactions",
         "source_system": "fraudstream_generator",
         "created_at": "2026-07-04T00:00:00Z",
-        "files": [str(path) for path in files],
+        "files": files,
     }
+    source_dir.mkdir(parents=True, exist_ok=True)
     with (source_dir / "_manifest.json").open("w", encoding="utf-8") as file:
         json.dump(manifest, file)
 
@@ -192,20 +205,32 @@ def _v2_row() -> dict[str, str]:
     }
 
 
-def _read_parquet_rows(path: Path):
-    """Read a Parquet directory and return rows before stopping Spark."""
+def _read_iceberg_rows(table: str, iceberg_warehouse_uri: str):
+    """Read an Iceberg table through a fresh Hadoop-catalog session and return its rows.
+
+    `catalog_type="hadoop"` stores catalog metadata directly under the local
+    `file://` warehouse path instead of PostgreSQL, so this reads back
+    exactly what the job under test wrote without needing a running database.
+    """
 
     from pyspark.sql import SparkSession
 
-    spark = (
+    from fraudstream.jobs.warehouse import IcebergCatalogConfig, PostgresJdbcConfig, configure_iceberg_catalog
+
+    builder = (
         SparkSession.builder.appName("BronzeTransactionIngestionTest")
         .master("local[*]")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    builder = configure_iceberg_catalog(
+        builder,
+        IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_warehouse_uri),
+        PostgresJdbcConfig(),
+    )
+    spark = builder.getOrCreate()
     try:
-        return spark.read.parquet(str(path)).collect()
+        return spark.table(table).collect()
     finally:
         spark.stop()
 

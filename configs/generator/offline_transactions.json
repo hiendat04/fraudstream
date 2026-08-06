@@ -18,5 +18,6 @@
   "burst_day_count": 15,
   "fraud_ring_count": 10,
   "schema_change_date": "2026-04-01",
-  "output_dir": "data/raw_source/offline_transactions"
+  "output_dir": "data/raw_source/offline_transactions",
+  "raw_uri": "s3a://fraudstream/raw/offline_transactions"
 }

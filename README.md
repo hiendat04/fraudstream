@@ -1,9 +1,9 @@
 # FraudStream: Real-Time Financial Transaction Intelligence Platform
 
 FraudStream is a data engineering project for building production-style fraud
-analytics pipelines. It uses Python, Spark, Kafka, Flink, Airflow, PostgreSQL,
-and DataHub to process realistic batch and streaming transactions while
-preserving data quality, event-time correctness, and lineage.
+analytics pipelines. It uses Python, Spark, Kafka, Flink, Airflow, MinIO,
+PostgreSQL, and DataHub to process realistic batch and streaming transactions
+while preserving data quality, event-time correctness, and lineage.
 
 The project is built around a practical idea: fraud detection depends on reliable data pipelines before any model can be trusted. Real transaction systems produce late records, duplicates, schema changes, traffic spikes, high-cardinality IDs, skewed entities, and messy source values. FraudStream turns those problems into controlled, reproducible engineering scenarios.
 
@@ -14,12 +14,12 @@ FraudStream focuses on the data platform skills behind fraud analytics:
 - realistic batch and streaming transaction data generation
 - source-style raw data preservation before cleaning
 - Kafka replay for real-time processing development
-- Spark-oriented offline processing path from raw files to Parquet
+- Spark-oriented offline processing path from raw files to Parquet in MinIO
 - Flink-oriented streaming path from Kafka events to event-time logic
 - deliberate data quality issues for Bronze, Silver, and Gold layers
 - reproducible configs, manifests, and summary artifacts for validation
 - asset-aware Airflow orchestration for the offline batch dependencies
-- PostgreSQL serving tables for engineering and analytical inspection
+- direct Spark-to-PostgreSQL JDBC writes for engineering and analytical inspection
 - DataHub catalog, lineage, contract properties, and validation assertions
 - Spark UI and Flink UI performance analysis with captured baseline and optimized runs
 - evidence-driven offline and streaming data-quality reporting
@@ -35,12 +35,13 @@ The repository currently includes:
 | Offline transaction generator | Creates partitioned raw CSV extracts containing controlled duplicates, late arrivals, skew, schema evolution, and malformed values | [docs/01_offline_data_generator.md](docs/01_offline_data_generator.md) |
 | Streaming transaction generator and replay | Creates deterministic JSONL events with bursts, out-of-order arrivals, late events, and duplicates, then replays them to Kafka | [docs/02_streaming_data_generator.md](docs/02_streaming_data_generator.md) |
 | Local Kafka stack | Runs Kafka, topic initialization, and Kafka UI with Docker Compose | [docker-compose.yml](docker-compose.yml) |
-| Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
-| Silver transaction deduplication | Cleans typed transaction fields and writes one deterministic row per transaction ID | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
-| Core Gold model | Builds dimensions, transaction facts, quality facts, and daily customer, account, merchant, city/category, and device/IP aggregates | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
-| Offline feature job | Builds point-in-time-safe customer velocity, amount anomaly, merchant risk, device/IP reuse, late-arrival, and transaction-training features from persisted core Gold facts | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
+| Local MinIO stack | Runs an S3-compatible object store and bucket initialization for Bronze/Silver/Gold/feature Parquet | [docker-compose.yml](docker-compose.yml) |
+| Bronze transaction ingestion | Reads raw offline CSV partitions and writes metadata-rich Bronze Parquet to MinIO, then writes the ingest-run and raw-transaction tables directly to PostgreSQL over JDBC | [docs/03_bronze_ingestion.md](docs/03_bronze_ingestion.md) |
+| Silver transaction deduplication | Cleans typed transaction fields, writes one deterministic row per transaction ID to MinIO, and writes the selected and quality-evidence tables directly to PostgreSQL over JDBC | [docs/04_silver_transactions.md](docs/04_silver_transactions.md) |
+| Core Gold model | Builds dimensions, transaction facts, quality facts, and daily customer, account, merchant, city/category, and device/IP aggregates in MinIO, then writes every table directly to PostgreSQL over JDBC | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
+| Offline feature job | Builds point-in-time-safe customer velocity, amount anomaly, merchant risk, device/IP reuse, late-arrival, and transaction-training features from persisted core Gold facts, writing MinIO Parquet and PostgreSQL tables directly | [docs/06_feature_engineering.md](docs/06_feature_engineering.md) |
 | Flink streaming feature job | Validates and deduplicates Kafka events, loads a measured p95 watermark delay, computes five-minute customer and merchant features, handles late data, and emits alerts | [docs/07_flink_streaming_pipeline.md](docs/07_flink_streaming_pipeline.md) |
-| PostgreSQL serving layer | Creates metadata, Bronze, Silver, and Gold schemas and publishes Silver and Gold Parquet tables for SQL inspection | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
+| PostgreSQL serving layer | Creates metadata, Bronze, Silver, and Gold schemas that each Spark job writes into directly over JDBC | [docs/05_gold_tables.md](docs/05_gold_tables.md) |
 | Airflow batch orchestration | Runs raw-to-Bronze, Bronze-to-Silver/Gold, and offline-feature DAGs with validation gates and asset dependencies | [docs/09_orchestration_flow.md](docs/09_orchestration_flow.md) |
 | DataHub governance | Catalogs the three batch pipelines, PostgreSQL schemas, table lineage, versioned contracts, and measured validation assertions | [docs/11_data_governance_datahub.md](docs/11_data_governance_datahub.md) |
 | Generated data quality report | Generates a readable HTML report of offline and streaming characteristics from existing evidence artifacts | [docs/13_data_quality_report.md](docs/13_data_quality_report.md) |
@@ -55,55 +56,81 @@ partitions, and output metadata.
 
 ## Architecture
 
-FraudStream has two implemented processing paths. Airflow orchestrates raw-data
-generation and the Spark jobs that build local Parquet layers. The streaming
-path replays generated events through Kafka and uses PyFlink to produce cleaned
-events, windowed features, late-event records, and fraud alerts as Kafka topics.
+FraudStream has two implemented processing paths that both write into a shared
+**Apache Iceberg lakehouse on MinIO** -- Airflow orchestrates raw-data
+generation and the Spark jobs that build Iceberg tables, and the streaming path
+replays generated events through Kafka and uses PyFlink to produce cleaned
+events, windowed features, late-event records, and fraud alerts, both as Kafka
+topics and as upserts into the same Iceberg tables Spark reads and writes. See
+[Lakehouse: Apache Iceberg on MinIO](docs/15_lakehouse_iceberg.md) for how the
+two engines share one catalog and how to run it.
 
 ![FraudStream deployable data-platform architecture](images/architecture/data_engineering_architecture.png)
 
 The implemented offline data flow is:
 
 ```text
-raw CSV -> Bronze Parquet -> Silver Parquet -> Gold Parquet -> PostgreSQL serving tables
+raw CSV in MinIO -> Spark (Bronze -> Silver -> Gold -> Features) -> Iceberg tables in MinIO
+                                                                  -> PostgreSQL (direct JDBC write)
 ```
 
-The implemented streaming flow is separate:
+Each Bronze, Silver, Gold, and offline-feature Spark job reads and writes its
+own Iceberg table in MinIO and writes its own PostgreSQL tables directly over
+JDBC at the end of its run; there is no separate publisher step. **Trino**
+queries the Iceberg tables directly (same JDBC catalog Spark/Flink use, no
+Hive Metastore) -- see
+[Lakehouse: Apache Iceberg on MinIO](docs/15_lakehouse_iceberg.md#trino-querying-iceberg-tables).
+
+The implemented streaming flow is:
 
 ```text
 JSONL event log -> Kafka -> PyFlink -> derived Kafka topics
+                                     -> Iceberg tables in MinIO (clean transactions, customer/merchant features)
 ```
 
-The streaming outputs are not yet persisted into the offline Gold or PostgreSQL
-tables. Airflow currently orchestrates the batch path only. DataHub catalogs the
-PostgreSQL schemas and publishes governance metadata for the three batch
-pipelines.
+Both paths write into the same Iceberg catalog, so a table Spark builds in a
+batch run and a table Flink upserts into in real time are queryable together --
+the delayed-label join a fraud model needs (today's streaming features joined
+weeks later against a confirmed fraud/chargeback label) is a single query
+across both, not a data-movement job. Airflow currently orchestrates the batch
+path only. DataHub catalogs the PostgreSQL schemas and publishes governance
+metadata for the three batch pipelines.
 
 The local runtimes are deliberately isolated because their Python requirements
 do not match:
 
 | Runtime | Version boundary | Responsibility |
 |---|---|---|
-| Root `uv` project | Python `>=3.14`; PySpark 4.1.x optional | Generators, replay, Spark layers, PostgreSQL publishing, quality report, and unit tests |
-| `flink/` project | Python 3.12; Apache Flink 2.2.1 | PyFlink Kafka streaming job and local Flink UI |
+| Root `uv` project | Python `>=3.14`; PySpark 4.1.x optional | Generators, replay, Spark layers, quality report, and unit tests |
+| `flink/` project | Python 3.12; Apache Flink 2.1.3 | PyFlink Kafka streaming job, Iceberg lakehouse sink, and local Flink UI |
 | Airflow containers | Airflow 3.3.0 on Python 3.12; PySpark 4.1.2 | Offline DAG parsing, scheduling, task execution, and validation gates |
 | `datahub/` project | Python 3.11; DataHub 1.6.0 | PostgreSQL metadata ingestion and custom governance publication |
 
 Docker Compose provides the `confluentinc/cp-kafka:7.7.1` image, Kafka UI,
-PostgreSQL 16, and the optional Airflow profile. DataHub runs through its
-separate Docker quickstart wrapper.
+MinIO (S3-compatible object storage backing the Iceberg lakehouse), PostgreSQL
+16, Trino (SQL query engine over the Iceberg tables), and the optional Airflow
+profile. Spark reaches PostgreSQL, MinIO, and the
+Iceberg catalog through the `org.postgresql:postgresql`,
+`org.apache.hadoop:hadoop-aws`, and `org.apache.iceberg:iceberg-spark-runtime`
+JDBC/S3A/Iceberg drivers, fetched automatically via `spark.jars.packages`.
+PyFlink reaches the same catalog through the equivalent JARs, checked in
+manually (see [docs/15](docs/15_lakehouse_iceberg.md)) since Flink has no
+`spark.jars.packages`-style auto-fetch. DataHub runs through its separate
+Docker quickstart wrapper.
 
 ## Data Design
 
-The offline path writes raw CSV partitions under:
+The offline path writes raw CSV partitions to MinIO:
 
 ```text
-data/raw_source/offline_transactions/
+s3a://fraudstream/raw/offline_transactions/
 ```
 
-These 180 daily CSV partitions simulate source-system extracts. They
-intentionally include duplicates, late arrivals, missing values, inconsistent
-formats, skew, high-cardinality IDs, fraud labels, and a v1-to-v2 schema change.
+Only the small manifest and quality-summary evidence files stay local, under
+`data/raw_source/offline_transactions/`. These 180 daily CSV partitions
+simulate source-system extracts. They intentionally include duplicates, late
+arrivals, missing values, inconsistent formats, skew, high-cardinality IDs,
+fraud labels, and a v1-to-v2 schema change.
 
 The streaming path writes a local event log under:
 
@@ -116,13 +143,27 @@ That JSONL log represents a 24-partition Kafka topic and can be replayed into
 so Flink can apply event-time windows, a bounded-out-of-orderness watermark
 calibrated from measured p95 source delay, deduplication, and late-event handling.
 
+Bronze, Silver, Gold, and offline-feature Parquet tables are not written to
+local disk. Each Spark job writes them under one shared MinIO warehouse root:
+
+```text
+s3a://fraudstream/warehouse/bronze/raw_transactions
+s3a://fraudstream/warehouse/silver/transactions
+s3a://fraudstream/warehouse/silver/transaction_quality_issues
+s3a://fraudstream/warehouse/gold/<table_name>
+```
+
+Local `data/bronze`, `data/silver`, and `data/gold` paths still exist for each
+job's own JSON summary and quality-report evidence files, since those are
+lightweight metadata rather than the bulk table data.
+
 ## Repository Structure
 
 ```text
 fraudstream/
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
 ├── configs/                  # Generator configs and measured Flink latency profile
-├── data/                     # Generated local data outputs
+├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
@@ -131,12 +172,12 @@ fraudstream/
 ├── reports/                  # Generated human-readable reports
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
-│   ├── jobs/                 # Spark, Flink, and PostgreSQL data jobs
+│   ├── jobs/                 # Spark, Flink, and shared MinIO/PostgreSQL warehouse helpers
 │   ├── orchestration/        # Reusable Airflow validation functions
 │   ├── producers/            # Kafka replay producer
 │   └── reports/              # Data-quality report generator
 ├── tests/unit/               # Unit tests
-├── docker-compose.yml        # Local Kafka, PostgreSQL, and Airflow services
+├── docker-compose.yml        # Local Kafka, MinIO, PostgreSQL, and Airflow services
 ├── main.py
 ├── pyproject.toml
 └── uv.lock
@@ -162,23 +203,25 @@ Install the optional Kafka dependency when using the replay producer:
 uv sync --extra kafka
 ```
 
-Install the optional Spark dependency when working on Bronze ingestion:
+Install the optional Spark dependency when working on Bronze, Silver, Gold, or
+offline feature jobs. Each job downloads its own MinIO (S3A) and PostgreSQL
+JDBC driver jars automatically on first run through `spark.jars.packages`:
 
 ```bash
 uv sync --extra spark
 ```
 
-Install the optional PostgreSQL dependency when publishing Parquet outputs into
-the local serving database:
+Install the optional `storage` dependency (`boto3`) when running the
+generator or Bronze jobs, which now write/read raw CSV partitions in MinIO:
 
 ```bash
-uv sync --extra postgres
+uv sync --extra storage
 ```
 
-To keep Kafka, Spark, and PostgreSQL publishing extras installed locally:
+To keep the Kafka, Spark, and storage extras installed locally:
 
 ```bash
-uv sync --extra kafka --extra spark --extra postgres
+uv sync --extra kafka --extra spark --extra storage
 ```
 
 Activate the root environment:
@@ -192,7 +235,9 @@ Run commands from the repository root. They use `PYTHONPATH=src` so the
 
 ## Quick Start
 
-Generate offline raw transaction data:
+Start local MinIO first (see below) -- the generator writes raw CSV
+partitions there, not to local disk. Then generate offline raw transaction
+data:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions
@@ -226,14 +271,44 @@ PostgreSQL is available for DBeaver at `localhost:5432`, database
 `fraudstream`, user `fraudstream`, and password
 `fraudstream_local_password`. These defaults are for local development only.
 
-Prepare the isolated PyFlink environment and Kafka connector:
+Start local MinIO and create the `fraudstream` bucket used for Bronze, Silver,
+Gold, and offline-feature Parquet:
+
+```bash
+docker compose up -d minio minio-bucket-init
+```
+
+MinIO's S3 API is available at `localhost:19000` and its console at
+`localhost:19001` (not MinIO's usual 9000/9001 -- see `docker-compose.yml`'s
+comment on the `minio` service for why), using the same `fraudstream` / `fraudstream_local_password`
+local-development defaults.
+
+Start Trino to query Iceberg tables (`bronze.*`, `silver.*`, `gold.*`,
+`streaming.*`) directly over SQL:
+
+```bash
+docker compose up -d trino
+```
+
+```bash
+docker exec -it fraudstream-trino trino --catalog iceberg --schema bronze
+```
+
+See [`docs/15_lakehouse_iceberg.md`](docs/15_lakehouse_iceberg.md#trino-querying-iceberg-tables)
+for the JDBC connection details and why no Hive Metastore is needed.
+
+Prepare the isolated PyFlink environment and its connector JARs (Kafka, plus
+Iceberg + PostgreSQL + hadoop-aws for the lakehouse sink -- see
+[`docs/15_lakehouse_iceberg.md`](docs/15_lakehouse_iceberg.md) for what each
+one is for and [`docs/07_flink_streaming_pipeline.md`](docs/07_flink_streaming_pipeline.md#run-locally)
+for the full command list):
 
 ```bash
 UV_CACHE_DIR=/tmp/fraudstream-uv-cache \
   uv sync --project flink --python 3.12
 
 mvn dependency:copy \
-  -Dartifact=org.apache.flink:flink-sql-connector-kafka:5.0.0-2.2 \
+  -Dartifact=org.apache.flink:flink-sql-connector-kafka:5.0.0-2.1 \
   -DoutputDirectory=flink/lib
 ```
 
@@ -255,17 +330,22 @@ PYTHONPATH=src python -m fraudstream.producers.stream_replay \
   --events-per-second 5000
 ```
 
-Ingest raw offline CSV files into Bronze Parquet:
+Ingest raw offline CSV files into Bronze Parquet in MinIO and write the
+ingest-run and raw-transaction tables directly to PostgreSQL:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions
 ```
 
-Build deduplicated Silver transaction Parquet:
+Build deduplicated Silver transaction Parquet in MinIO and write the selected
+and quality-evidence tables directly to PostgreSQL:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.silver.transactions
 ```
+
+Add `--skip-postgres-write` to any job to build Parquet only, for example when
+PostgreSQL is not running locally.
 
 Generate a readable report from the offline generator, Silver, and streaming
 evidence artifacts:
@@ -276,7 +356,8 @@ PYTHONPATH=src python -m fraudstream.reports.data_quality \
   --output reports/data_quality_report.html
 ```
 
-Build Gold transaction facts, dimensions, aggregates, and feature tables:
+Build Gold transaction facts, dimensions, aggregates, and feature tables in
+MinIO, writing every table directly to PostgreSQL:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.gold.transactions
@@ -290,13 +371,6 @@ PYTHONPATH=src python -m fraudstream.jobs.gold.transactions --core-only
 PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features
 ```
 
-Publish the Silver and Gold Parquet datasets into PostgreSQL:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.postgres.publish --layer silver
-PYTHONPATH=src python -m fraudstream.jobs.postgres.publish --layer gold
-```
-
 Start Airflow for the three batch DAGs:
 
 ```bash
@@ -306,8 +380,8 @@ docker compose --profile orchestration up --build -d \
 ```
 
 The Airflow DAGs are an orchestrated alternative to running the batch commands
-manually. They rebuild Parquet datasets but do not publish them to PostgreSQL;
-rerun the PostgreSQL publisher after an Airflow build before refreshing DataHub.
+manually. Each Spark task writes its own Parquet to MinIO and its own tables to
+PostgreSQL directly, the same as running the commands by hand.
 
 Open `http://localhost:18081`, unpause the three `fraudstream_*` DAGs, and
 trigger `fraudstream_raw_to_bronze`. Validated asset events start the other DAGs
@@ -416,13 +490,15 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/12_database_schema.md](docs/12_database_schema.md) | DBeaver diagrams for the physical Bronze, Silver, and Gold PostgreSQL schemas |
 | [docs/13_data_quality_report.md](docs/13_data_quality_report.md) | Generated HTML evidence for offline and streaming volume, skew, cardinality, schema evolution, duplicates, bursts, and late events |
 | [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md) | Proposed ClickHouse and Grafana real-time analytics extension; design only, not implemented |
+| [docs/15_lakehouse_iceberg.md](docs/15_lakehouse_iceberg.md) | Apache Iceberg lakehouse on MinIO: shared catalog design, Spark and Flink table writes, Trino querying, and how to run it locally |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
 ## Current Engineering Scope
 
-The offline path runs from raw CSV through Bronze, Silver, and Gold Parquet,
-with Silver and Gold published to PostgreSQL for serving. The streaming path
+The offline path runs from raw CSV through Bronze, Silver, and Gold Parquet in
+MinIO, with every layer's Spark job writing its own tables directly to
+PostgreSQL over JDBC for serving. The streaming path
 replays generated events through Kafka and uses Flink for validation,
 deduplication, event-time windows, late-event handling, features, and alerts.
 Airflow orchestrates the offline dependencies, while DataHub presents the batch

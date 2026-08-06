@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
 
+from fraudstream import storage
 from fraudstream.jobs.bronze.ingest_transactions import (
     BASE_COLUMNS,
     RAW_COLUMNS,
@@ -19,6 +21,7 @@ from fraudstream.jobs.bronze.validate_transactions import (
     BronzeValidationConfig,
     validate_bronze_transactions,
 )
+from fraudstream.jobs.warehouse import IcebergCatalogConfig, WarehouseConfig
 
 
 @skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
@@ -33,13 +36,15 @@ class BronzeTransactionValidationTest(TestCase):
             source_dir = root_dir / "raw_source" / "offline_transactions"
             bronze_dir = root_dir / "bronze" / "raw_transactions"
             report_path = bronze_dir / "_bronze_validation_summary.json"
-            v1_file = source_dir / "schema_version=v1" / "transaction_date=2026-01-01" / "transactions.csv"
-            v2_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
 
             _write_csv(v1_file, BASE_COLUMNS, [_padded_v1_row(), _uppercase_v1_row()])
             _write_csv(v2_file, RAW_COLUMNS, [_blank_v2_row()])
             _write_manifest(source_dir, [v1_file, v2_file])
 
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
             ingest_transactions_to_bronze(
                 BronzeIngestionConfig(
                     source_dir=source_dir,
@@ -47,14 +52,18 @@ class BronzeTransactionValidationTest(TestCase):
                     ingest_run_id="test_bronze_validation",
                     ingest_date="2026-07-04",
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
 
             result = validate_bronze_transactions(
                 BronzeValidationConfig(
                     source_dir=source_dir,
-                    bronze_dir=bronze_dir,
                     report_path=report_path,
+                    warehouse=warehouse,
+                    iceberg=iceberg,
                 )
             )
             result_payload = result.to_dict()
@@ -79,25 +88,27 @@ class BronzeTransactionValidationTest(TestCase):
             self.assertEqual(format_checks["v2_blank_device_id_rows"]["expected"], 1)
 
 
-def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
-    """Write a tiny source CSV partition for tests."""
+def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
+    """Write a tiny source CSV partition for tests, via the same `storage`
+    module the generator uses (a local `file://` URI stands in for MinIO)."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    storage.put_text(WarehouseConfig(), uri, buffer.getvalue())
 
 
-def _write_manifest(source_dir: Path, files: list[Path]) -> None:
+def _write_manifest(source_dir: Path, files: list[str]) -> None:
     """Write a small source manifest for file discovery."""
 
     manifest = {
         "dataset": "offline_transactions",
         "source_system": "fraudstream_generator",
         "created_at": "2026-07-04T00:00:00Z",
-        "files": [str(path) for path in files],
+        "files": files,
     }
+    source_dir.mkdir(parents=True, exist_ok=True)
     with (source_dir / "_manifest.json").open("w", encoding="utf-8") as file:
         json.dump(manifest, file)
 

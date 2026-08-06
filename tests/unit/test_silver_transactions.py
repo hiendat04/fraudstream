@@ -4,11 +4,13 @@ from __future__ import annotations
 
 import csv
 import importlib.util
+import io
 import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
 
+from fraudstream import storage
 from fraudstream.jobs.bronze.ingest_transactions import (
     BASE_COLUMNS,
     RAW_COLUMNS,
@@ -19,6 +21,7 @@ from fraudstream.jobs.silver.transactions import (
     SilverTransactionsConfig,
     build_silver_transactions,
 )
+from fraudstream.jobs.warehouse import IcebergCatalogConfig, WarehouseConfig
 
 
 @skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
@@ -33,8 +36,8 @@ class SilverTransactionsTest(TestCase):
             source_dir = root_dir / "raw_source" / "offline_transactions"
             bronze_dir = root_dir / "bronze" / "raw_transactions"
             silver_dir = root_dir / "silver" / "transactions"
-            v1_file = source_dir / "schema_version=v1" / "transaction_date=2026-01-01" / "transactions.csv"
-            v2_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
 
             _write_csv(
                 v1_file,
@@ -93,6 +96,10 @@ class SilverTransactionsTest(TestCase):
             )
             _write_manifest(source_dir, [v1_file, v2_file])
 
+            warehouse_dir = root_dir / "warehouse"
+            warehouse = WarehouseConfig(uri=f"file://{warehouse_dir}")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{warehouse_dir}/iceberg")
+
             ingest_transactions_to_bronze(
                 BronzeIngestionConfig(
                     source_dir=source_dir,
@@ -100,13 +107,18 @@ class SilverTransactionsTest(TestCase):
                     ingest_run_id="test_silver_bronze_ingest",
                     ingest_date="2026-07-05",
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
             result = build_silver_transactions(
                 SilverTransactionsConfig(
-                    bronze_dir=bronze_dir,
                     output_dir=silver_dir,
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
 
@@ -121,12 +133,13 @@ class SilverTransactionsTest(TestCase):
             self.assertEqual(result.event_date_count, 2)
             self.assertTrue((silver_dir / "_silver_transactions_summary.json").exists())
             self.assertTrue((silver_dir / "_silver_quality_report.json").exists())
-            self.assertTrue(any(silver_dir.glob("event_date=2026-01-01/*.parquet")))
-            self.assertTrue(any(silver_dir.glob("event_date=2026-04-01/*.parquet")))
-            self.assertTrue(any((silver_dir.parent / "transaction_quality_issues").glob("quality_status=*/*.parquet")))
 
-            rows = {row["transaction_id"]: row for row in _read_parquet_rows(silver_dir)}
+            rows = {
+                row["transaction_id"]: row
+                for row in _read_iceberg_rows("iceberg.silver.stg_transactions", iceberg.warehouse_uri)
+            }
             self.assertEqual(set(rows), {"txn_dup", "txn_tie", "txn_v2_warning"})
+            self.assertEqual({str(row["event_date"]) for row in rows.values()}, {"2026-01-01", "2026-04-01"})
 
             self.assertEqual(str(rows["txn_dup"]["amount"]), "11.00")
             self.assertEqual(rows["txn_dup"]["city"], "Detroit")
@@ -145,7 +158,7 @@ class SilverTransactionsTest(TestCase):
             self.assertEqual(rows["txn_v2_warning"]["authentication_method"], "otp")
             self.assertEqual(str(rows["txn_v2_warning"]["event_date"]), "2026-04-01")
 
-            quality_rows = _read_parquet_rows(silver_dir.parent / "transaction_quality_issues")
+            quality_rows = _read_iceberg_rows("iceberg.silver.stg_transaction_quality_issues", iceberg.warehouse_uri)
             action_counts = _count_rows_by(quality_rows, "_silver_record_action")
             self.assertEqual(action_counts, {"duplicate_rejected": 2, "quarantined": 1, "selected": 1})
 
@@ -163,7 +176,7 @@ class SilverTransactionsTest(TestCase):
             source_dir = root_dir / "raw_source" / "offline_transactions"
             bronze_dir = root_dir / "bronze" / "raw_transactions"
             silver_dir = root_dir / "silver" / "transactions"
-            source_file = source_dir / "schema_version=v2" / "transaction_date=2026-04-01" / "transactions.csv"
+            source_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
 
             _write_csv(
                 source_file,
@@ -188,6 +201,10 @@ class SilverTransactionsTest(TestCase):
             )
             _write_manifest(source_dir, [source_file])
 
+            warehouse_dir = root_dir / "warehouse"
+            warehouse = WarehouseConfig(uri=f"file://{warehouse_dir}")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{warehouse_dir}/iceberg")
+
             ingest_transactions_to_bronze(
                 BronzeIngestionConfig(
                     source_dir=source_dir,
@@ -195,13 +212,18 @@ class SilverTransactionsTest(TestCase):
                     ingest_run_id="test_silver_format_cleanup",
                     ingest_date="2026-07-05",
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
             result = build_silver_transactions(
                 SilverTransactionsConfig(
-                    bronze_dir=bronze_dir,
                     output_dir=silver_dir,
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
 
@@ -211,7 +233,7 @@ class SilverTransactionsTest(TestCase):
             self.assertEqual(result.warning_row_count, 0)
             self.assertEqual(result.quarantined_row_count, 0)
 
-            row = _read_parquet_rows(silver_dir)[0]
+            row = _read_iceberg_rows("iceberg.silver.stg_transactions", iceberg.warehouse_uri)[0]
             self.assertEqual(row["merchant_category"], "online_marketplace")
             self.assertEqual(str(row["amount"]), "1234.50")
             self.assertEqual(row["currency"], "USD")
@@ -232,7 +254,7 @@ class SilverTransactionsTest(TestCase):
             source_dir = root_dir / "raw_source" / "offline_transactions"
             bronze_dir = root_dir / "bronze" / "raw_transactions"
             silver_dir = root_dir / "silver" / "transactions"
-            source_file = source_dir / "schema_version=v1" / "transaction_date=2026-01-01" / "transactions.csv"
+            source_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
 
             _write_csv(
                 source_file,
@@ -258,6 +280,10 @@ class SilverTransactionsTest(TestCase):
             )
             _write_manifest(source_dir, [source_file])
 
+            warehouse_dir = root_dir / "warehouse"
+            warehouse = WarehouseConfig(uri=f"file://{warehouse_dir}")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{warehouse_dir}/iceberg")
+
             ingest_transactions_to_bronze(
                 BronzeIngestionConfig(
                     source_dir=source_dir,
@@ -265,13 +291,18 @@ class SilverTransactionsTest(TestCase):
                     ingest_run_id="test_silver_missing_values",
                     ingest_date="2026-07-05",
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
             result = build_silver_transactions(
                 SilverTransactionsConfig(
-                    bronze_dir=bronze_dir,
                     output_dir=silver_dir,
                     write_mode="overwrite",
+                    warehouse=warehouse,
+                    iceberg=iceberg,
+                    write_to_postgres=False,
                 )
             )
 
@@ -281,14 +312,14 @@ class SilverTransactionsTest(TestCase):
             self.assertEqual(result.quarantined_row_count, 1)
             self.assertEqual(result.quality_issue_row_count, 1)
 
-            silver_row = _read_parquet_rows(silver_dir)[0]
+            silver_row = _read_iceberg_rows("iceberg.silver.stg_transactions", iceberg.warehouse_uri)[0]
             self.assertEqual(silver_row["transaction_id"], "txn_nullable_ok")
             self.assertIsNone(silver_row["merchant_id"])
             self.assertIsNone(silver_row["merchant_category"])
             self.assertIsNone(silver_row["city"])
             self.assertEqual(silver_row["quality_status"], "valid")
 
-            quality_rows = _read_parquet_rows(silver_dir.parent / "transaction_quality_issues")
+            quality_rows = _read_iceberg_rows("iceberg.silver.stg_transaction_quality_issues", iceberg.warehouse_uri)
             self.assertEqual(len(quality_rows), 1)
             self.assertEqual(quality_rows[0]["transaction_id"], "txn_missing_keys")
             self.assertEqual(quality_rows[0]["_silver_record_action"], "quarantined")
@@ -305,25 +336,27 @@ class SilverTransactionsTest(TestCase):
             )
 
 
-def _write_csv(path: Path, columns: list[str], rows: list[dict[str, str]]) -> None:
-    """Write a tiny source CSV partition for tests."""
+def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
+    """Write a tiny source CSV partition for tests, via the same `storage`
+    module the generator uses (a local `file://` URI stands in for MinIO)."""
 
-    path.parent.mkdir(parents=True, exist_ok=True)
-    with path.open("w", encoding="utf-8", newline="") as file:
-        writer = csv.DictWriter(file, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(rows)
+    buffer = io.StringIO()
+    writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
+    writer.writeheader()
+    writer.writerows(rows)
+    storage.put_text(WarehouseConfig(), uri, buffer.getvalue())
 
 
-def _write_manifest(source_dir: Path, files: list[Path]) -> None:
+def _write_manifest(source_dir: Path, files: list[str]) -> None:
     """Write a small source manifest for Bronze ingestion."""
 
     manifest = {
         "dataset": "offline_transactions",
         "source_system": "fraudstream_generator",
         "created_at": "2026-07-05T00:00:00Z",
-        "files": [str(path) for path in files],
+        "files": files,
     }
+    source_dir.mkdir(parents=True, exist_ok=True)
     with (source_dir / "_manifest.json").open("w", encoding="utf-8") as file:
         json.dump(manifest, file)
 
@@ -385,20 +418,27 @@ def _count_rows_by(rows, column_name: str) -> dict[str, int]:
     return counts
 
 
-def _read_parquet_rows(path: Path):
-    """Read a Parquet directory and return rows before stopping Spark."""
+def _read_iceberg_rows(table: str, iceberg_warehouse_uri: str):
+    """Read an Iceberg table through a fresh Hadoop-catalog session and return its rows."""
 
     from pyspark.sql import SparkSession
 
-    spark = (
+    from fraudstream.jobs.warehouse import PostgresJdbcConfig, configure_iceberg_catalog
+
+    builder = (
         SparkSession.builder.appName("SilverTransactionsTest")
         .master("local[*]")
         .config("spark.sql.shuffle.partitions", "4")
         .config("spark.ui.enabled", "false")
-        .getOrCreate()
     )
+    builder = configure_iceberg_catalog(
+        builder,
+        IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_warehouse_uri),
+        PostgresJdbcConfig(),
+    )
+    spark = builder.getOrCreate()
     try:
-        return spark.read.parquet(str(path)).collect()
+        return spark.table(table).collect()
     finally:
         spark.stop()
 

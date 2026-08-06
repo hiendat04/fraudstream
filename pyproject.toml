@@ -6,8 +6,8 @@ dependencies = []
 
 [project.optional-dependencies]
 kafka = ["confluent-kafka"]
-postgres = ["psycopg[binary]>=3.2,<4"]
 spark = ["pyspark>=4.1,<4.2"]
+storage = ["boto3>=1.34"]
 
 [project.scripts]
 fraudstream-generate-offline = "fraudstream.generators.offline_transactions:main"
@@ -19,7 +19,6 @@ fraudstream-validate-bronze = "fraudstream.jobs.bronze.validate_transactions:mai
 fraudstream-build-silver-transactions = "fraudstream.jobs.silver.transactions:main"
 fraudstream-build-gold-transactions = "fraudstream.jobs.gold.transactions:main"
 fraudstream-build-offline-features = "fraudstream.jobs.gold.offline_features:main"
-fraudstream-publish-postgres = "fraudstream.jobs.postgres.publish:main"
 fraudstream-data-quality = "fraudstream.reports.data_quality:main"
 
 [tool.pytest.ini_options]

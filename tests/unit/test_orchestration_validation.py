@@ -33,7 +33,7 @@ class OrchestrationValidationTest(TestCase):
             source_file.write_text("transaction_id\ntxn_001\n", encoding="utf-8")
             _write_json(
                 source_dir / "_manifest.json",
-                {"files": [str(source_file.relative_to(root))]},
+                {"files": [f"file://{source_file}"]},
             )
             _write_json(
                 source_dir / "_quality_summary.json",
@@ -50,7 +50,7 @@ class OrchestrationValidationTest(TestCase):
             )
 
             self.assertEqual(
-                validate_source_manifest(source_dir, root),
+                validate_source_manifest(source_dir),
                 {"file_count": 1, "row_count": 1},
             )
             self.assertEqual(
