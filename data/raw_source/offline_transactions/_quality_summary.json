@@ -1,0 +1,173 @@
+{
+  "generated_at": "2026-08-06T02:16:35Z",
+  "output_dir": "data/raw_source/offline_transactions",
+  "raw_uri": "s3a://fraudstream/raw/offline_transactions",
+  "data_format": "partitioned_csv",
+  "written_file_count": 180,
+  "base_row_count": 500000,
+  "row_count_after_duplicates": 510000,
+  "duplicate_row_count": 10000,
+  "duplicate_rate_actual": 0.0196,
+  "skew": {
+    "city_distribution_pct": {
+      "New York": 49.76,
+      "Phoenix": 4.54,
+      "Chicago": 4.53,
+      "Seattle": 4.52,
+      "Los Angeles": 4.49,
+      "Boston": 4.49,
+      "Charlotte": 4.46,
+      "Dallas": 4.45,
+      "Denver": 4.45,
+      "Miami": 4.44,
+      "Atlanta": 4.43,
+      "Detroit": 4.41,
+      "": 0.52,
+      "NEW YORK": 0.13,
+      " New York ": 0.12,
+      " Miami ": 0.01,
+      "SEATTLE": 0.01,
+      "DETROIT": 0.01,
+      " Detroit ": 0.01,
+      " Atlanta ": 0.01,
+      " Chicago ": 0.01,
+      "PHOENIX": 0.01,
+      "ATLANTA": 0.01,
+      " Boston ": 0.01,
+      " Dallas ": 0.01,
+      "DENVER": 0.01,
+      "CHARLOTTE": 0.01,
+      "LOS ANGELES": 0.01,
+      "MIAMI": 0.01,
+      "BOSTON": 0.01,
+      " Phoenix ": 0.01,
+      " Los Angeles ": 0.01,
+      " Charlotte ": 0.01,
+      " Seattle ": 0.01,
+      " Denver ": 0.01,
+      "DALLAS": 0.01,
+      "CHICAGO": 0.01,
+      "  ": 0.0
+    },
+    "merchant_category_distribution_pct": {
+      "online_marketplace": 39.83,
+      "healthcare": 8.96,
+      "fuel": 8.66,
+      "electronics": 8.64,
+      "travel": 8.63,
+      "cash_transfer": 8.54,
+      "restaurant": 8.4,
+      "grocery": 8.34
+    }
+  },
+  "fraud": {
+    "fraud_row_count": 7803,
+    "fraud_rate_actual": 0.0153,
+    "fraud_ring_row_count": 3060,
+    "fraud_ring_device_count": 10
+  },
+  "traffic_patterns": {
+    "burst_dates": [
+      "2026-01-10",
+      "2026-01-11",
+      "2026-01-28",
+      "2026-02-01",
+      "2026-02-21",
+      "2026-03-26",
+      "2026-04-01",
+      "2026-04-07",
+      "2026-04-18",
+      "2026-04-20",
+      "2026-04-24",
+      "2026-05-05",
+      "2026-05-09",
+      "2026-05-17",
+      "2026-06-18"
+    ],
+    "burst_row_count": 126645,
+    "burst_row_pct": 24.83,
+    "hour_distribution_pct": {
+      "18": 8.02,
+      "19": 8.0,
+      "17": 7.12,
+      "20": 6.47,
+      "08": 6.44,
+      "12": 6.39,
+      "13": 5.6,
+      "07": 5.58,
+      "21": 4.8,
+      "09": 4.8,
+      "16": 4.78,
+      "11": 4.77,
+      "10": 4.05,
+      "15": 4.01,
+      "14": 3.99,
+      "22": 3.19,
+      "06": 3.19,
+      "23": 2.42,
+      "05": 1.62,
+      "00": 1.58,
+      "02": 0.81,
+      "03": 0.8,
+      "01": 0.79,
+      "04": 0.78
+    }
+  },
+  "late_arrivals": {
+    "late_arrival_threshold_minutes": 60,
+    "late_arrival_row_count": 20574,
+    "late_arrival_rate_actual": 0.0403,
+    "max_arrival_delay_hours": 72.01,
+    "file_order_note": "Rows are shuffled before writing, so source file order is not event-time order."
+  },
+  "raw_quality_issues": {
+    "missing_value_row_count": 7655,
+    "missing_value_rate_actual": 0.015,
+    "inconsistent_format_row_count": 5076,
+    "inconsistent_format_rate_actual": 0.01,
+    "examples": [
+      "blank device_id/ip/city/merchant_id",
+      "uppercase or padded city",
+      "lowercase currency",
+      "uppercase status"
+    ]
+  },
+  "high_cardinality": {
+    "approx_count_distinct_transaction_id": 500000,
+    "approx_count_distinct_customer_id": 197404,
+    "approx_count_distinct_account_id": 138377,
+    "approx_count_distinct_merchant_id": 40000,
+    "approx_count_distinct_device_id": 193863
+  },
+  "schema_evolution": {
+    "schema_change_date": "2026-04-01",
+    "old_partition_row_count": 245715,
+    "new_partition_row_count": 264285,
+    "old_partition_missing_columns": [
+      "device_id",
+      "ip_address",
+      "authentication_method",
+      "risk_signal_version"
+    ],
+    "new_partition_added_columns": [
+      "device_id",
+      "ip_address",
+      "authentication_method",
+      "risk_signal_version"
+    ]
+  },
+  "bronze_ingestion_notes": {
+    "dedup_key": "transaction_id",
+    "partition_columns": [
+      "schema_version",
+      "transaction_date"
+    ],
+    "recommended_raw_table": "raw_transactions",
+    "recommended_silver_fixes": [
+      "deduplicate by transaction_id",
+      "standardize city, currency, and transaction_status formats",
+      "handle missing evolved columns from v1 partitions",
+      "use event_timestamp for business time and created_ts for arrival time"
+    ]
+  }
+}

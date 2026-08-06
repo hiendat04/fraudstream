@@ -136,6 +136,10 @@ services:
   postgres:
     image: postgres:16-alpine
     container_name: fraudstream-postgres
+    # wal_level=logical is required for Debezium's Postgres connector (the
+    # pgoutput plugin, built into stock Postgres since v10 -- no extension
+    # needed). It only takes effect on a restart, not a reinitialize.
+    command: ["postgres", "-c", "wal_level=logical"]
     ports:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
@@ -218,6 +222,56 @@ services:
         condition: service_healthy
       minio:
         condition: service_healthy
+
+  # Debezium: captures row-level changes on bronze.raw_transactions (the
+  # first table new data lands in) and streams them to Kafka as CDC events,
+  # so a consumer can react the moment Bronze writes land -- without polling
+  # Postgres or waiting for the next Airflow run. See docs/16 for why this
+  # one table, not every serving table.
+  debezium-connect:
+    image: quay.io/debezium/connect:3.6.0.Final
+    container_name: fraudstream-debezium-connect
+    # Host port defaults to 18083, continuing the 1808x convention used by
+    # kafka-ui/airflow/trino above (8083 is Kafka Connect's usual REST port).
+    ports:
+      - "${DEBEZIUM_CONNECT_PORT:-18083}:8083"
+    environment:
+      BOOTSTRAP_SERVERS: kafka:29092
+      GROUP_ID: fraudstream-debezium
+      CONFIG_STORAGE_TOPIC: fraudstream_connect_configs
+      OFFSET_STORAGE_TOPIC: fraudstream_connect_offsets
+      STATUS_STORAGE_TOPIC: fraudstream_connect_statuses
+    depends_on:
+      kafka:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl --fail http://localhost:8083/connectors >/dev/null 2>&1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 30s
+
+  debezium-connector-init:
+    image: curlimages/curl:8.21.0
+    container_name: fraudstream-debezium-connector-init
+    depends_on:
+      debezium-connect:
+        condition: service_healthy
+    volumes:
+      - ./infra/debezium/bronze-raw-transactions-connector.json:/connector.json:ro
+    entrypoint: ["/bin/sh", "-c"]
+    command:
+      - |
+        # PUT to the named connector's own config endpoint instead of POST
+        # /connectors, so this is safe to re-run on every `docker compose up`
+        # (creates the connector on first run, no-ops/updates on later ones).
+        curl -sS -f -X PUT http://debezium-connect:8083/connectors/fraudstream-bronze-raw-transactions/config \
+          -H "Content-Type: application/json" \
+          -d @/connector.json
+        echo
+        curl -sS http://debezium-connect:8083/connectors/fraudstream-bronze-raw-transactions/status
 
   airflow-db:
     image: postgres:16-alpine

@@ -1,0 +1,28 @@
+{
+  "connector.class": "io.debezium.connector.postgresql.PostgresConnector",
+  "database.hostname": "postgres",
+  "database.port": "5432",
+  "database.user": "fraudstream",
+  "database.password": "fraudstream_local_password",
+  "database.dbname": "fraudstream",
+
+  "topic.prefix": "fraudstream",
+  "schema.include.list": "bronze",
+  "table.include.list": "bronze.raw_transactions",
+
+  "plugin.name": "pgoutput",
+  "slot.name": "fraudstream_bronze_slot",
+  "publication.name": "fraudstream_bronze_publication",
+  "publication.autocreate.mode": "filtered",
+  "tombstones.on.delete": "false",
+
+  "key.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "key.converter.schemas.enable": "false",
+  "value.converter": "org.apache.kafka.connect.json.JsonConverter",
+  "value.converter.schemas.enable": "false",
+
+  "topic.creation.default.partitions": "1",
+  "topic.creation.default.replication.factor": "1",
+  "topic.creation.default.cleanup.policy": "delete",
+  "topic.creation.default.retention.ms": "604800000"
+}

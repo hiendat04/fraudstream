@@ -65,7 +65,7 @@ topics and as upserts into the same Iceberg tables Spark reads and writes. See
 [Lakehouse: Apache Iceberg on MinIO](docs/15_lakehouse_iceberg.md) for how the
 two engines share one catalog and how to run it.
 
-![FraudStream deployable data-platform architecture](images/architecture/data_engineering_architecture.png)
+![FraudStream deployable data-platform architecture](images/architecture/architecture.png)
 
 The implemented offline data flow is:
 
@@ -108,7 +108,9 @@ do not match:
 
 Docker Compose provides the `confluentinc/cp-kafka:7.7.1` image, Kafka UI,
 MinIO (S3-compatible object storage backing the Iceberg lakehouse), PostgreSQL
-16, Trino (SQL query engine over the Iceberg tables), and the optional Airflow
+16, Trino (SQL query engine over the Iceberg tables), Debezium (CDC on
+`bronze.raw_transactions`, streamed to Kafka -- see
+[docs/16](docs/16_change_data_capture.md)), and the optional Airflow
 profile. Spark reaches PostgreSQL, MinIO, and the
 Iceberg catalog through the `org.postgresql:postgresql`,
 `org.apache.hadoop:hadoop-aws`, and `org.apache.iceberg:iceberg-spark-runtime`
@@ -296,6 +298,19 @@ docker exec -it fraudstream-trino trino --catalog iceberg --schema bronze
 
 See [`docs/15_lakehouse_iceberg.md`](docs/15_lakehouse_iceberg.md#trino-querying-iceberg-tables)
 for the JDBC connection details and why no Hive Metastore is needed.
+
+Start Debezium to stream row-level changes on `bronze.raw_transactions` to
+Kafka (restart Postgres first so its new `wal_level=logical` setting takes
+effect):
+
+```bash
+docker compose up -d postgres
+docker compose up -d kafka kafka-topic-init debezium-connect debezium-connector-init
+```
+
+See [`docs/16_change_data_capture.md`](docs/16_change_data_capture.md) for
+why this one table, how to check the connector's status, and how to browse
+the resulting `fraudstream.bronze.raw_transactions` Kafka topic.
 
 Prepare the isolated PyFlink environment and its connector JARs (Kafka, plus
 Iceberg + PostgreSQL + hadoop-aws for the lakehouse sink -- see
@@ -491,6 +506,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/13_data_quality_report.md](docs/13_data_quality_report.md) | Generated HTML evidence for offline and streaming volume, skew, cardinality, schema evolution, duplicates, bursts, and late events |
 | [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md) | Proposed ClickHouse and Grafana real-time analytics extension; design only, not implemented |
 | [docs/15_lakehouse_iceberg.md](docs/15_lakehouse_iceberg.md) | Apache Iceberg lakehouse on MinIO: shared catalog design, Spark and Flink table writes, Trino querying, and how to run it locally |
+| [docs/16_change_data_capture.md](docs/16_change_data_capture.md) | Debezium CDC on `bronze.raw_transactions`: why this one table, architecture, and how to run and verify it |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 

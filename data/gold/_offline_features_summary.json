@@ -1,0 +1,34 @@
+{
+  "gold_dir": "data/gold",
+  "write_mode": "overwrite",
+  "spark_version": "4.1.2",
+  "processed_at": "2026-08-06T02:08:01Z",
+  "completed_at": "2026-08-06T02:08:14Z",
+  "source_fact_transaction_count": 2000,
+  "training_row_count": 2000,
+  "training_distinct_transaction_count": 2000,
+  "training_row_count_matches_fact": true,
+  "training_transaction_ids_are_unique": true,
+  "tables": [
+    {
+      "table_name": "feat_customer_rolling",
+      "iceberg_table": "iceberg.gold.feat_customer_rolling",
+      "row_count": 1871
+    },
+    {
+      "table_name": "feat_customer_total_orders_90d",
+      "iceberg_table": "iceberg.gold.feat_customer_total_orders_90d",
+      "row_count": 1871
+    },
+    {
+      "table_name": "feat_merchant_risk_rolling",
+      "iceberg_table": "iceberg.gold.feat_merchant_risk_rolling",
+      "row_count": 1388
+    },
+    {
+      "table_name": "feat_transaction_training",
+      "iceberg_table": "iceberg.gold.feat_transaction_training",
+      "row_count": 2000
+    }
+  ]
+}

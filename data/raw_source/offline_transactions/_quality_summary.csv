@@ -1,0 +1,66 @@
+metric,value
+row_count.base,500000
+row_count.after_duplicates,510000
+duplicates.count,10000
+duplicates.rate_actual,0.0196
+fraud.count,7803
+fraud.rate_actual,0.0153
+fraud.ring_rows,3060
+traffic.burst_row_count,126645
+late_arrivals.count,20574
+late_arrivals.rate_actual,0.0403
+raw_quality.missing_value_rows,7655
+raw_quality.inconsistent_format_rows,5076
+schema.old_partition_row_count,245715
+schema.new_partition_row_count,264285
+skew.city.New York.pct,49.76
+skew.city.Phoenix.pct,4.54
+skew.city.Chicago.pct,4.53
+skew.city.Seattle.pct,4.52
+skew.city.Los Angeles.pct,4.49
+skew.city.Boston.pct,4.49
+skew.city.Charlotte.pct,4.46
+skew.city.Dallas.pct,4.45
+skew.city.Denver.pct,4.45
+skew.city.Miami.pct,4.44
+skew.city.Atlanta.pct,4.43
+skew.city.Detroit.pct,4.41
+skew.city..pct,0.52
+skew.city.NEW YORK.pct,0.13
+skew.city. New York .pct,0.12
+skew.city. Miami .pct,0.01
+skew.city.SEATTLE.pct,0.01
+skew.city.DETROIT.pct,0.01
+skew.city. Detroit .pct,0.01
+skew.city. Atlanta .pct,0.01
+skew.city. Chicago .pct,0.01
+skew.city.PHOENIX.pct,0.01
+skew.city.ATLANTA.pct,0.01
+skew.city. Boston .pct,0.01
+skew.city. Dallas .pct,0.01
+skew.city.DENVER.pct,0.01
+skew.city.CHARLOTTE.pct,0.01
+skew.city.LOS ANGELES.pct,0.01
+skew.city.MIAMI.pct,0.01
+skew.city.BOSTON.pct,0.01
+skew.city. Phoenix .pct,0.01
+skew.city. Los Angeles .pct,0.01
+skew.city. Charlotte .pct,0.01
+skew.city. Seattle .pct,0.01
+skew.city. Denver .pct,0.01
+skew.city.DALLAS.pct,0.01
+skew.city.CHICAGO.pct,0.01
+skew.city.  .pct,0.0
+skew.merchant_category.online_marketplace.pct,39.83
+skew.merchant_category.healthcare.pct,8.96
+skew.merchant_category.fuel.pct,8.66
+skew.merchant_category.electronics.pct,8.64
+skew.merchant_category.travel.pct,8.63
+skew.merchant_category.cash_transfer.pct,8.54
+skew.merchant_category.restaurant.pct,8.4
+skew.merchant_category.grocery.pct,8.34
+cardinality.approx_count_distinct_transaction_id,500000
+cardinality.approx_count_distinct_customer_id,197404
+cardinality.approx_count_distinct_account_id,138377
+cardinality.approx_count_distinct_merchant_id,40000
+cardinality.approx_count_distinct_device_id,193863
