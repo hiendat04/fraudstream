@@ -1,0 +1,10 @@
+model: "mlx-community/Qwen2.5-3B-Instruct-4bit"
+train: true
+data: "data"
+adapter_path: "models/adapters/fraud-explainer-v1"
+iters: 300
+batch_size: 4
+learning_rate: 1e-5
+num_layers: 8
+save_every: 100
+steps_per_eval: 50
