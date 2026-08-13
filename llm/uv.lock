@@ -72,6 +72,7 @@ name = "fraudstream-llm-runtime"
 version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
+    { name = "httpx" },
     { name = "mlx-lm" },
     { name = "psycopg", extra = ["binary"] },
 ]
@@ -83,6 +84,7 @@ dev = [
 
 [package.metadata]
 requires-dist = [
+    { name = "httpx", specifier = ">=0.28.1" },
     { name = "mlx-lm", specifier = ">=0.19" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.1" },
 ]
