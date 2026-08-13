@@ -2,4 +2,5 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 datahub/.venv/
+.DS_Store
 images/architecture/architecture.excalidraw
