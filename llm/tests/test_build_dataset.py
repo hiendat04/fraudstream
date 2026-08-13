@@ -34,6 +34,22 @@ def test_build_training_example_has_user_and_assistant_messages():
     assert len(example["messages"][1]["content"]) > 0
 
 
+def test_build_training_example_handles_none_numeric_fields():
+    record = make_record(
+        customer_txn_count_7d=None,
+        merchant_burst_ratio_1d_to_prior_30d=None,
+        device_distinct_customer_count_1d=None,
+    )
+
+    example = build_training_example(record, random.Random(1))
+
+    prompt_content = example["messages"][0]["content"]
+    assert "None" not in prompt_content
+    assert "Customer 7-day transaction count: 0." in prompt_content
+    assert "Merchant burst ratio: 0." in prompt_content
+    assert "Device shared with 0 other customers today." in prompt_content
+
+
 def test_split_train_valid_respects_fraction():
     examples = [{"i": i} for i in range(100)]
 

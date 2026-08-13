@@ -22,9 +22,9 @@ def build_training_example(record: AlertRecord, rng: random.Random) -> dict:
         channel=record.channel,
         merchant_category=record.merchant_category or "unknown",
         city=record.city or "unknown",
-        customer_txn_count_7d=record.customer_txn_count_7d,
-        merchant_burst_ratio_1d_to_prior_30d=record.merchant_burst_ratio_1d_to_prior_30d,
-        device_distinct_customer_count_1d=record.device_distinct_customer_count_1d,
+        customer_txn_count_7d=record.customer_txn_count_7d or 0,
+        merchant_burst_ratio_1d_to_prior_30d=record.merchant_burst_ratio_1d_to_prior_30d or 0,
+        device_distinct_customer_count_1d=record.device_distinct_customer_count_1d or 0,
     )
     completion = generate_explanation(record, rng)
     return {
