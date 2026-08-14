@@ -2,4 +2,4 @@
 __pycache__/
 *.pyc
 models/adapters/
-benchmark/results*.json
+benchmark/*.json
