@@ -351,6 +351,7 @@ def generate_offline_transactions(config: OfflineGeneratorConfig) -> dict[str, A
     rng = random.Random(config.random_seed)
     _prepare_output_dir(config.output_dir)
     storage.delete_prefix(config.warehouse, config.raw_uri)
+    storage.delete_prefix(config.warehouse, config.labels_uri)
 
     context = _build_generation_context(config, rng)
     rows = [_generate_transaction(index, config, context, rng) for index in range(config.n_transactions)]
@@ -359,9 +360,15 @@ def generate_offline_transactions(config: OfflineGeneratorConfig) -> dict[str, A
     rng.shuffle(all_rows)
 
     written_files = _write_partitioned_csv(all_rows, config)
+    label_file = _write_label_table(rows, config)
     summary = _build_quality_summary(rows, all_rows, config, written_files, context.burst_dates)
+    summary["label_table"] = {
+        "uri": label_file,
+        "row_count": len(rows),
+        "columns": ["id", "label", "event_timestamp"],
+    }
     _write_summary_artifacts(summary, config.output_dir)
-    _write_manifest(config, summary, written_files)
+    _write_manifest(config, summary, written_files, label_file)
     return summary
 
 
@@ -743,6 +750,26 @@ def _write_partitioned_csv(rows: list[TransactionRow], config: OfflineGeneratorC
     return written_files
 
 
+def _write_label_table(rows: list[TransactionRow], config: OfflineGeneratorConfig) -> str:
+    """Write the (id, label, event_timestamp) table used to join with Gold features for training.
+
+    Kept separate from the raw transaction partitions -- and from Gold's own
+    `is_fraud` column -- on purpose: Feast feature views should carry features
+    only, with the label joined in separately at training time. See
+    docs/mlops/00_roadmap.md.
+    """
+
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["id", "label", "event_timestamp"])
+    for row in rows:
+        writer.writerow([row["transaction_id"], row["is_fraud"], row["event_timestamp"]])
+
+    uri = storage.join_uri(config.labels_uri, "transaction_labels.csv")
+    storage.put_text(config.warehouse, uri, buffer.getvalue())
+    return uri
+
+
 def _build_drift_summary(all_rows: list[TransactionRow], config: OfflineGeneratorConfig) -> dict[str, Any]:
     """Summarize amount-drift evidence, or report drift as disabled."""
 
@@ -971,7 +998,9 @@ def _write_summary_artifacts(summary: dict[str, Any], output_dir: Path) -> None:
         writer.writerows(rows)
 
 
-def _write_manifest(config: OfflineGeneratorConfig, summary: dict[str, Any], written_files: list[str]) -> None:
+def _write_manifest(
+    config: OfflineGeneratorConfig, summary: dict[str, Any], written_files: list[str], label_file: str
+) -> None:
     """Write a manifest that future Bronze ingestion jobs can consume."""
 
     manifest = {
@@ -988,8 +1017,12 @@ def _write_manifest(config: OfflineGeneratorConfig, summary: dict[str, Any], wri
             "burst_day_count": config.burst_day_count,
             "fraud_ring_count": config.fraud_ring_count,
             "schema_change_date": config.schema_change_date.isoformat(),
+            "drift_start_date": config.drift_start_date.isoformat() if config.drift_start_date else None,
+            "drift_amount_multiplier_end": config.drift_amount_multiplier_end,
+            "labels_uri": config.labels_uri,
         },
         "files": written_files,
+        "label_file": label_file,
     }
     with (config.output_dir / "_manifest.json").open("w", encoding="utf-8") as file:
         json.dump(manifest, file, indent=2)
@@ -1016,6 +1049,11 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Optional MinIO URI override for the raw CSV partitions. Defaults to {DEFAULT_RAW_URI} "
         "(or the config file's raw_uri, if set).",
     )
+    parser.add_argument(
+        "--labels-uri",
+        help=f"Optional MinIO URI override for the id/label training table. Defaults to {DEFAULT_LABELS_URI} "
+        "(or the config file's labels_uri, if set).",
+    )
     add_warehouse_arguments(parser)
     return parser
 
@@ -1029,6 +1067,8 @@ def main(argv: list[str] | None = None) -> int:
         config = replace(config, output_dir=args.output_dir)
     if args.raw_uri:
         config = replace(config, raw_uri=args.raw_uri)
+    if args.labels_uri:
+        config = replace(config, labels_uri=args.labels_uri)
     config = replace(config, warehouse=warehouse_config_from_args(args))
     summary = generate_offline_transactions(config)
     print(json.dumps(summary, indent=2))

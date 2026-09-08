@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+import csv
+import json
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
@@ -41,6 +43,7 @@ class OfflineTransactionGeneratorTest(TestCase):
                 schema_change_date=date(2026, 1, 10),
                 output_dir=output_dir,
                 raw_uri=f"file://{raw_dir}",
+                labels_uri=f"file://{Path(tmp_dir) / 'labels'}",
             )
 
             summary = generate_offline_transactions(config)
@@ -61,6 +64,56 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertTrue((config.output_dir / "_quality_summary.json").exists())
             self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv")))
             self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
+
+    def test_generator_writes_label_table(self):
+        """The generator writes a separate (id, label, event_timestamp) table."""
+
+        with TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "offline_transactions"
+            raw_dir = Path(tmp_dir) / "raw"
+            labels_dir = Path(tmp_dir) / "labels"
+            config = OfflineGeneratorConfig(
+                random_seed=7,
+                n_transactions=300,
+                n_customers=200,
+                n_accounts=210,
+                n_merchants=100,
+                start_date=date(2026, 1, 1),
+                days_history=20,
+                currency="USD",
+                skew_city="New York",
+                skew_city_ratio=0.70,
+                skew_merchant_category="online_marketplace",
+                skew_merchant_category_ratio=0.60,
+                duplicate_rate=0.05,
+                schema_change_date=date(2026, 1, 10),
+                output_dir=output_dir,
+                raw_uri=f"file://{raw_dir}",
+                labels_uri=f"file://{labels_dir}",
+            )
+
+            summary = generate_offline_transactions(config)
+
+            label_path = labels_dir / "transaction_labels.csv"
+            self.assertTrue(label_path.exists())
+
+            with label_path.open() as f:
+                reader = csv.reader(f)
+                header = next(reader)
+                data_rows = list(reader)
+
+            self.assertEqual(header, ["id", "label", "event_timestamp"])
+            self.assertEqual(len(data_rows), 300)
+            self.assertTrue(all(label in {"0", "1"} for _id, label, _ts in data_rows))
+            self.assertTrue(any(label == "1" for _id, label, _ts in data_rows))
+
+            self.assertEqual(summary["label_table"]["row_count"], 300)
+            self.assertEqual(summary["label_table"]["columns"], ["id", "label", "event_timestamp"])
+            self.assertEqual(summary["label_table"]["uri"], f"file://{labels_dir}/transaction_labels.csv")
+
+            with (output_dir / "_manifest.json").open() as f:
+                manifest = json.load(f)
+            self.assertEqual(manifest["label_file"], summary["label_table"]["uri"])
 
     def test_drift_disabled_by_default(self):
         """With no drift_start_date configured, the drift section reports disabled."""
