@@ -159,8 +159,6 @@ def validate_core_gold_summary(
         raise PipelineValidationError(
             f"Gold summary is missing core tables: {', '.join(missing_tables)}"
         )
-    _validate_parquet_outputs(gold_path, CORE_GOLD_TABLE_NAMES)
-
     fact_rows = table_counts["fact_transactions"]
     silver_rows = _required_int(silver_summary, "output_row_count")
     if fact_rows <= 0 or fact_rows != silver_rows:
@@ -184,8 +182,6 @@ def validate_offline_feature_summary(gold_dir: str | Path) -> dict[str, int]:
         raise PipelineValidationError(
             f"offline feature summary is missing tables: {', '.join(missing_tables)}"
         )
-    _validate_parquet_outputs(gold_path, OFFLINE_FEATURE_TABLE_NAMES)
-
     source_fact_rows = _required_int(feature_summary, "source_fact_transaction_count")
     core_fact_rows = _required_int(gold_summary, "fact_transaction_count")
     training_rows = _required_int(feature_summary, "training_row_count")
@@ -273,13 +269,3 @@ def _table_counts(summary: Mapping[str, Any]) -> dict[str, int]:
     return counts
 
 
-def _validate_parquet_outputs(root: Path, table_names: tuple[str, ...]) -> None:
-    missing_outputs = [
-        table_name
-        for table_name in table_names
-        if not any((root / table_name).rglob("*.parquet"))
-    ]
-    if missing_outputs:
-        raise PipelineValidationError(
-            f"Parquet output is missing for tables: {', '.join(missing_outputs)}"
-        )

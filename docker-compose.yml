@@ -19,6 +19,7 @@ x-airflow-common: &airflow-common
     POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
     POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
     POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    PYSPARK_SUBMIT_ARGS: "--driver-memory 4g pyspark-shell"
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
     MINIO_ENDPOINT: "http://minio:9000"
