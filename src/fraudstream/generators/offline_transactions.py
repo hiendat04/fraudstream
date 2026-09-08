@@ -751,16 +751,11 @@ def _write_partitioned_csv(rows: list[TransactionRow], config: OfflineGeneratorC
 
 
 def _write_label_table(rows: list[TransactionRow], config: OfflineGeneratorConfig) -> str:
-    """Write the (transaction_id, is_fraud, event_timestamp) table joined with Gold features for training.
+    """Write the (transaction_id, is_fraud, event_timestamp) table joined with features for training.
 
     Kept separate from the raw transaction partitions -- and from Gold's own
-    `is_fraud` column -- on purpose: Feast feature views should carry features
-    only, with the label joined in separately at training time. See
-    docs/mlops/00_roadmap.md.
-
-    The columns keep their source names (`transaction_id`, `is_fraud`) rather
-    than the rubric's generic `id`/`label`, so a reader never has to work out
-    which underlying field each one came from.
+    `is_fraud` column -- on purpose: feature tables should carry features only,
+    with the label joined in separately at training time.
     """
 
     buffer = io.StringIO()
@@ -775,7 +770,7 @@ def _write_label_table(rows: list[TransactionRow], config: OfflineGeneratorConfi
 
 
 def _build_drift_summary(all_rows: list[TransactionRow], config: OfflineGeneratorConfig) -> dict[str, Any]:
-    """Summarize amount-drift evidence, or report drift as disabled."""
+    """Report mean amount before and after the drift start date, or that drift is off."""
 
     if config.drift_start_date is None:
         return {"enabled": False}
