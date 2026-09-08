@@ -182,6 +182,7 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertIsNotNone(before)
             self.assertIsNotNone(after)
             self.assertGreater(after, before * 1.3)
+            self.assertLess(after, before * 1.9)
 
     def test_config_validate_rejects_drift_start_date_outside_history(self):
         """drift_start_date before start_date or at/after history end is rejected."""

@@ -761,6 +761,9 @@ def _write_label_table(rows: list[TransactionRow], config: OfflineGeneratorConfi
 
     buffer = io.StringIO()
     writer = csv.writer(buffer)
+    # Header is "id"/"label", not "transaction_id"/"is_fraud", because the
+    # coursework rubric requires the label table's columns be named exactly
+    # "id" and "label" -- the values still come straight from those fields.
     writer.writerow(["id", "label", "event_timestamp"])
     for row in rows:
         writer.writerow([row["transaction_id"], row["is_fraud"], row["event_timestamp"]])
@@ -984,6 +987,9 @@ def _write_summary_artifacts(summary: dict[str, Any], output_dir: Path) -> None:
         ("raw_quality.inconsistent_format_rows", summary["raw_quality_issues"]["inconsistent_format_row_count"]),
         ("schema.old_partition_row_count", summary["schema_evolution"]["old_partition_row_count"]),
         ("schema.new_partition_row_count", summary["schema_evolution"]["new_partition_row_count"]),
+        ("drift.mean_amount_before", summary["drift"].get("mean_amount_before_drift")),
+        ("drift.mean_amount_after", summary["drift"].get("mean_amount_after_drift")),
+        ("label_table.row_count", summary["label_table"]["row_count"]),
     ]
     rows.extend((f"skew.city.{key}.pct", value) for key, value in summary["skew"]["city_distribution_pct"].items())
     rows.extend(
