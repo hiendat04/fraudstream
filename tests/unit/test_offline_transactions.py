@@ -62,6 +62,131 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv")))
             self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
 
+    def test_drift_disabled_by_default(self):
+        """With no drift_start_date configured, the drift section reports disabled."""
+
+        with TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "offline_transactions"
+            raw_dir = Path(tmp_dir) / "raw"
+            config = OfflineGeneratorConfig(
+                random_seed=7,
+                n_transactions=200,
+                n_customers=150,
+                n_accounts=160,
+                n_merchants=80,
+                start_date=date(2026, 1, 1),
+                days_history=20,
+                currency="USD",
+                skew_city="New York",
+                skew_city_ratio=0.70,
+                skew_merchant_category="online_marketplace",
+                skew_merchant_category_ratio=0.60,
+                duplicate_rate=0.0,
+                schema_change_date=date(2026, 1, 10),
+                output_dir=output_dir,
+                raw_uri=f"file://{raw_dir}",
+                labels_uri=f"file://{Path(tmp_dir) / 'labels'}",
+            )
+
+            summary = generate_offline_transactions(config)
+
+            self.assertEqual(summary["drift"], {"enabled": False})
+
+    def test_drift_ramps_amount_upward_after_drift_start_date(self):
+        """Configured drift measurably raises mean amount after drift_start_date."""
+
+        with TemporaryDirectory() as tmp_dir:
+            output_dir = Path(tmp_dir) / "offline_transactions"
+            raw_dir = Path(tmp_dir) / "raw"
+            config = OfflineGeneratorConfig(
+                random_seed=7,
+                n_transactions=4000,
+                n_customers=1500,
+                n_accounts=1600,
+                n_merchants=400,
+                start_date=date(2026, 1, 1),
+                days_history=40,
+                currency="USD",
+                skew_city="New York",
+                skew_city_ratio=0.70,
+                skew_merchant_category="online_marketplace",
+                skew_merchant_category_ratio=0.60,
+                duplicate_rate=0.0,
+                schema_change_date=date(2026, 1, 10),
+                output_dir=output_dir,
+                raw_uri=f"file://{raw_dir}",
+                labels_uri=f"file://{Path(tmp_dir) / 'labels'}",
+                drift_start_date=date(2026, 1, 21),
+                drift_amount_multiplier_end=2.0,
+            )
+
+            summary = generate_offline_transactions(config)
+
+            self.assertTrue(summary["drift"]["enabled"])
+            self.assertEqual(summary["drift"]["drift_start_date"], "2026-01-21")
+            before = summary["drift"]["mean_amount_before_drift"]
+            after = summary["drift"]["mean_amount_after_drift"]
+            self.assertIsNotNone(before)
+            self.assertIsNotNone(after)
+            self.assertGreater(after, before * 1.3)
+
+    def test_config_validate_rejects_drift_start_date_outside_history(self):
+        """drift_start_date before start_date or at/after history end is rejected."""
+
+        with TemporaryDirectory() as tmp_dir:
+            base_kwargs = dict(
+                random_seed=1,
+                n_transactions=10,
+                n_customers=10,
+                n_accounts=10,
+                n_merchants=5,
+                start_date=date(2026, 1, 1),
+                days_history=10,
+                currency="USD",
+                skew_city="New York",
+                skew_city_ratio=0.5,
+                skew_merchant_category="online_marketplace",
+                skew_merchant_category_ratio=0.5,
+                duplicate_rate=0.0,
+                schema_change_date=date(2026, 1, 5),
+                output_dir=Path(tmp_dir) / "out",
+                raw_uri=f"file://{Path(tmp_dir) / 'raw'}",
+            )
+
+            too_early = OfflineGeneratorConfig(**base_kwargs, drift_start_date=date(2025, 12, 31))
+            with self.assertRaises(ValueError):
+                too_early.validate()
+
+            too_late = OfflineGeneratorConfig(**base_kwargs, drift_start_date=date(2026, 1, 11))
+            with self.assertRaises(ValueError):
+                too_late.validate()
+
+    def test_config_validate_rejects_non_positive_drift_multiplier(self):
+        """drift_amount_multiplier_end must be greater than 0."""
+
+        with TemporaryDirectory() as tmp_dir:
+            config = OfflineGeneratorConfig(
+                random_seed=1,
+                n_transactions=10,
+                n_customers=10,
+                n_accounts=10,
+                n_merchants=5,
+                start_date=date(2026, 1, 1),
+                days_history=10,
+                currency="USD",
+                skew_city="New York",
+                skew_city_ratio=0.5,
+                skew_merchant_category="online_marketplace",
+                skew_merchant_category_ratio=0.5,
+                duplicate_rate=0.0,
+                schema_change_date=date(2026, 1, 5),
+                output_dir=Path(tmp_dir) / "out",
+                raw_uri=f"file://{Path(tmp_dir) / 'raw'}",
+                drift_amount_multiplier_end=0.0,
+            )
+            with self.assertRaises(ValueError):
+                config.validate()
+
 
 if __name__ == "__main__":
     main()

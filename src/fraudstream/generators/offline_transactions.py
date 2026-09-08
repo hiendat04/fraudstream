@@ -19,6 +19,7 @@ from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from statistics import mean
 from typing import Any, Mapping, Sequence
 
 from fraudstream import storage
@@ -32,6 +33,7 @@ from fraudstream.jobs.warehouse import (
 TransactionRow = dict[str, str]
 
 DEFAULT_RAW_URI = "s3a://fraudstream/raw/offline_transactions"
+DEFAULT_LABELS_URI = "s3a://fraudstream/raw/transaction_labels"
 
 BASE_COLUMNS = [
     "transaction_id",
@@ -228,6 +230,12 @@ class OfflineGeneratorConfig:
     convention every downstream layer's own summary JSON already follows.
     The generated CSV partitions themselves are the actual raw source data
     and live in MinIO under `raw_uri` (see `fraudstream.storage`).
+
+    `drift_start_date` / `drift_amount_multiplier_end` simulate gradual data
+    drift: from `drift_start_date` to the end of the history window, sampled
+    `amount` values are scaled by a factor ramping linearly from 1.0 to
+    `drift_amount_multiplier_end`. `None` (the default) disables drift
+    entirely -- existing configs are unaffected.
     """
 
     random_seed: int
@@ -252,6 +260,9 @@ class OfflineGeneratorConfig:
     inconsistent_format_rate: float = 0.01
     burst_day_count: int = 8
     fraud_ring_count: int = 6
+    drift_start_date: date | None = None
+    drift_amount_multiplier_end: float = 1.0
+    labels_uri: str = DEFAULT_LABELS_URI
 
     @classmethod
     def from_json(cls, path: Path) -> "OfflineGeneratorConfig":
@@ -282,6 +293,11 @@ class OfflineGeneratorConfig:
             inconsistent_format_rate=float(raw.get("inconsistent_format_rate", 0.01)),
             burst_day_count=int(raw.get("burst_day_count", 8)),
             fraud_ring_count=int(raw.get("fraud_ring_count", 6)),
+            drift_start_date=(
+                date.fromisoformat(raw["drift_start_date"]) if raw.get("drift_start_date") else None
+            ),
+            drift_amount_multiplier_end=float(raw.get("drift_amount_multiplier_end", 1.0)),
+            labels_uri=str(raw.get("labels_uri", DEFAULT_LABELS_URI)),
         )
         config.validate()
         return config
@@ -320,6 +336,12 @@ class OfflineGeneratorConfig:
         history_end_date = self.start_date + timedelta(days=self.days_history)
         if not self.start_date <= self.schema_change_date < history_end_date:
             raise ValueError("schema_change_date must fall inside the generated history window")
+
+        if self.drift_amount_multiplier_end <= 0:
+            raise ValueError("drift_amount_multiplier_end must be greater than 0")
+        if self.drift_start_date is not None:
+            if not self.start_date <= self.drift_start_date < history_end_date:
+                raise ValueError("drift_start_date must fall inside the generated history window")
 
 
 def generate_offline_transactions(config: OfflineGeneratorConfig) -> dict[str, Any]:
@@ -448,7 +470,8 @@ def _generate_transaction(
     event_time = _sample_event_time(config, context.burst_dates, rng)
     event_date = event_time.date()
     created_ts = _sample_created_timestamp(event_time, config.late_arrival_rate, rng)
-    amount = _sample_amount(merchant.merchant_category, rng)
+    drift_multiplier = _drift_multiplier(event_date, config)
+    amount = _sample_amount(merchant.merchant_category, rng, drift_multiplier)
     channel = _sample_channel(customer, rng)
     transaction_city = _sample_transaction_city(customer, merchant, channel, rng)
     is_ring_transaction = _is_fraud_ring_transaction(merchant, channel, context.fraud_rings, rng)
@@ -552,7 +575,7 @@ def _sample_transaction_city(
     return customer.home_city
 
 
-def _sample_amount(merchant_category: str, rng: random.Random) -> Decimal:
+def _sample_amount(merchant_category: str, rng: random.Random, drift_multiplier: float = 1.0) -> Decimal:
     """Sample a realistic transaction amount for the merchant category."""
 
     category_multipliers = {
@@ -563,8 +586,27 @@ def _sample_amount(merchant_category: str, rng: random.Random) -> Decimal:
         "healthcare": 2.1,
     }
     multiplier = category_multipliers.get(merchant_category, 1.0)
-    cents = int(rng.lognormvariate(3.2, 0.85) * multiplier * 100)
+    cents = int(rng.lognormvariate(3.2, 0.85) * multiplier * drift_multiplier * 100)
     return Decimal(max(cents, 100)) / Decimal("100")
+
+
+def _drift_multiplier(event_date: date, config: OfflineGeneratorConfig) -> float:
+    """Return the linear amount-drift multiplier active on a given event date.
+
+    Ramps linearly from 1.0 at `drift_start_date` to `drift_amount_multiplier_end`
+    by the end of the generated history window, so `amount` (and everything
+    downstream that aggregates it) drifts gradually rather than stepping
+    instantly.
+    """
+
+    if config.drift_start_date is None or event_date < config.drift_start_date:
+        return 1.0
+
+    history_end_date = config.start_date + timedelta(days=config.days_history)
+    total_drift_days = max((history_end_date - config.drift_start_date).days, 1)
+    elapsed_days = min((event_date - config.drift_start_date).days, total_drift_days)
+    progress = elapsed_days / total_drift_days
+    return 1.0 + (config.drift_amount_multiplier_end - 1.0) * progress
 
 
 def _sample_weighted_value(weights: Mapping[str, int], rng: random.Random) -> str:
@@ -701,6 +743,30 @@ def _write_partitioned_csv(rows: list[TransactionRow], config: OfflineGeneratorC
     return written_files
 
 
+def _build_drift_summary(all_rows: list[TransactionRow], config: OfflineGeneratorConfig) -> dict[str, Any]:
+    """Summarize amount-drift evidence, or report drift as disabled."""
+
+    if config.drift_start_date is None:
+        return {"enabled": False}
+
+    pre_drift_amounts: list[float] = []
+    post_drift_amounts: list[float] = []
+    for row in all_rows:
+        amount = float(row["amount"])
+        if _event_date(row) < config.drift_start_date:
+            pre_drift_amounts.append(amount)
+        else:
+            post_drift_amounts.append(amount)
+
+    return {
+        "enabled": True,
+        "drift_start_date": config.drift_start_date.isoformat(),
+        "drift_amount_multiplier_end": config.drift_amount_multiplier_end,
+        "mean_amount_before_drift": round(mean(pre_drift_amounts), 2) if pre_drift_amounts else None,
+        "mean_amount_after_drift": round(mean(post_drift_amounts), 2) if post_drift_amounts else None,
+    }
+
+
 def _build_quality_summary(
     base_rows: list[TransactionRow],
     all_rows: list[TransactionRow],
@@ -759,6 +825,7 @@ def _build_quality_summary(
             "fraud_ring_row_count": fraud_ring_rows,
             "fraud_ring_device_count": len(fraud_ring_devices),
         },
+        "drift": _build_drift_summary(all_rows, config),
         "traffic_patterns": {
             "burst_dates": [item.isoformat() for item in sorted(burst_dates)],
             "burst_row_count": burst_row_count,
