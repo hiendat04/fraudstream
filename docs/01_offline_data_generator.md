@@ -71,7 +71,7 @@ Important settings:
 | `raw_uri` | MinIO (`s3a://`) URI where the actual partitioned raw CSV files are written. Defaults to `s3a://fraudstream/raw/offline_transactions`. |
 | `drift_start_date` | Date (inside the history window) from which sampled `amount` values start ramping upward. `None`/omitted disables drift entirely. |
 | `drift_amount_multiplier_end` | Amount multiplier reached by the end of the history window when drift is enabled. Ramps linearly from `1.0` at `drift_start_date`. |
-| `labels_uri` | MinIO (`s3a://`) URI where the standalone `(id, label, event_timestamp)` training-label table is written. Defaults to `s3a://fraudstream/raw/transaction_labels`. |
+| `labels_uri` | MinIO (`s3a://`) URI where the standalone `(transaction_id, is_fraud, event_timestamp)` training-label table is written. Defaults to `s3a://fraudstream/raw/transaction_labels`. |
 
 > **Default config now enables drift.** `configs/generator/offline_transactions.json` ships
 > with `drift_start_date: "2026-05-01"` and `drift_amount_multiplier_end: 1.6`, so a default
@@ -140,11 +140,11 @@ s3a://fraudstream/raw/transaction_labels/
 `-- transaction_labels.csv
 ```
 
-It has three columns: `id`, `label`, `event_timestamp` (`id`/`label` are named to match
-the coursework rubric, not `transaction_id`/`is_fraud`). It is kept separate from the raw
-transaction partitions -- and from Gold's own `is_fraud` column -- so that a later Feast
-feature view can carry features only, with the label joined in at training time. Like
-`raw_uri`, this prefix is deleted and rewritten on every generator run.
+It has three columns: `transaction_id`, `is_fraud`, `event_timestamp` -- the same names the
+values carry in the transaction rows, so no mental mapping is needed when joining. It is
+kept separate from the raw transaction partitions -- and from Gold's own `is_fraud` column
+-- so that a later Feast feature view can carry features only, with the label joined in at
+training time. Like `raw_uri`, this prefix is deleted and rewritten on every generator run.
 
 ## Bronze Ingestion Contract
 

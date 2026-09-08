@@ -66,7 +66,7 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
 
     def test_generator_writes_label_table(self):
-        """The generator writes a separate (id, label, event_timestamp) table."""
+        """The generator writes a separate (transaction_id, is_fraud, event_timestamp) table."""
 
         with TemporaryDirectory() as tmp_dir:
             output_dir = Path(tmp_dir) / "offline_transactions"
@@ -102,13 +102,15 @@ class OfflineTransactionGeneratorTest(TestCase):
                 header = next(reader)
                 data_rows = list(reader)
 
-            self.assertEqual(header, ["id", "label", "event_timestamp"])
+            self.assertEqual(header, ["transaction_id", "is_fraud", "event_timestamp"])
             self.assertEqual(len(data_rows), 300)
             self.assertTrue(all(label in {"0", "1"} for _id, label, _ts in data_rows))
             self.assertTrue(any(label == "1" for _id, label, _ts in data_rows))
 
             self.assertEqual(summary["label_table"]["row_count"], 300)
-            self.assertEqual(summary["label_table"]["columns"], ["id", "label", "event_timestamp"])
+            self.assertEqual(
+                summary["label_table"]["columns"], ["transaction_id", "is_fraud", "event_timestamp"]
+            )
             self.assertEqual(summary["label_table"]["uri"], f"file://{labels_dir}/transaction_labels.csv")
 
             with (output_dir / "_manifest.json").open() as f:
