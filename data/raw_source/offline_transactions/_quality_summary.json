@@ -1,6 +1,6 @@
 {
-  "generated_at": "2026-08-06T02:16:35Z",
-  "output_dir": "data/raw_source/offline_transactions",
+  "generated_at": "2026-09-08T16:19:19Z",
+  "output_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
   "raw_uri": "s3a://fraudstream/raw/offline_transactions",
   "data_format": "partitioned_csv",
   "written_file_count": 180,
@@ -61,10 +61,17 @@
     }
   },
   "fraud": {
-    "fraud_row_count": 7803,
-    "fraud_rate_actual": 0.0153,
+    "fraud_row_count": 7858,
+    "fraud_rate_actual": 0.0154,
     "fraud_ring_row_count": 3060,
     "fraud_ring_device_count": 10
+  },
+  "drift": {
+    "enabled": true,
+    "drift_start_date": "2026-05-01",
+    "drift_amount_multiplier_end": 1.6,
+    "mean_amount_before_drift": 96.04,
+    "mean_amount_after_drift": 122.93
   },
   "traffic_patterns": {
     "burst_dates": [
@@ -168,6 +175,15 @@
       "standardize city, currency, and transaction_status formats",
       "handle missing evolved columns from v1 partitions",
       "use event_timestamp for business time and created_ts for arrival time"
+    ]
+  },
+  "label_table": {
+    "uri": "s3a://fraudstream/raw/transaction_labels/transaction_labels.csv",
+    "row_count": 500000,
+    "columns": [
+      "transaction_id",
+      "is_fraud",
+      "event_timestamp"
     ]
   }
 }

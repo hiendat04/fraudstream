@@ -3,8 +3,8 @@ row_count.base,500000
 row_count.after_duplicates,510000
 duplicates.count,10000
 duplicates.rate_actual,0.0196
-fraud.count,7803
-fraud.rate_actual,0.0153
+fraud.count,7858
+fraud.rate_actual,0.0154
 fraud.ring_rows,3060
 traffic.burst_row_count,126645
 late_arrivals.count,20574
@@ -13,6 +13,9 @@ raw_quality.missing_value_rows,7655
 raw_quality.inconsistent_format_rows,5076
 schema.old_partition_row_count,245715
 schema.new_partition_row_count,264285
+drift.mean_amount_before,96.04
+drift.mean_amount_after,122.93
+label_table.row_count,500000
 skew.city.New York.pct,49.76
 skew.city.Phoenix.pct,4.54
 skew.city.Chicago.pct,4.53

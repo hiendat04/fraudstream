@@ -1,7 +1,7 @@
 {
   "dataset": "offline_transactions",
   "source_system": "fraudstream_generator",
-  "created_at": "2026-08-06T02:16:35Z",
+  "created_at": "2026-09-08T16:19:19Z",
   "config": {
     "random_seed": 42,
     "n_transactions": 500000,
@@ -11,7 +11,10 @@
     "inconsistent_format_rate": 0.01,
     "burst_day_count": 15,
     "fraud_ring_count": 10,
-    "schema_change_date": "2026-04-01"
+    "schema_change_date": "2026-04-01",
+    "drift_start_date": "2026-05-01",
+    "drift_amount_multiplier_end": 1.6,
+    "labels_uri": "s3a://fraudstream/raw/transaction_labels"
   },
   "files": [
     "s3a://fraudstream/raw/offline_transactions/schema_version=v1/transaction_date=2026-01-01/transactions.csv",
@@ -194,5 +197,6 @@
     "s3a://fraudstream/raw/offline_transactions/schema_version=v2/transaction_date=2026-06-27/transactions.csv",
     "s3a://fraudstream/raw/offline_transactions/schema_version=v2/transaction_date=2026-06-28/transactions.csv",
     "s3a://fraudstream/raw/offline_transactions/schema_version=v2/transaction_date=2026-06-29/transactions.csv"
-  ]
+  ],
+  "label_file": "s3a://fraudstream/raw/transaction_labels/transaction_labels.csv"
 }

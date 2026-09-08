@@ -1,38 +1,38 @@
 {
   "report_version": 1,
-  "generated_at": "2026-08-06T02:07:17Z",
+  "generated_at": "2026-09-08T16:49:32Z",
   "bronze_table": "iceberg.bronze.raw_transactions",
-  "silver_output_dir": "data/silver/transactions",
-  "quality_output_dir": "data/silver/transaction_quality_issues",
+  "silver_output_dir": "/opt/airflow/project/data/silver/transactions",
+  "quality_output_dir": "/opt/airflow/project/data/silver/transaction_quality_issues",
   "no_silent_drop_policy": "Rows excluded from silver.transactions are written to the quality evidence output with _silver_record_action explaining whether they were quarantined or duplicate-rejected.",
   "row_counts": {
-    "input": 2040,
-    "silver_output": 2000,
-    "quality_evidence": 138,
+    "input": 510000,
+    "silver_output": 500000,
+    "quality_evidence": 31599,
     "quarantined": 0,
-    "warning_selected": 98,
-    "valid_selected": 1902,
-    "duplicate_transaction_ids": 40,
-    "duplicate_rows_removed_from_main": 40,
-    "event_dates": 20
+    "warning_selected": 21599,
+    "valid_selected": 478401,
+    "duplicate_transaction_ids": 10000,
+    "duplicate_rows_removed_from_main": 10000,
+    "event_dates": 180
   },
   "record_action_counts": {
-    "duplicate_rejected": 40,
-    "selected": 2000
+    "duplicate_rejected": 10000,
+    "selected": 500000
   },
   "quality_issue_counts": {
-    "late_arrival": 94,
-    "missing_evolved_value": 7
+    "late_arrival": 20574,
+    "missing_evolved_value": 1510
   },
   "nullable_field_missing_counts": {
-    "merchant_id": 11,
+    "merchant_id": 2664,
     "merchant_category": 0,
-    "city": 13,
+    "city": 2684,
     "source_created_at": 0,
-    "device_id": 1144,
-    "ip_address": 1143,
-    "authentication_method": 1143,
-    "risk_signal_version": 1140
+    "device_id": 246465,
+    "ip_address": 246475,
+    "authentication_method": 246520,
+    "risk_signal_version": 245715
   },
   "required_transaction_key_rules": [
     {

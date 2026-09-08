@@ -1,7 +1,7 @@
 {
-  "source_dir": "data/raw_source/offline_transactions",
+  "source_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
   "source_uri": "s3a://fraudstream/raw/offline_transactions",
-  "output_dir": "data/bronze/raw_transactions",
+  "output_dir": "/opt/airflow/project/data/bronze/raw_transactions",
   "source_file_count": 180,
   "row_count": 510000,
   "duplicate_transaction_id_count": 10000,
@@ -10,9 +10,9 @@
     "v2"
   ],
   "transaction_date_count": 180,
-  "ingest_run_id": "full_regeneration_run",
-  "ingest_date": "2026-08-05",
+  "ingest_run_id": "manual__2026-09-08T16:18:56.651990+00:00",
+  "ingest_date": "2026-09-08",
   "write_mode": "overwrite",
   "spark_version": "4.1.2",
-  "completed_at": "2026-08-06T02:17:20Z"
+  "completed_at": "2026-09-08T16:20:23Z"
 }

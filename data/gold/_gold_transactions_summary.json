@@ -1,17 +1,17 @@
 {
   "silver_table": "iceberg.silver.stg_transactions",
-  "output_dir": "data/gold",
+  "output_dir": "/opt/airflow/project/data/gold",
   "write_mode": "overwrite",
   "build_scope": "core",
   "spark_version": "4.1.2",
-  "processed_at": "2026-08-06T02:07:24Z",
-  "completed_at": "2026-08-06T02:07:54Z",
-  "fact_transaction_count": 2000,
+  "processed_at": "2026-09-08T16:48:15Z",
+  "completed_at": "2026-09-08T16:52:53Z",
+  "fact_transaction_count": 500000,
   "tables": [
     {
       "table_name": "dim_date",
       "iceberg_table": "iceberg.gold.dim_date",
-      "row_count": 20
+      "row_count": 180
     },
     {
       "table_name": "dim_city",
@@ -36,52 +36,52 @@
     {
       "table_name": "dim_customer",
       "iceberg_table": "iceberg.gold.dim_customer",
-      "row_count": 727
+      "row_count": 197404
     },
     {
       "table_name": "dim_account",
       "iceberg_table": "iceberg.gold.dim_account",
-      "row_count": 505
+      "row_count": 138377
     },
     {
       "table_name": "dim_merchant",
       "iceberg_table": "iceberg.gold.dim_merchant",
-      "row_count": 151
+      "row_count": 40001
     },
     {
       "table_name": "fact_transactions",
       "iceberg_table": "iceberg.gold.fact_transactions",
-      "row_count": 2000
+      "row_count": 500000
     },
     {
       "table_name": "fact_transaction_quality_issue",
       "iceberg_table": "iceberg.gold.fact_transaction_quality_issue",
-      "row_count": 98
+      "row_count": 21655
     },
     {
       "table_name": "fact_customer_daily",
       "iceberg_table": "iceberg.gold.fact_customer_daily",
-      "row_count": 1871
+      "row_count": 495750
     },
     {
       "table_name": "fact_account_daily",
       "iceberg_table": "iceberg.gold.fact_account_daily",
-      "row_count": 1768
+      "row_count": 492302
     },
     {
       "table_name": "fact_merchant_daily",
       "iceberg_table": "iceberg.gold.fact_merchant_daily",
-      "row_count": 1396
+      "row_count": 475234
     },
     {
       "table_name": "fact_city_category_daily",
       "iceberg_table": "iceberg.gold.fact_city_category_daily",
-      "row_count": 842
+      "row_count": 17280
     },
     {
       "table_name": "fact_device_ip_daily",
       "iceberg_table": "iceberg.gold.fact_device_ip_daily",
-      "row_count": 1737
+      "row_count": 511268
     }
   ]
 }
