@@ -55,6 +55,22 @@ with DAG(
             ),
         )
 
+        build_transaction_labels = BashOperator(
+            task_id="build_transaction_labels",
+            pool=SPARK_POOL,
+            bash_command=project_python_command(
+                "fraudstream.jobs.gold.transaction_labels",
+                """
+                --labels-uri "{{ var.value.fraudstream_labels_uri }}"
+                --gold-dir "{{ var.value.fraudstream_gold_dir }}"
+                --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
+                --master "{{ var.value.fraudstream_spark_master }}"
+                --write-mode "{{ var.value.fraudstream_write_mode }}"
+                --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
+                """,
+            ),
+        )
+
         verify_core_gold_ready >> build_offline_features
 
     with TaskGroup(group_id="validate", tooltip="Check feature outputs and transaction grain") as validate:
