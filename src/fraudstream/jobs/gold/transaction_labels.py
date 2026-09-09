@@ -126,6 +126,8 @@ class TransactionLabelsResult:
 def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabelsResult:
     """Read the generator's raw label CSV and materialize `gold.transaction_labels`."""
 
+    from pyspark.sql import functions as spark_functions
+
     config.validate()
     spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
     try:
@@ -140,8 +142,6 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
                 "transaction-labels-build",
                 "Transaction labels: read raw label CSV and write to MinIO + PostgreSQL",
             )
-
-            from pyspark.sql import functions as spark_functions
 
             metrics = dataframe.agg(
                 spark_functions.count("*").alias("row_count"),
