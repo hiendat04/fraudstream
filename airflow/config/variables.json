@@ -3,6 +3,7 @@
   "fraudstream_offline_generator_config": "/opt/airflow/project/configs/generator/offline_transactions.json",
   "fraudstream_raw_transactions_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
   "fraudstream_raw_uri": "s3a://fraudstream/raw/offline_transactions",
+  "fraudstream_labels_uri": "s3a://fraudstream/raw/transaction_labels",
   "fraudstream_bronze_transactions_dir": "/opt/airflow/project/data/bronze/raw_transactions",
   "fraudstream_bronze_validation_report": "/opt/airflow/project/data/bronze/raw_transactions/_bronze_validation_summary.json",
   "fraudstream_silver_transactions_dir": "/opt/airflow/project/data/silver/transactions",

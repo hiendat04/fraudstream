@@ -1,10 +1,10 @@
 {
   "fraudstream_postgres": {
     "conn_type": "postgres",
-    "host": "${FRAUDSTREAM_POSTGRES_HOST}",
-    "login": "${FRAUDSTREAM_POSTGRES_USER}",
-    "password": "${FRAUDSTREAM_POSTGRES_PASSWORD}",
-    "schema": "${FRAUDSTREAM_POSTGRES_DATABASE}",
+    "host": "${POSTGRES_HOST}",
+    "login": "${POSTGRES_USER}",
+    "password": "${POSTGRES_PASSWORD}",
+    "schema": "${POSTGRES_DB}",
     "port": 5432
   },
   "fraudstream_kafka": {

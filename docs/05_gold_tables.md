@@ -88,6 +88,7 @@ Implementation files:
 | `src/fraudstream/jobs/warehouse.py` | Shared MinIO (S3A), Iceberg catalog, and PostgreSQL JDBC configuration and write helpers used by every Spark job. |
 | `src/fraudstream/jobs/gold/transactions.py` | Builds core Gold dimensions, facts, and aggregates from Silver, writing Iceberg tables in MinIO and every table directly to PostgreSQL; direct runs may also include features. |
 | `src/fraudstream/jobs/gold/offline_features.py` | Builds offline feature tables from persisted core Gold facts, writing Iceberg tables in MinIO and PostgreSQL directly. |
+| `src/fraudstream/jobs/gold/transaction_labels.py` | Loads the generator's raw label CSV into `gold.transaction_labels`, writing Iceberg tables in MinIO and PostgreSQL directly. |
 
 ## Naming Standards
 
@@ -307,6 +308,25 @@ features created from data available before that transaction's business time.
 The feature definitions, formulas, missing-history rules, and validation contract
 are documented in [`docs/06_feature_engineering.md`](06_feature_engineering.md).
 
+## Transaction Labels Table
+
+`gold.transaction_labels` is loaded directly from the offline generator's raw
+label CSV rather than derived from Silver or the transaction fact table. It
+exists so feature tables can carry features only, with the label joined in
+separately at training time.
+
+| Table | Grain | Purpose |
+|---|---|---|
+| `gold.transaction_labels` | `transaction_id` | Fraud label and event time for each generated transaction, loaded from the generator's raw label CSV. |
+
+Columns:
+
+| Column | Meaning |
+|---|---|
+| `transaction_id` | Transaction identifier, joinable to `gold.feat_transaction_training` and the other feature tables. |
+| `is_fraud` | Historical fraud label (`0` or `1`). |
+| `event_timestamp` | Business timestamp the label corresponds to. |
+
 ## One-Big Table View
 
 `gold.obt_transaction_enriched` is a flattened PostgreSQL view for DBeaver and
@@ -337,6 +357,7 @@ Pipeline loading pattern:
 | Silver build | `iceberg.silver.stg_transactions`, `iceberg.silver.stg_transaction_quality_issues` | `silver.stg_transactions`, `silver.stg_transaction_quality_issues` |
 | Core Gold build | `iceberg.gold.<table_name>` | `gold.dim_*`, `gold.fact_*` |
 | Offline features | `iceberg.gold.feat_*` | `gold.feat_*` |
+| Transaction labels | `iceberg.gold.transaction_labels` | `gold.transaction_labels` |
 
 For local development, full refresh loading is acceptable for facts, daily
 aggregates, and feature tables. SCD2 dimensions currently reload in full too --

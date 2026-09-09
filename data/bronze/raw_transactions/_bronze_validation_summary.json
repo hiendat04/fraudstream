@@ -1,0 +1,106 @@
+{
+  "source_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
+  "source_uri": "s3a://fraudstream/raw/offline_transactions",
+  "bronze_table": "iceberg.bronze.raw_transactions",
+  "passed": true,
+  "checks": {
+    "row_count": {
+      "expected": 510000,
+      "actual": 510000,
+      "passed": true
+    },
+    "source_file_coverage": {
+      "expected": 180,
+      "actual": 180,
+      "passed": true
+    },
+    "partition_coverage": {
+      "expected": 180,
+      "actual": 180,
+      "passed": true
+    },
+    "bronze_partition_layout": {
+      "expected": 180,
+      "actual": 180,
+      "passed": true
+    },
+    "raw_format_issue_preservation": {
+      "passed": true,
+      "issues": {
+        "padded_city_rows": {
+          "expected": 1265,
+          "actual": 1265,
+          "passed": true
+        },
+        "uppercase_city_rows": {
+          "expected": 1290,
+          "actual": 1290,
+          "passed": true
+        },
+        "lowercase_currency_rows": {
+          "expected": 1265,
+          "actual": 1265,
+          "passed": true
+        },
+        "uppercase_status_rows": {
+          "expected": 1264,
+          "actual": 1264,
+          "passed": true
+        },
+        "blank_city_rows": {
+          "expected": 2676,
+          "actual": 2676,
+          "passed": true
+        },
+        "blank_merchant_id_rows": {
+          "expected": 2664,
+          "actual": 2664,
+          "passed": true
+        },
+        "v1_missing_device_id_rows": {
+          "expected": 245715,
+          "actual": 245715,
+          "passed": true
+        },
+        "v2_blank_device_id_rows": {
+          "expected": 750,
+          "actual": 750,
+          "passed": true
+        }
+      }
+    }
+  },
+  "source": {
+    "row_count": 510000,
+    "csv_file_count": 180,
+    "partition_count": 180,
+    "format_issues": {
+      "padded_city_rows": 1265,
+      "uppercase_city_rows": 1290,
+      "lowercase_currency_rows": 1265,
+      "uppercase_status_rows": 1264,
+      "blank_city_rows": 2676,
+      "blank_merchant_id_rows": 2664,
+      "v1_missing_device_id_rows": 245715,
+      "v2_blank_device_id_rows": 750
+    }
+  },
+  "bronze": {
+    "row_count": 510000,
+    "parquet_data_file_count": 180,
+    "distinct_source_file_count": 180,
+    "partition_count": 180,
+    "distinct_schema_date_partition_count": 180,
+    "format_issues": {
+      "padded_city_rows": 1265,
+      "uppercase_city_rows": 1290,
+      "lowercase_currency_rows": 1265,
+      "uppercase_status_rows": 1264,
+      "blank_city_rows": 2676,
+      "blank_merchant_id_rows": 2664,
+      "v1_missing_device_id_rows": 245715,
+      "v2_blank_device_id_rows": 750
+    }
+  },
+  "completed_at": "2026-09-09T02:39:47Z"
+}

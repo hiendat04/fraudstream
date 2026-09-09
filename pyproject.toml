@@ -19,6 +19,7 @@ fraudstream-validate-bronze = "fraudstream.jobs.bronze.validate_transactions:mai
 fraudstream-build-silver-transactions = "fraudstream.jobs.silver.transactions:main"
 fraudstream-build-gold-transactions = "fraudstream.jobs.gold.transactions:main"
 fraudstream-build-offline-features = "fraudstream.jobs.gold.offline_features:main"
+fraudstream-build-transaction-labels = "fraudstream.jobs.gold.transaction_labels:main"
 fraudstream-data-quality = "fraudstream.reports.data_quality:main"
 
 [tool.pytest.ini_options]

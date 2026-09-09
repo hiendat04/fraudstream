@@ -34,6 +34,7 @@ with DAG(
                 --config "{{ var.value.fraudstream_offline_generator_config }}"
                 --output-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
                 --raw-uri "{{ var.value.fraudstream_raw_uri }}"
+                --labels-uri "{{ var.value.fraudstream_labels_uri }}"
                 """,
             ),
         )

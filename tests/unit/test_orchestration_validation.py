@@ -87,7 +87,6 @@ class OrchestrationValidationTest(TestCase):
             _write_json(silver_summary_path, {"output_row_count": 5})
             core_tables = []
             for table_name in CORE_GOLD_TABLE_NAMES:
-                _touch_parquet(gold_dir / table_name)
                 core_tables.append(
                     {
                         "table_name": table_name,
@@ -110,7 +109,6 @@ class OrchestrationValidationTest(TestCase):
 
             feature_tables = []
             for table_name in OFFLINE_FEATURE_TABLE_NAMES:
-                _touch_parquet(gold_dir / table_name)
                 feature_tables.append(
                     {
                         "table_name": table_name,
@@ -138,11 +136,6 @@ class OrchestrationValidationTest(TestCase):
 def _write_json(path: Path, payload: dict[str, object]) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps(payload), encoding="utf-8")
-
-
-def _touch_parquet(table_dir: Path) -> None:
-    table_dir.mkdir(parents=True, exist_ok=True)
-    (table_dir / "part-00000.parquet").write_bytes(b"test")
 
 
 if __name__ == "__main__":

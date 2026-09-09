@@ -3,3 +3,5 @@ __pycache__/
 .pytest_cache/
 datahub/.venv/
 images/architecture/architecture.excalidraw
+docs/mlops
+docs/superpowers/

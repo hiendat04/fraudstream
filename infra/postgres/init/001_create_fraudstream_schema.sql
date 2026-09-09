@@ -626,6 +626,17 @@ ALTER TABLE gold.feat_transaction_training
     ADD COLUMN IF NOT EXISTS merchant_category_prior_fraud_rate_30d DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS merchant_vs_category_amount_ratio_30d DOUBLE PRECISION;
 
+-- No foreign key to gold.fact_transactions here on purpose: this table is
+-- loaded straight from the generator's raw label CSV, independent of the
+-- Gold build's load order (its DAG task has no upstream dependency on Gold
+-- readiness), and a FK would make fact_transactions' overwrite TRUNCATE fail
+-- without CASCADE.
+CREATE TABLE IF NOT EXISTS gold.transaction_labels (
+    transaction_id TEXT PRIMARY KEY,
+    is_fraud SMALLINT NOT NULL,
+    event_timestamp TIMESTAMPTZ NOT NULL
+);
+
 CREATE OR REPLACE VIEW gold.obt_transaction_enriched AS
 SELECT
     fact.transaction_id,

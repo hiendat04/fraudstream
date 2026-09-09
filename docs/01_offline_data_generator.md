@@ -69,6 +69,22 @@ Important settings:
 | `schema_change_date` | Splits older `v1` source files from newer `v2` source files. |
 | `output_dir` | Local directory for the manifest and quality-summary evidence files only (small files, not the raw CSVs). |
 | `raw_uri` | MinIO (`s3a://`) URI where the actual partitioned raw CSV files are written. Defaults to `s3a://fraudstream/raw/offline_transactions`. |
+| `drift_start_date` | Date (inside the history window) from which sampled `amount` values start ramping upward. `None`/omitted disables drift entirely. |
+| `drift_amount_multiplier_end` | Amount multiplier reached by the end of the history window when drift is enabled. Ramps linearly from `1.0` at `drift_start_date`. |
+| `labels_uri` | MinIO (`s3a://`) URI where the standalone `(transaction_id, is_fraud, event_timestamp)` training-label table is written. Defaults to `s3a://fraudstream/raw/transaction_labels`. |
+
+> **Default config now enables drift.** `configs/generator/offline_transactions.json` ships
+> with `drift_start_date: "2026-05-01"` and `drift_amount_multiplier_end: 1.6`, so a default
+> `fraudstream-generate-offline` run now produces a different dataset than earlier runs of this
+> generator: transaction amounts ramp up to 1.6x over the last ~60 days of the history window,
+> the synthetic fraud rate is slightly higher inside that window (`amount` feeds
+> `_sample_fraud_label`), and a new MinIO prefix (`labels_uri`) is deleted-then-rewritten on
+> every run alongside `raw_uri`. Any evidence numbers captured from earlier default runs (row
+> counts, skew, fraud rate) are stale and should be regenerated before being cited again.
+
+The shipped configuration, with the two drift settings highlighted:
+
+![Generator configuration with the drift settings highlighted](../images/generator/drift_configuration.png)
 
 ## Implementation Coverage
 
@@ -81,6 +97,7 @@ Important settings:
 | Simulate bursty and late data | Uses peak-hour traffic, burst dates, shuffled file order, and delayed `created_ts` values. |
 | Simulate raw source messiness | Injects small, controlled rates of missing values and inconsistent formats. |
 | Simulate fraud behavior | Creates rare labels with higher risk for high-value, online, cross-border, high-risk merchant, late-night, and fraud-ring activity. |
+| Simulate data drift | From `drift_start_date` to the end of the history window, sampled `amount` values are scaled by a factor ramping linearly from `1.0` to `drift_amount_multiplier_end`. Off (`1.0` everywhere) when `drift_start_date` is `None`. |
 | Use generator configuration | All core parameters are read from `configs/generator/offline_transactions.json`. |
 | Store data for Bronze ingestion | Writes partitioned raw CSV files to MinIO (`raw_uri`) and `_manifest.json`/quality-summary evidence locally (`output_dir`). The manifest's `files` list contains the MinIO URI of every partition. |
 
@@ -119,6 +136,26 @@ data/raw_source/offline_transactions/
 `schema_version=v2` files include those columns. This gives the future Bronze and
 Silver jobs a real schema evolution case to handle.
 
+The standalone training-label table goes to MinIO, under its own `labels_uri` prefix
+(default `s3a://fraudstream/raw/transaction_labels`), separate from `raw_uri`:
+
+```text
+s3a://fraudstream/raw/transaction_labels/
+`-- transaction_labels.csv
+```
+
+It has three columns: `transaction_id`, `is_fraud`, `event_timestamp` -- the same names the
+values carry in the transaction rows, so no mental mapping is needed when joining. It is
+kept separate from the raw transaction partitions -- and from Gold's own `is_fraud` column
+-- so that a later Feast feature view can carry features only, with the label joined in at
+training time. Like `raw_uri`, this prefix is deleted and rewritten on every generator run.
+
+Once `gold.transaction_labels` is loaded from that CSV, the label joins back to the feature
+table on `transaction_id`, which is how a training set is assembled -- features from one
+table, label from the other:
+
+![Feature table joined to the transaction label table on transaction_id](../images/generator/transaction_labels_feature_join.png)
+
 ## Bronze Ingestion Contract
 
 The generated source files are intentionally raw. The future Bronze ingestion job
@@ -134,7 +171,7 @@ Recommended ingestion behavior:
 
 | Concern | Recommendation |
 |---|---|
-| File discovery | Read `_manifest.json` (local) for the list of MinIO source-file URIs, or list `raw_uri` directly in MinIO when no manifest is present. |
+| File discovery | Read `_manifest.json` (local) for the list of MinIO source-file URIs, or list `raw_uri` directly in MinIO when no manifest is present. The manifest's top-level `label_file` key holds the URI of the standalone training-label table (see below); it is not one of the `raw_transactions` source files. |
 | Dedup key | Use `transaction_id` to identify duplicate source records. |
 | Partitions | Preserve or derive `schema_version` and `transaction_date`. |
 | Schema evolution | Read `v1` and `v2` files with missing columns allowed. |
@@ -163,6 +200,13 @@ Evidence available in those files:
 | Cardinality | Distinct counts for transaction, customer, account, merchant, and device IDs. |
 | Schema evolution | Row counts before and after `schema_change_date`. |
 | Storage details | Data format, file count, and partition columns. |
+| Data drift | The JSON summary's `drift` section reports `{"enabled": false}` when `drift_start_date` is unset, or the drift window, mean amount before/after `drift_start_date`, and the configured multiplier when enabled. The CSV summary carries the two mean-amount rows (`drift.mean_amount_before`, `drift.mean_amount_after`), blank when drift is disabled. |
+| Label table | The JSON summary's `label_table` section reports the label table's MinIO URI, row count, and column names. The CSV summary carries `label_table.row_count`. |
+
+The `drift` section of `_quality_summary.json` after a default run, showing the mean amount
+before and after `drift_start_date`:
+
+![Drift section of the generator quality summary](../images/generator/drift_quality_summary.png)
 
 ## Validate Locally
 
