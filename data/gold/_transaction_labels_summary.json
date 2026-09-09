@@ -1,0 +1,12 @@
+{
+  "labels_uri": "s3a://fraudstream/raw/transaction_labels",
+  "label_file": "s3a://fraudstream/raw/transaction_labels/transaction_labels.csv",
+  "iceberg_table": "iceberg.gold.transaction_labels",
+  "row_count": 500000,
+  "distinct_transaction_id_count": 500000,
+  "fraud_row_count": 7697,
+  "write_mode": "overwrite",
+  "spark_version": "4.1.2",
+  "processed_at": "2026-09-09T02:44:23Z",
+  "completed_at": "2026-09-09T02:44:44Z"
+}

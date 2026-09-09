@@ -10,9 +10,9 @@
     "v2"
   ],
   "transaction_date_count": 180,
-  "ingest_run_id": "manual__2026-09-08T16:18:56.651990+00:00",
-  "ingest_date": "2026-09-08",
+  "ingest_run_id": "manual__2026-09-09T02:38:03.027106+00:00",
+  "ingest_date": "2026-09-09",
   "write_mode": "overwrite",
   "spark_version": "4.1.2",
-  "completed_at": "2026-09-08T16:20:23Z"
+  "completed_at": "2026-09-09T02:39:06Z"
 }

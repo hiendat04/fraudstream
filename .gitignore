@@ -4,4 +4,4 @@ __pycache__/
 datahub/.venv/
 images/architecture/architecture.excalidraw
 docs/mlops
-docs/superpowers/plans
+docs/superpowers/

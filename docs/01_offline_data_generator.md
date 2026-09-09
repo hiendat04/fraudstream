@@ -82,6 +82,10 @@ Important settings:
 > every run alongside `raw_uri`. Any evidence numbers captured from earlier default runs (row
 > counts, skew, fraud rate) are stale and should be regenerated before being cited again.
 
+The shipped configuration, with the two drift settings highlighted:
+
+![Generator configuration with the drift settings highlighted](../images/generator/drift_configuration.png)
+
 ## Implementation Coverage
 
 | Capability | Implementation |
@@ -146,6 +150,12 @@ kept separate from the raw transaction partitions -- and from Gold's own `is_fra
 -- so that a later Feast feature view can carry features only, with the label joined in at
 training time. Like `raw_uri`, this prefix is deleted and rewritten on every generator run.
 
+Once `gold.transaction_labels` is loaded from that CSV, the label joins back to the feature
+table on `transaction_id`, which is how a training set is assembled -- features from one
+table, label from the other:
+
+![Feature table joined to the transaction label table on transaction_id](../images/generator/transaction_labels_feature_join.png)
+
 ## Bronze Ingestion Contract
 
 The generated source files are intentionally raw. The future Bronze ingestion job
@@ -192,6 +202,11 @@ Evidence available in those files:
 | Storage details | Data format, file count, and partition columns. |
 | Data drift | The JSON summary's `drift` section reports `{"enabled": false}` when `drift_start_date` is unset, or the drift window, mean amount before/after `drift_start_date`, and the configured multiplier when enabled. The CSV summary carries the two mean-amount rows (`drift.mean_amount_before`, `drift.mean_amount_after`), blank when drift is disabled. |
 | Label table | The JSON summary's `label_table` section reports the label table's MinIO URI, row count, and column names. The CSV summary carries `label_table.row_count`. |
+
+The `drift` section of `_quality_summary.json` after a default run, showing the mean amount
+before and after `drift_start_date`:
+
+![Drift section of the generator quality summary](../images/generator/drift_quality_summary.png)
 
 ## Validate Locally
 

@@ -1,6 +1,6 @@
 {
   "report_version": 1,
-  "generated_at": "2026-09-08T16:49:32Z",
+  "generated_at": "2026-09-09T02:40:37Z",
   "bronze_table": "iceberg.bronze.raw_transactions",
   "silver_output_dir": "/opt/airflow/project/data/silver/transactions",
   "quality_output_dir": "/opt/airflow/project/data/silver/transaction_quality_issues",

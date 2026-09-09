@@ -4,8 +4,8 @@
   "write_mode": "overwrite",
   "build_scope": "core",
   "spark_version": "4.1.2",
-  "processed_at": "2026-09-08T16:48:15Z",
-  "completed_at": "2026-09-08T16:52:53Z",
+  "processed_at": "2026-09-09T02:39:49Z",
+  "completed_at": "2026-09-09T02:44:19Z",
   "fact_transaction_count": 500000,
   "tables": [
     {

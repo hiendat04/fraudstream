@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-08T16:19:19Z",
+  "generated_at": "2026-09-09T02:38:25Z",
   "output_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
   "raw_uri": "s3a://fraudstream/raw/offline_transactions",
   "data_format": "partitioned_csv",
