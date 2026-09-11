@@ -5,6 +5,7 @@
       <sourceFolder url="file://$MODULE_DIR$/feature_store/src" />
       <excludeFolder url="file://$MODULE_DIR$/feature_store/.venv" />
     </content>
+    <orderEntry type="jdk" jdkName="uv (feature_store)" jdkType="Python SDK" />
     <orderEntry type="sourceFolder" forTests="false" />
   </component>
 </module>

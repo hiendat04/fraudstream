@@ -1,0 +1,20 @@
+{
+  "dataset": "streaming_transactions",
+  "source_system": "fraudstream_streaming_generator",
+  "created_at": "2026-09-11T15:58:31Z",
+  "sink_type": "local_jsonl",
+  "topic": "financial_transactions",
+  "message_key": "customer_id",
+  "event_log_path": "data/raw_stream/transactions/topic=financial_transactions/events.jsonl",
+  "summary_path": "data/raw_stream/transactions/_stream_summary.json",
+  "config": {
+    "random_seed": 2026,
+    "n_events": 500000,
+    "duplicate_rate": 0.025,
+    "late_event_rate": 0.065,
+    "out_of_order_rate": 0.055,
+    "burst_window_count": 42,
+    "burst_event_ratio": 0.3,
+    "window_minutes": 5
+  }
+}

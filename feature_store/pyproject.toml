@@ -10,6 +10,7 @@ dependencies = [
     "feast[spark,postgres,redis]==0.66.0",
     "pyspark==4.1.2",
     "confluent-kafka>=2.6,<3",
+    "grpcio>=1.60,<2",
 ]
 
 [tool.uv]

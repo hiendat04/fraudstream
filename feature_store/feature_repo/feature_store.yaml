@@ -10,6 +10,14 @@ registry:
 online_store:
   type: redis
   connection_string: ${REDIS_HOST}:${REDIS_PORT}
+  # Reclaims Redis memory for entities that stop appearing in the stream.
+  # This expiry is per KEY and global to the store -- it is not the per-view
+  # `ttl`, and one key holds every view's fields for an entity. It is
+  # therefore set to the LONGEST view ttl (customer_orders_90d, 91 days);
+  # a shorter value would delete batch features that are only refreshed by
+  # the daily materialization. Read-time staleness is already enforced
+  # separately by each feature view's own ttl, so nothing readable is lost.
+  key_ttl_seconds: 7862400
 
 offline_store:
   type: spark

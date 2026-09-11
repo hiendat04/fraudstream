@@ -5,6 +5,7 @@
       <module fileurl="file://$PROJECT_DIR$/.idea/financial-fraud-detection.iml" filepath="$PROJECT_DIR$/.idea/financial-fraud-detection.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream.iml" filepath="$PROJECT_DIR$/.idea/fraudstream.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-datahub.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-datahub.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-feature-store.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-feature-store.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" />
     </modules>
   </component>
