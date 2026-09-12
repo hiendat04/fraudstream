@@ -12,5 +12,8 @@
   "fraudstream_warehouse_uri": "s3a://fraudstream/warehouse",
   "fraudstream_spark_master": "local[4]",
   "fraudstream_spark_pool_slots": "1",
-  "fraudstream_write_mode": "overwrite"
+  "fraudstream_write_mode": "overwrite",
+  "fraudstream_feast_repo_path": "/opt/airflow/project/feature_store/feature_repo",
+  "fraudstream_feature_store_start_timestamp": "2026-01-01T00:00:00+00:00",
+  "fraudstream_feature_store_summary_path": "/opt/airflow/project/data/gold/_feature_store_materialization_summary.json"
 }

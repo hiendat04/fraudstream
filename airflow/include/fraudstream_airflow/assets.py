@@ -12,3 +12,6 @@ CORE_GOLD_TRANSACTIONS_VALIDATED = Asset(
 OFFLINE_FEATURES_VALIDATED = Asset(
     "x-fraudstream://gold/offline_features/validated"
 )
+FEATURE_STORE_MATERIALIZED = Asset(
+    "x-fraudstream://feature_store/online/materialized"
+)

@@ -15,6 +15,7 @@ from fraudstream.orchestration.validation import (
     PipelineValidationError,
     validate_bronze_report,
     validate_core_gold_summary,
+    validate_feature_store_materialization,
     validate_offline_feature_summary,
     validate_silver_summary,
     validate_source_manifest,
@@ -131,6 +132,88 @@ class OrchestrationValidationTest(TestCase):
                 validate_offline_feature_summary(gold_dir),
                 {"fact_transaction_rows": 5, "training_rows": 5},
             )
+
+    def _materialization_summary(self, *, non_null=5, view_names=None, spot_check_views=None):
+        """Build a materialization summary fixture with the given watermark and spot-check state."""
+
+        names = view_names or (
+            "customer_rolling_features",
+            "customer_orders_90d_features",
+            "merchant_risk_features",
+            "customer_features_5m_stream",
+            "merchant_features_5m_stream",
+        )
+        views = spot_check_views or [
+            {"name": "customer_rolling_features", "entity_type": "customer", "requested": 5, "non_null": non_null},
+            {"name": "customer_orders_90d_features", "entity_type": "customer", "requested": 5, "non_null": non_null},
+            {"name": "merchant_risk_features", "entity_type": "merchant", "requested": 5, "non_null": non_null},
+        ]
+        return {
+            "end_timestamp": "2026-09-09T00:00:00+00:00",
+            "feature_views": [
+                {"name": name, "mode": "full", "watermark_after": "2026-09-09T00:00:00+00:00"}
+                for name in names
+            ],
+            "online_spot_check": {
+                "views": views,
+                "requested": sum(view["requested"] for view in views),
+                "non_null": sum(view["non_null"] for view in views),
+            },
+        }
+
+    def _write_summary(self, tmp_dir, summary):
+        """Write one summary fixture to disk and return its path."""
+
+        summary_path = Path(tmp_dir) / "summary.json"
+        summary_path.write_text(json.dumps(summary), encoding="utf-8")
+        return summary_path
+
+    def test_feature_store_materialization_gate_accepts_a_complete_run(self):
+        """Every expected view materialized and every spot-checked view found values."""
+
+        with TemporaryDirectory() as tmp_dir:
+            path = self._write_summary(tmp_dir, self._materialization_summary())
+
+            result = validate_feature_store_materialization(path)
+
+        self.assertEqual(result["feature_view_count"], 5)
+        self.assertEqual(result["online_non_null_count"], 15)
+
+    def test_feature_store_materialization_gate_rejects_a_missing_view(self):
+        """A view that failed to materialize must stop the asset from being emitted."""
+
+        with TemporaryDirectory() as tmp_dir:
+            path = self._write_summary(
+                tmp_dir, self._materialization_summary(view_names=("customer_rolling_features",))
+            )
+
+            with self.assertRaises(ValueError):
+                validate_feature_store_materialization(path)
+
+    def test_feature_store_materialization_gate_rejects_an_empty_online_store(self):
+        """Materialization that writes nothing readable anywhere is a silent failure; catch it here."""
+
+        with TemporaryDirectory() as tmp_dir:
+            path = self._write_summary(tmp_dir, self._materialization_summary(non_null=0))
+
+            with self.assertRaises(ValueError):
+                validate_feature_store_materialization(path)
+
+    def test_feature_store_materialization_gate_rejects_a_single_empty_view(self):
+        """One empty view must fail the gate even while the aggregate and the rest look healthy."""
+
+        spot_check_views = [
+            {"name": "customer_rolling_features", "entity_type": "customer", "requested": 5, "non_null": 5},
+            {"name": "customer_orders_90d_features", "entity_type": "customer", "requested": 5, "non_null": 0},
+            {"name": "merchant_risk_features", "entity_type": "merchant", "requested": 5, "non_null": 5},
+        ]
+        with TemporaryDirectory() as tmp_dir:
+            path = self._write_summary(
+                tmp_dir, self._materialization_summary(spot_check_views=spot_check_views)
+            )
+
+            with self.assertRaisesRegex(ValueError, "customer_orders_90d_features"):
+                validate_feature_store_materialization(path)
 
 
 def _write_json(path: Path, payload: dict[str, object]) -> None:

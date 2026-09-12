@@ -7,4 +7,4 @@ docs/mlops
 docs/superpowers/
 # Local environment (see .env.example for the template)
 .env
-data/flink
+data/
