@@ -22,6 +22,33 @@ MERCHANT_CATEGORIES = (
     "travel",
 )
 
+CHANNELS = ("atm", "card_present", "mobile_wallet", "online")
+
+CITIES = (
+    "Atlanta",
+    "Boston",
+    "Charlotte",
+    "Chicago",
+    "Dallas",
+    "Denver",
+    "Detroit",
+    "Los Angeles",
+    "Miami",
+    "New York",
+    "Phoenix",
+    "Seattle",
+)
+
+CATEGORICAL_ENCODINGS: dict[str, tuple[str, ...]] = {
+    CATEGORICAL_COLUMN: MERCHANT_CATEGORIES,
+    "channel": CHANNELS,
+    "city": CITIES,
+}
+
+# Attributes of the transaction being scored rather than aggregates of its
+# entities' past, so they are known at scoring time and carry no leakage.
+REQUEST_TIME_NUMERIC = ("amount", "event_hour")
+
 AVAILABILITY_FLAGS: dict[str, str] = {
     "customer_rolling_features": "customer_features_available",
     "customer_orders_90d_features": "customer_orders_90d_available",
@@ -29,12 +56,18 @@ AVAILABILITY_FLAGS: dict[str, str] = {
 }
 
 
+def _slug(value: str) -> str:
+    """Turn a category value into a column-name-safe suffix."""
+
+    return value.strip().lower().replace(" ", "_")
+
+
 def prepare_features(
     frame: Any,
     *,
-    categories: tuple[str, ...] = MERCHANT_CATEGORIES,
+    encodings: dict[str, tuple[str, ...]] | None = None,
 ) -> tuple[Any, list[str]]:
-    """Add availability flags and encoded categories, returning the frame and its feature columns.
+    """Add availability flags, request-time features, and encoded categories.
 
     Nulls are left untouched. Most transactions have no customer snapshot
     inside the view's TTL, and both dropping and imputing those rows would
@@ -43,7 +76,8 @@ def prepare_features(
     availability flags make that absence explicit instead.
     """
 
-    prepared = frame.copy() 
+    categorical = CATEGORICAL_ENCODINGS if encodings is None else encodings
+    prepared = frame.copy()
     feature_names: list[str] = []
 
     for view, view_features in BATCH_FEATURE_VIEWS.items():
@@ -51,13 +85,20 @@ def prepare_features(
         if not columns:
             raise ValueError(f"frame carries no columns for feature view {view!r}")
         prepared[AVAILABILITY_FLAGS[view]] = prepared[columns].notna().any(axis=1)
-        feature_names.extend(name for name in columns if name != CATEGORICAL_COLUMN)
+        feature_names.extend(name for name in columns if name not in categorical)
 
+    if "event_timestamp" in prepared.columns:
+        prepared["event_hour"] = prepared["event_timestamp"].dt.hour
+
+    feature_names.extend(name for name in REQUEST_TIME_NUMERIC if name in prepared.columns)
     feature_names.extend(AVAILABILITY_FLAGS[view] for view in BATCH_FEATURE_VIEWS)
 
-    for category in categories:
-        column = f"{CATEGORICAL_COLUMN}_{category}"
-        prepared[column] = (prepared[CATEGORICAL_COLUMN] == category).astype(int)
-        feature_names.append(column)
+    for column, categories in categorical.items():
+        if column not in prepared.columns:
+            continue
+        for category in categories:
+            encoded = f"{column}_{_slug(category)}"
+            prepared[encoded] = (prepared[column] == category).astype(int)
+            feature_names.append(encoded)
 
     return prepared, feature_names

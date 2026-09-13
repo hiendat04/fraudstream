@@ -47,6 +47,29 @@ class EntityDataframeSqlTest(unittest.TestCase):
 
         self.assertIn("f.merchant_dim_id AS merchant_id", sql)
 
+    def test_selects_the_request_time_attributes(self):
+        """The label depends mostly on the transaction's own amount, channel and city."""
+
+        sql = entity_dataframe_sql(START, END)
+
+        self.assertIn("f.channel", sql)
+        self.assertIn("f.city", sql)
+
+    def test_casts_amount_to_a_float(self):
+        """Iceberg decimals arrive as Python Decimal objects, which no estimator accepts."""
+
+        sql = entity_dataframe_sql(START, END)
+
+        self.assertIn("CAST(f.amount AS DOUBLE) AS amount", sql)
+
+    def test_never_selects_the_transaction_outcome(self):
+        """Status is decided after scoring, so training on it would inflate every metric."""
+
+        sql = entity_dataframe_sql(START, END)
+
+        for column in ("transaction_status", "is_approved", "is_declined", "is_reversed"):
+            self.assertNotIn(column, sql, msg=column)
+
     def test_bounds_the_window(self):
         """Both ends of the window reach the query, so a split never silently reads everything."""
 

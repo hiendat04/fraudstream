@@ -67,6 +67,9 @@ def entity_dataframe_sql(start: str | datetime, end: str | datetime) -> str:
             f.customer_id,
             f.merchant_dim_id AS merchant_id,
             f.event_time AS event_timestamp,
+            CAST(f.amount AS DOUBLE) AS amount,
+            f.channel,
+            f.city,
             l.is_fraud
         FROM {FACT_TABLE} f
         JOIN {LABEL_TABLE} l ON l.transaction_id = f.transaction_id

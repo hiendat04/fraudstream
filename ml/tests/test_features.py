@@ -23,8 +23,13 @@ def _frame() -> pd.DataFrame:
             "transaction_id": ["txn_0", "txn_1", "txn_2"],
             "customer_id": ["cust_0", "cust_1", "cust_2"],
             "merchant_id": ["merch_0", "merch_1", "merch_2"],
-            "event_timestamp": pd.to_datetime(["2026-01-01", "2026-01-02", "2026-01-03"]),
+            "event_timestamp": pd.to_datetime(
+                ["2026-01-01 03:00", "2026-01-02 14:30", "2026-01-03 23:15"]
+            ),
             "is_fraud": [0, 1, 0],
+            "amount": [120.0, 640.0, 35.0],
+            "channel": ["online", "card_present", "atm"],
+            "city": ["Los Angeles", "Miami", "Boston"],
             "txn_count_7d": [3.0, np.nan, 5.0],
             "amount_sum_7d": [30.0, np.nan, 50.0],
             "total_orders_90d": [9.0, np.nan, 11.0],
@@ -149,6 +154,62 @@ class CategoryEncodingTest(unittest.TestCase):
         self.assertEqual(set(indicators), {0})
         self.assertEqual(len([n for n in feature_names if n.startswith("merchant_category_")]),
                          len(MERCHANT_CATEGORIES))
+
+
+class RequestTimeFeatureTest(unittest.TestCase):
+    """Attributes of the transaction itself, as opposed to aggregates of its entities' past.
+
+    The generated label depends mostly on these: amount is the largest
+    observable driver, with hour-of-day, channel and city behind it. Without
+    them the model can only see how an entity behaved before, never what this
+    particular transaction looks like.
+    """
+
+    def test_amount_and_event_hour_are_features(self):
+        _, feature_names = prepare_features(_frame())
+
+        self.assertIn("amount", feature_names)
+        self.assertIn("event_hour", feature_names)
+
+    def test_event_hour_is_derived_from_the_timestamp(self):
+        prepared, _ = prepare_features(_frame())
+
+        self.assertEqual(list(prepared["event_hour"]), [3, 14, 23])
+
+    def test_channel_and_city_are_one_hot_encoded(self):
+        prepared, feature_names = prepare_features(_frame())
+
+        self.assertIn("channel_online", feature_names)
+        self.assertEqual(prepared.loc[0, "channel_online"], 1)
+        self.assertEqual(prepared.loc[0, "channel_atm"], 0)
+        self.assertEqual(prepared.loc[1, "city_miami"], 1)
+
+    def test_city_column_names_are_slugified(self):
+        """A space in a column name is a portability hazard for model serialization."""
+
+        prepared, feature_names = prepare_features(_frame())
+
+        self.assertIn("city_los_angeles", feature_names)
+        self.assertEqual(prepared.loc[0, "city_los_angeles"], 1)
+        for name in feature_names:
+            self.assertNotIn(" ", name, msg=name)
+
+    def test_raw_categorical_columns_are_never_features(self):
+        _, feature_names = prepare_features(_frame())
+
+        for column in ("channel", "city", "merchant_category"):
+            self.assertNotIn(column, feature_names, msg=column)
+
+    def test_a_frame_without_request_time_columns_still_works(self):
+        """Retrieval that predates these columns must not crash feature preparation."""
+
+        frame = _frame().drop(columns=["amount", "channel", "city"])
+
+        _, feature_names = prepare_features(frame)
+
+        self.assertNotIn("amount", feature_names)
+        self.assertNotIn("channel_online", feature_names)
+        self.assertIn("event_hour", feature_names)
 
 
 if __name__ == "__main__":
