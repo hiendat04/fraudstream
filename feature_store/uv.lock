@@ -277,6 +277,11 @@ wheels = [
 ]
 
 [package.optional-dependencies]
+grpcio = [
+    { name = "grpcio" },
+    { name = "grpcio-health-checking" },
+    { name = "grpcio-reflection" },
+]
 postgres = [
     { name = "psycopg", extra = ["binary", "pool"] },
 ]
@@ -294,7 +299,7 @@ version = "0.1.0"
 source = { virtual = "." }
 dependencies = [
     { name = "confluent-kafka" },
-    { name = "feast", extra = ["postgres", "redis", "spark"] },
+    { name = "feast", extra = ["grpcio", "postgres", "redis", "spark"] },
     { name = "grpcio" },
     { name = "pyspark" },
 ]
@@ -302,7 +307,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "confluent-kafka", specifier = ">=2.6,<3" },
-    { name = "feast", extras = ["spark", "postgres", "redis"], specifier = "==0.66.0" },
+    { name = "feast", extras = ["spark", "postgres", "redis", "grpcio"], specifier = "==0.66.0" },
     { name = "grpcio", specifier = ">=1.60,<2" },
     { name = "pyspark", specifier = "==4.1.2" },
 ]
@@ -351,6 +356,32 @@ wheels = [
     { url = "https://files.pythonhosted.org/packages/3d/fa/f0586c56bdfb8a7a2adda01e0ac2413447cde3141ab09411a5d5afdcffd3/grpcio-1.83.1-cp312-cp312-musllinux_1_2_x86_64.whl", hash = "sha256:9e703effe3ae779925c82ac24fdb82cf4105e1096810151ed9501c5f34546b9c", size = 7984321, upload-time = "2026-08-28T07:08:22.114Z" },
     { url = "https://files.pythonhosted.org/packages/25/8a/14ec05669f9eb295801e26c2ea8c561a1b786b0e3557c2c22131165ab010/grpcio-1.83.1-cp312-cp312-win32.whl", hash = "sha256:a2aea8bd6e0a34f12cbaddb7bb70bec836818789fa5c7ab7572c6b745396a2d4", size = 4395604, upload-time = "2026-08-28T07:08:24.08Z" },
     { url = "https://files.pythonhosted.org/packages/e9/37/8c2f7cc16089e36a3fbacaacc7a3d043912aa0d2dfae5556f6450414ea6e/grpcio-1.83.1-cp312-cp312-win_amd64.whl", hash = "sha256:583bf2e8255040a4a312f9572dfe62a05271437b149550e1a536d5c47d2d1e8a", size = 5161512, upload-time = "2026-08-28T07:08:25.81Z" },
+]
+
+[[package]]
+name = "grpcio-health-checking"
+version = "1.83.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/8e/76/4fa5c2184fe40e2f9e79a72d4e585b3f7d172cb769d9eb7edb5ecc762a36/grpcio_health_checking-1.83.1.tar.gz", hash = "sha256:d60924e6fbad38f35c372779bc5eb651a00e446d6d24f1d1c72f14297a1d0e56", size = 17075, upload-time = "2026-08-28T07:12:22.343Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/34/04/06292242afa96f9d0e8627a5d5517bb62cf224b6c2208ecf1f7c1db6f7e9/grpcio_health_checking-1.83.1-py3-none-any.whl", hash = "sha256:be7541053f5208bd0805d414ee51a3877323834a1ec6efc8dd39ffed3ebeeb36", size = 19087, upload-time = "2026-08-28T07:11:26.601Z" },
+]
+
+[[package]]
+name = "grpcio-reflection"
+version = "1.83.1"
+source = { registry = "https://pypi.org/simple" }
+dependencies = [
+    { name = "grpcio" },
+    { name = "protobuf" },
+]
+sdist = { url = "https://files.pythonhosted.org/packages/79/86/7a54dbb97ff190462831079d2d7e348bd417d5ffacbe93541511832b85b6/grpcio_reflection-1.83.1.tar.gz", hash = "sha256:c33953f2eae1313ab1d2c2b6a1cec6ddaebe6763da1b2631980792d9792e6233", size = 19204, upload-time = "2026-08-28T07:12:25.277Z" }
+wheels = [
+    { url = "https://files.pythonhosted.org/packages/ec/f1/397caeda1b4cfdd6873acf6a1603bc6f8774dfbba107d5fd788bcce18e14/grpcio_reflection-1.83.1-py3-none-any.whl", hash = "sha256:6f80bb2a8f8893545b5a1669fad48518a9e4783f8edd739a300be53e7d1ce0b2", size = 22909, upload-time = "2026-08-28T07:12:14.862Z" },
 ]
 
 [[package]]
