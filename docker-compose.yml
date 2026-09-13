@@ -16,9 +16,14 @@ x-airflow-common: &airflow-common
     AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:-fraudstream-local-api-secret-change-me}"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
     POSTGRES_HOST: postgres
+    POSTGRES_PORT: "5432"
     POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
     POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
     POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+    REDIS_HOST: redis
+    REDIS_PORT: "6379"
+    FEAST_SPARK_MASTER: "local[4]"
+    FEAST_REPO_PATH: /opt/airflow/project/feature_store/feature_repo
     PYSPARK_SUBMIT_ARGS: "--driver-memory 4g pyspark-shell"
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
@@ -224,11 +229,7 @@ services:
       minio:
         condition: service_healthy
 
-  # Debezium: captures row-level changes on bronze.raw_transactions (the
-  # first table new data lands in) and streams them to Kafka as CDC events,
-  # so a consumer can react the moment Bronze writes land -- without polling
-  # Postgres or waiting for the next Airflow run. See docs/16 for why this
-  # one table, not every serving table.
+
   debezium-connect:
     image: quay.io/debezium/connect:3.6.0.Final
     container_name: fraudstream-debezium-connect
@@ -273,6 +274,77 @@ services:
           -d @/connector.json
         echo
         curl -sS http://debezium-connect:8083/connectors/fraudstream-bronze-raw-transactions/status
+
+  redis:
+    # Feast 0.66 requires redis<8 on the client side; the 7.x server matches it.
+    image: redis:7-alpine
+    container_name: fraudstream-redis
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "${REDIS_PORT:-6379}:6379"
+    volumes:
+      - redis-data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 10s
+
+  redisinsight:
+    # Browser UI for inspecting the Feast online store, the counterpart to
+    # MinIO's console for the offline store. Nothing depends on it; it is a
+    # read-only inspection tool.
+    image: redis/redisinsight:2.70
+    container_name: fraudstream-redisinsight
+    # Host port continues the 1808x convention used by kafka-ui/airflow/trino
+    # /debezium above; 5540 is RedisInsight's own port inside the container.
+    ports:
+      - "${REDISINSIGHT_PORT:-18084}:5540"
+    volumes:
+      - redisinsight-data:/data
+    depends_on:
+      redis:
+        condition: service_healthy
+    profiles: ["feature-store"]
+
+  feast-stream-push:
+    build:
+      context: .
+      dockerfile: feature_store/Dockerfile
+    container_name: fraudstream-feast-stream-push
+    depends_on:
+      kafka:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+      minio:
+        condition: service_healthy
+    environment:
+      FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
+      FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
+      FEAST_SPARK_MASTER: "local[2]"
+      # Each flush is one Iceberg commit, so a small batch produces many tiny
+      # data files and one metadata version per commit. 10k rows keeps files
+      # in a sane size range while draining a backlog; the flush interval is
+      # what bounds online staleness once the stream is caught up.
+      FEAST_PUSH_BATCH_SIZE: "${FEAST_PUSH_BATCH_SIZE:-10000}"
+      FEAST_PUSH_FLUSH_SECONDS: "${FEAST_PUSH_FLUSH_SECONDS:-30}"
+      MINIO_ENDPOINT: "http://minio:9000"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-fraudstream}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
+      POSTGRES_HOST: postgres
+      POSTGRES_PORT: "5432"
+      POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
+      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+      REDIS_HOST: redis
+      REDIS_PORT: "6379"
+    volumes:
+      - ./:/opt/fraudstream
+    profiles: ["feature-store"]
 
   airflow-db:
     image: postgres:16-alpine
@@ -349,3 +421,5 @@ volumes:
   postgres-data:
   minio-data:
   airflow-db-data:
+  redis-data:
+  redisinsight-data:

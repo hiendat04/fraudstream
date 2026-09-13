@@ -11,4 +11,5 @@ ENV JAVA_HOME=/usr/lib/jvm/default-java
 USER airflow
 RUN pip install --no-cache-dir \
     "apache-airflow==3.3.0" \
-    "pyspark==4.1.2"
+    "pyspark==4.1.2" \
+    "feast[spark,postgres,redis]==0.66.0"

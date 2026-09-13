@@ -5,3 +5,5 @@ datahub/.venv/
 images/architecture/architecture.excalidraw
 docs/mlops
 docs/superpowers/
+.env
+data/

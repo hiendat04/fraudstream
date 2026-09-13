@@ -1,0 +1,17 @@
+[project]
+name = "fraudstream-feature-store"
+version = "0.1.0"
+description = "Isolated Feast feature-store runtime for FraudStream"
+# Feast 0.66 declares >=3.10; 3.12 is the version the Airflow image already
+# runs, so a job behaves the same here and in the scheduler container. The
+# root project is on 3.14, which Feast's dependency set does not yet cover.
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "feast[spark,postgres,redis]==0.66.0",
+    "pyspark==4.1.2",
+    "confluent-kafka>=2.6,<3",
+    "grpcio>=1.60,<2",
+]
+
+[tool.uv]
+package = false

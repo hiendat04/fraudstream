@@ -254,6 +254,48 @@ def _required_int(payload: Mapping[str, Any], key: str) -> int:
     return value
 
 
+EXPECTED_FEATURE_VIEWS = (
+    "customer_rolling_features",
+    "customer_orders_90d_features",
+    "merchant_risk_features",
+    "customer_features_5m_stream",
+    "merchant_features_5m_stream",
+)
+
+
+def validate_feature_store_materialization(summary_path: str | Path) -> dict[str, int]:
+    """Check that every feature view materialized and each spot-checked view answers a read."""
+
+    summary = _load_json(Path(summary_path))
+    views = summary.get("feature_views") or []
+    materialized = {view["name"] for view in views if view.get("watermark_after")}
+    missing = sorted(set(EXPECTED_FEATURE_VIEWS) - materialized)
+    if missing:
+        raise PipelineValidationError(f"Feature views did not materialize: {', '.join(missing)}")
+
+    spot_check = _required_mapping(summary, "online_spot_check")
+    spot_check_views = spot_check.get("views")
+    if not isinstance(spot_check_views, list) or not spot_check_views:
+        raise PipelineValidationError("online spot check reported no views")
+
+    empty_views: list[str] = []
+    for view in spot_check_views:
+        if not isinstance(view, Mapping) or not isinstance(view.get("name"), str):
+            raise PipelineValidationError("online spot check view entries must contain name")
+        if _required_int(view, "non_null") < 1:
+            empty_views.append(view["name"])
+    if empty_views:
+        raise PipelineValidationError(
+            "Materialization reported no readable online feature values for: "
+            f"{', '.join(sorted(empty_views))}"
+        )
+    return {
+        "feature_view_count": len(materialized),
+        "online_requested_count": _required_int(spot_check, "requested"),
+        "online_non_null_count": _required_int(spot_check, "non_null"),
+    }
+
+
 def _table_counts(summary: Mapping[str, Any]) -> dict[str, int]:
     tables = summary.get("tables")
     if not isinstance(tables, list):
