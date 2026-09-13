@@ -48,6 +48,7 @@ The repository currently includes:
 | Performance evidence | Documents measured Spark AQE/shuffle tuning and Flink chaining/parallelism experiments from their runtime UIs | [Spark](docs/optimization/spark/silver_job_optimization.md) and [Flink](docs/optimization/flink/streaming_job_optimization.md) |
 | Database schema diagrams | Demonstrates the physical Bronze, Silver, and Gold models exported from DBeaver | [docs/12_database_schema.md](docs/12_database_schema.md) |
 | Feast feature store | Feast repo over Gold Iceberg tables, a Redis online store, and an Airflow DAG that incrementally materializes offline features into it | [docs/17_feature_store.md](docs/17_feature_store.md) |
+| Fraud model training | Pulls features from Feast, joins the separate label table, splits by date, trains an XGBoost classifier against a logistic-regression baseline, and saves the model with its column order and decision cut-off | [docs/18_ml_training.md](docs/18_ml_training.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -175,6 +176,7 @@ fraudstream/
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/postgres/           # PostgreSQL schema initialization SQL
+├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
 ├── reports/                  # Generated human-readable reports
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
@@ -528,6 +530,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/15_lakehouse_iceberg.md](docs/15_lakehouse_iceberg.md) | Apache Iceberg lakehouse on MinIO: shared catalog design, Spark and Flink table writes, Trino querying, and how to run it locally |
 | [docs/16_change_data_capture.md](docs/16_change_data_capture.md) | Debezium CDC on `bronze.raw_transactions`: why this one table, architecture, and how to run and verify it |
 | [docs/17_feature_store.md](docs/17_feature_store.md) | Feast feature store: architecture, why the Spark offline store, the incremental materialization DAG, the streaming push job, and the measured TTL rationale |
+| [docs/18_ml_training.md](docs/18_ml_training.md) | Fraud model training: how the training set is built from Feast plus the label table, measured feature coverage and why it picked the model, splitting by date, the metrics that survive a 1.5% fraud rate, and what the saved model carries |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -544,8 +547,11 @@ catalog, lineage, contract metadata, and validation results.
 A Feast feature store (Redis online store, incremental offline-to-online
 materialization, and streaming offline+online push) sits on top of Gold and
 the Flink features -- see [docs/17_feature_store.md](docs/17_feature_store.md).
-The repository does not currently contain model training, MLflow, a fraud
-scoring API, or a deployed monitoring dashboard. ClickHouse and Grafana are
+On top of that, a training pipeline in `ml/` pulls point-in-time features from
+Feast, joins the separate label table, and trains and saves an XGBoost fraud
+classifier -- see [docs/18_ml_training.md](docs/18_ml_training.md). The
+repository does not currently contain MLflow, a fraud scoring API, or a deployed
+monitoring dashboard. ClickHouse and Grafana are
 documented only as a proposed novel extension in
 [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md);
 they are not part of the implemented architecture or Docker Compose stack.
