@@ -47,6 +47,7 @@ The repository currently includes:
 | Generated data quality report | Generates a readable HTML report of offline and streaming characteristics from existing evidence artifacts | [docs/13_data_quality_report.md](docs/13_data_quality_report.md) |
 | Performance evidence | Documents measured Spark AQE/shuffle tuning and Flink chaining/parallelism experiments from their runtime UIs | [Spark](docs/optimization/spark/silver_job_optimization.md) and [Flink](docs/optimization/flink/streaming_job_optimization.md) |
 | Database schema diagrams | Demonstrates the physical Bronze, Silver, and Gold models exported from DBeaver | [docs/12_database_schema.md](docs/12_database_schema.md) |
+| Feast feature store | Feast repo over Gold Iceberg tables, a Redis online store, and an Airflow DAG that incrementally materializes offline features into it | [docs/17_feature_store.md](docs/17_feature_store.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -110,8 +111,10 @@ Docker Compose provides the `confluentinc/cp-kafka:7.7.1` image, Kafka UI,
 MinIO (S3-compatible object storage backing the Iceberg lakehouse), PostgreSQL
 16, Trino (SQL query engine over the Iceberg tables), Debezium (CDC on
 `bronze.raw_transactions`, streamed to Kafka -- see
-[docs/16](docs/16_change_data_capture.md)), and the optional Airflow
-profile. Spark reaches PostgreSQL, MinIO, and the
+[docs/16](docs/16_change_data_capture.md)), Redis (the Feast online store), and
+the optional `orchestration` (Airflow) and `feature-store` (RedisInsight, the
+`feast-stream-push` deployment job) profiles -- see
+[docs/17](docs/17_feature_store.md). Spark reaches PostgreSQL, MinIO, and the
 Iceberg catalog through the `org.postgresql:postgresql`,
 `org.apache.hadoop:hadoop-aws`, and `org.apache.iceberg:iceberg-spark-runtime`
 JDBC/S3A/Iceberg drivers, fetched automatically via `spark.jars.packages`.
@@ -168,6 +171,7 @@ fraudstream/
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
+├── feature_store/            # Isolated Python 3.12 Feast runtime, feature repo, and push job
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/postgres/           # PostgreSQL schema initialization SQL
@@ -457,6 +461,22 @@ checkpoint history. The controlled benchmark profiles are `baseline`, `chained`,
 and `optimized`; their measured comparison is documented in
 [the Flink optimization report](docs/optimization/flink/streaming_job_optimization.md).
 
+### Feature Store
+
+Start the Feast feature store -- a Redis online store, an incremental
+offline-to-online Airflow DAG, and a deployment job that pushes Flink's
+5-minute windows to both stores:
+
+```bash
+docker compose up -d redis
+cd feature_store/feature_repo && uv run feast apply && cd -
+docker compose --profile feature-store up -d feast-stream-push
+```
+
+See [docs/17_feature_store.md](docs/17_feature_store.md) for the full
+architecture, why the offline push requires Spark specifically, and the
+measured TTL rationale for each feature view.
+
 Stop the Compose services:
 
 ```bash
@@ -507,6 +527,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md) | Proposed ClickHouse and Grafana real-time analytics extension; design only, not implemented |
 | [docs/15_lakehouse_iceberg.md](docs/15_lakehouse_iceberg.md) | Apache Iceberg lakehouse on MinIO: shared catalog design, Spark and Flink table writes, Trino querying, and how to run it locally |
 | [docs/16_change_data_capture.md](docs/16_change_data_capture.md) | Debezium CDC on `bronze.raw_transactions`: why this one table, architecture, and how to run and verify it |
+| [docs/17_feature_store.md](docs/17_feature_store.md) | Feast feature store: architecture, why the Spark offline store, the incremental materialization DAG, the streaming push job, and the measured TTL rationale |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -520,8 +541,11 @@ deduplication, event-time windows, late-event handling, features, and alerts.
 Airflow orchestrates the offline dependencies, while DataHub presents the batch
 catalog, lineage, contract metadata, and validation results.
 
+A Feast feature store (Redis online store, incremental offline-to-online
+materialization, and streaming offline+online push) sits on top of Gold and
+the Flink features -- see [docs/17_feature_store.md](docs/17_feature_store.md).
 The repository does not currently contain model training, MLflow, a fraud
-scoring API, an online feature store, or a deployed monitoring dashboard.
-ClickHouse and Grafana are documented only as a proposed novel extension in
+scoring API, or a deployed monitoring dashboard. ClickHouse and Grafana are
+documented only as a proposed novel extension in
 [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md);
 they are not part of the implemented architecture or Docker Compose stack.
