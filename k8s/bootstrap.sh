@@ -1,175 +1,130 @@
 #!/usr/bin/env bash
 #
 # Creates the local cluster the training pipeline runs on, and installs the two
-# control planes it needs: Kubeflow Pipelines for orchestration and Kubeflow
-# Trainer for distributed training. Both install standalone -- neither pulls in
-# the rest of the Kubeflow platform.
+# pieces it needs: Kubeflow Pipelines to orchestrate, and Kubeflow Trainer to
+# run the distributed training step. Both install on their own -- neither drags
+# in the rest of the Kubeflow platform.
 #
-# Safe to re-run; every step checks before acting.
+# Run it with:   ./k8s/bootstrap.sh
+# Start over with: kind delete cluster --name fraudstream
+#
+# The steps below run in order and stop at the first failure.
 
 set -euo pipefail
 
-CLUSTER_NAME="${CLUSTER_NAME:-fraudstream}"
-PIPELINE_VERSION="${PIPELINE_VERSION:-2.17.0}"
-TRAINER_VERSION="${TRAINER_VERSION:-v2.2.0}"
-COMPOSE_NETWORK="${COMPOSE_NETWORK:-fraudstream_default}"
+CLUSTER_NAME=fraudstream
+PIPELINE_VERSION=2.17.0
+TRAINER_VERSION=v2.2.0
+COMPOSE_NETWORK=fraudstream_default
+HERE="$(cd "$(dirname "$0")" && pwd)"
 
-CONTEXT="kind-${CLUSTER_NAME}"
-NODE_CONTAINER="${CLUSTER_NAME}-control-plane"
-HERE="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 
-log()  { printf '\n\033[1m==> %s\033[0m\n' "$1"; }
-warn() { printf '\033[33m    warning: %s\033[0m\n' "$1"; }
-die()  { printf '\033[31m    error: %s\033[0m\n' "$1" >&2; exit 1; }
+echo "==> Checking the tools are installed and runnable"
+# Running each one also catches a binary built for the wrong platform, which
+# sits on PATH looking perfectly fine until something tries to execute it.
+if ! kind version >/dev/null 2>&1; then
+  echo "Error: kind will not run. Check:  file \$(command -v kind)"
+  exit 1
+fi
+if ! kubectl version --client >/dev/null 2>&1; then
+  echo "Error: kubectl will not run. Check:  file \$(command -v kubectl)"
+  exit 1
+fi
+if ! helm version >/dev/null 2>&1; then
+  echo "Error: helm will not run. Check:  file \$(command -v helm)"
+  exit 1
+fi
+if ! docker info >/dev/null 2>&1; then
+  echo "Error: docker is not running or will not work."
+  exit 1
+fi
 
-# --------------------------------------------------------------------------
-log "Checking required tools"
-for tool in kind kubectl helm docker; do
-  command -v "$tool" >/dev/null 2>&1 || die "missing required tool: $tool"
-  # Run it rather than just find it. A binary built for another platform sits
-  # on PATH quite happily and only fails once this script is already midway
-  # through creating things.
-  case "$tool" in
-    kubectl) probe=(kubectl version --client) ;;
-    docker)  probe=(docker --version) ;;
-    *)       probe=("$tool" version) ;;
-  esac
-  "${probe[@]}" >/dev/null 2>&1 \
-    || die "$tool at $(command -v "$tool") will not run here -- wrong platform build? try 'file \$(command -v $tool)'"
-  printf '    %-8s %s\n' "$tool" "$(command -v "$tool")"
-done
-docker info >/dev/null 2>&1 || die "docker is not running"
 
-# --------------------------------------------------------------------------
-log "Creating the cluster"
-if kind get clusters 2>/dev/null | grep -qx "$CLUSTER_NAME"; then
-  echo "    cluster '$CLUSTER_NAME' already exists, reusing it"
-else
+echo "==> Creating the cluster"
+if ! kind get clusters | grep -qx "$CLUSTER_NAME"; then
   kind create cluster --config "$HERE/kind-cluster.yaml"
 fi
-kubectl config use-context "$CONTEXT" >/dev/null
+kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
 
-server_version="$(kubectl version -o json | python3 -c \
-  'import sys,json,re; v=json.load(sys.stdin)["serverVersion"]; print(re.sub(r"\D","",v["major"])+"."+re.sub(r"\D","",v["minor"]))')"
-echo "    kubernetes ${server_version}"
-python3 -c "import sys; major,minor=map(int,'${server_version}'.split('.')); sys.exit(0 if (major,minor) >= (1,31) else 1)" \
-  || die "Kubeflow Trainer requires Kubernetes >= 1.31, cluster is ${server_version}"
 
-# --------------------------------------------------------------------------
-log "Attaching the cluster to the lakehouse network"
-# kind runs its node as a Docker container on its own network, so without this
-# the pipeline pods cannot resolve the compose services at all.
-if ! docker network inspect "$COMPOSE_NETWORK" >/dev/null 2>&1; then
-  warn "network '$COMPOSE_NETWORK' not found -- start the lakehouse with 'docker compose up -d postgres minio redis'"
-elif docker inspect "$NODE_CONTAINER" \
-      --format '{{range $k,$v := .NetworkSettings.Networks}}{{$k}} {{end}}' | grep -qw "$COMPOSE_NETWORK"; then
-  echo "    already attached to '$COMPOSE_NETWORK'"
-else
-  docker network connect "$COMPOSE_NETWORK" "$NODE_CONTAINER"
-  echo "    attached to '$COMPOSE_NETWORK'"
-fi
+echo "==> Connecting the cluster to the lakehouse network"
+# kind puts its node on a Docker network of its own, so until it joins the
+# compose network the pods cannot resolve postgres or minio at all.
+# The error when it is already connected is not interesting, so ignore it.
+docker network connect "$COMPOSE_NETWORK" "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
 
-# --------------------------------------------------------------------------
-log "Installing Kubeflow Pipelines ${PIPELINE_VERSION}"
+
+echo "==> Installing Kubeflow Pipelines ${PIPELINE_VERSION}"
 kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=${PIPELINE_VERSION}"
 kubectl wait --for condition=established --timeout=60s crd/applications.app.k8s.io
 kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=${PIPELINE_VERSION}"
 
-# --------------------------------------------------------------------------
-log "Installing Kubeflow Trainer ${TRAINER_VERSION}"
-# Helm installs CRDs on first install and never upgrades them, so a version bump
-# leaves the old schema in place and the new runtime fails to apply against it.
-# `helm show crds` prints its OCI "Pulled:"/"Digest:" progress to stdout, which
-# kubectl reads as a malformed first document, so start at the first separator.
+
+echo "==> Installing Kubeflow Trainer ${TRAINER_VERSION}"
+# The CRDs go on separately because helm only ever installs them once and never
+# updates them afterwards. The sed is there because `helm show crds` prints its
+# download progress onto stdout, which kubectl then tries to read as YAML.
 helm show crds oci://ghcr.io/kubeflow/charts/kubeflow-trainer --version "${TRAINER_VERSION#v}" 2>/dev/null \
   | sed -n '/^---$/,$p' \
   | kubectl apply --server-side --force-conflicts -f - >/dev/null
-echo "    CRDs applied at ${TRAINER_VERSION}"
 
-# Re-running helm over a live install fails: the controllers mint their own
-# webhook certificates at startup, and helm then fights them for ownership of
-# those secrets. Nothing needs re-applying when the target version is already
-# deployed, so skip it. Changing TRAINER_VERSION needs `helm uninstall
-# kubeflow-trainer -n kubeflow-system` first, or a fresh cluster.
-installed_version="$(helm list -n kubeflow-system -o json 2>/dev/null | python3 -c "
-import sys, json
-try: releases = json.load(sys.stdin)
-except Exception: releases = []
-for r in releases:
-    if r.get('name') == 'kubeflow-trainer':
-        print(r['chart'].rsplit('-', 1)[-1]); break
-" 2>/dev/null || true)"
-
-if [ "$installed_version" = "${TRAINER_VERSION#v}" ] \
-   && kubectl -n kubeflow-system get deploy kubeflow-trainer-controller-manager >/dev/null 2>&1; then
-  echo "    ${TRAINER_VERSION} controller already present, leaving it alone"
-else
-  # Runtimes stay switched off here on purpose. The controller serves a
-  # validating webhook for ClusterTrainingRuntime, so it has to be running
-  # before any runtime is created; enabling them in this same release races
-  # that webhook and fails with "connection refused".
-  helm upgrade --install kubeflow-trainer oci://ghcr.io/kubeflow/charts/kubeflow-trainer \
-    --namespace kubeflow-system \
-    --create-namespace \
-    --version "${TRAINER_VERSION#v}" \
-    --wait --timeout 10m
+# Skipped once it is installed. Running helm again over a live install fails:
+# the controller writes its own webhook certificates at startup and helm then
+# argues with it over who owns them. To change TRAINER_VERSION, uninstall first:
+#   helm uninstall kubeflow-trainer -n kubeflow-system
+if ! helm status kubeflow-trainer --namespace kubeflow-system >/dev/null 2>&1; then
+  helm install kubeflow-trainer oci://ghcr.io/kubeflow/charts/kubeflow-trainer \
+    --namespace kubeflow-system --create-namespace \
+    --version "${TRAINER_VERSION#v}" --wait --timeout 10m
 fi
 
-log "Installing the training runtimes"
-# Applied with kubectl rather than a second `helm upgrade`: the controllers
-# generate their own webhook certificates at startup, and Helm's apply then
-# fights them for ownership of those secrets. The overlay carries every runtime
-# -- the ones this project does not use are inert templates that start no pods.
-for attempt in 1 2 3 4 5 6; do
-  if kubectl apply --server-side -k \
-      "https://github.com/kubeflow/trainer.git/manifests/overlays/runtimes?ref=${TRAINER_VERSION}" >/dev/null 2>&1; then
-    echo "    runtimes applied"
-    break
-  fi
-  [ "$attempt" = 6 ] && die "runtimes would not apply -- is the trainer webhook serving?"
-  echo "    webhook not ready yet, retrying (${attempt}/6)"
-  sleep 10
-done
 
-# --------------------------------------------------------------------------
-log "Switching off components that have no build for this machine"
-# Kubeflow publishes these two images for linux/amd64 only, so on an arm64 host
-# they can never start. Neither is needed to run pipelines locally: proxy-agent
-# is the Google Cloud inverting proxy (we reach the UI by port-forward), and
-# metadata-writer is the v1 lineage sync, while v2 pipelines write metadata
-# through metadata-grpc instead. Scaled to zero so the cluster reports its real
-# state rather than sitting in a permanent ImagePullBackOff.
-for deploy in metadata-writer proxy-agent; do
-  if kubectl -n kubeflow get deploy "$deploy" >/dev/null 2>&1; then
-    kubectl -n kubeflow scale deploy "$deploy" --replicas=0 >/dev/null
-    echo "    $deploy scaled to 0"
-  fi
-done
+echo "==> Installing the training runtimes"
+# These are checked by a webhook the controller serves, so the controller has to
+# be up before they can be created. They are applied with kubectl rather than
+# through helm to avoid the certificate argument described above.
+kubectl -n kubeflow-system wait --for=condition=Available --timeout=5m \
+  deploy/kubeflow-trainer-controller-manager
+kubectl apply --server-side -k \
+  "https://github.com/kubeflow/trainer.git/manifests/overlays/runtimes?ref=${TRAINER_VERSION}"
 
-log "Waiting for both control planes to come up"
+
+echo "==> Loading the lakehouse credentials into the cluster"
+# Only the username and password pairs. Host names and ports are already set in
+# the training image with values that work inside the cluster, and .env holds
+# the localhost versions, so copying the whole file in here would break them.
+set -a; . "${HERE}/../.env"; set +a
+kubectl create secret generic lakehouse-credentials --namespace kubeflow \
+  --from-literal=POSTGRES_USER="$POSTGRES_USER" \
+  --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
+  --from-literal=MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" \
+  --from-literal=MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \
+  --dry-run=client -o yaml | kubectl apply -f -
+
+
+echo "==> Switching off the two components with no build for this machine"
+# Kubeflow publishes these for Intel machines only, so on an Apple Silicon one
+# they can never start. Neither is needed here: proxy-agent exists to expose the
+# UI on Google Cloud, and pipelines record their metadata through metadata-grpc
+# rather than through metadata-writer.
+kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
+
+
+echo "==> Waiting for everything to come up"
 kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy --all
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
 
-# --------------------------------------------------------------------------
-log "Verifying the XGBoost training runtime is installed"
-kubectl get clustertrainingruntimes
-kubectl get clustertrainingruntime xgboost-distributed >/dev/null 2>&1 \
-  || die "'xgboost-distributed' runtime is missing -- the distributed training step cannot run without it"
-echo "    xgboost-distributed is available"
 
-# --------------------------------------------------------------------------
-log "Checking that pods can reach the lakehouse"
+echo "==> Checking the XGBoost runtime exists"
+kubectl get clustertrainingruntime xgboost-distributed
+
+
+echo "==> Checking the pods can reach the lakehouse"
 kubectl run lakehouse-probe --rm -i --restart=Never --image=busybox:1.36 --command -- \
-  sh -c 'nc -z -w3 postgres 5432 && echo "    postgres:5432 reachable"; nc -z -w3 minio 9000 && echo "    minio:9000 reachable"' \
-  || warn "lakehouse probe failed -- pipeline components will not be able to read features"
+  sh -c 'nc -z -w3 postgres 5432 && echo "postgres:5432 reachable"; nc -z -w3 minio 9000 && echo "minio:9000 reachable"'
 
-# --------------------------------------------------------------------------
-log "Done"
-cat <<EOF
-    Open the Pipelines UI with:
-      kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80
-      open http://localhost:8080
 
-    Tear the cluster down with:
-      kind delete cluster --name ${CLUSTER_NAME}
-EOF
+echo
+echo "Done."
+echo "  Open the Pipelines UI:  kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80"
+echo "  Delete the cluster:     kind delete cluster --name ${CLUSTER_NAME}"
