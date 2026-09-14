@@ -2,7 +2,7 @@
 <module external.system.id="pyproject.toml" type="PYTHON_MODULE" version="4">
   <component name="NewModuleRootManager">
     <content url="file://$MODULE_DIR$/ml">
-      <sourceFolder url="file://$MODULE_DIR$/ml/src" />
+      <sourceFolder url="file://$MODULE_DIR$/ml/src" isTestSource="false" />
       <excludeFolder url="file://$MODULE_DIR$/ml/.venv" />
     </content>
     <orderEntry type="jdk" jdkName="uv (ml)" jdkType="Python SDK" />
