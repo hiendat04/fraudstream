@@ -1,0 +1,13 @@
+[project]
+name = "fraudstream-pipelines"
+version = "0.1.0"
+description = "Kubeflow training pipeline for the fraud model"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "kfp==2.17.0",
+    "kfp-kubernetes==2.17.0",
+    "kubeflow>=0.1",
+]
+
+[tool.uv]
+package = false
