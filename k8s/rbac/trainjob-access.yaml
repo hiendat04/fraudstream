@@ -1,0 +1,70 @@
+# Lets the pipeline's training step hand work to Kubeflow Trainer.
+#
+# Pipeline pods run as the pipeline-runner account, which ships with permission
+# to manage pods and workflows but knows nothing about Trainer. Without this the
+# training step fails at submit time with a permission error.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: pipeline-runner-trainjobs
+  namespace: kubeflow
+rules:
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources: ["trainjobs"]
+    verbs: ["create", "get", "list", "watch", "delete"]
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources: ["trainjobs/status"]
+    verbs: ["get", "list", "watch"]
+  # The runtime we use is cluster-scoped, but the client always looks in the
+  # namespace first and only falls back when that lookup comes back "not
+  # found". Without read access here it comes back "forbidden" instead, and the
+  # client gives up rather than falling back.
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources: ["trainingruntimes"]
+    verbs: ["get", "list", "watch"]
+  # Kubeflow builds each TrainJob out of a JobSet, and the step reads it back to
+  # follow progress and find the worker pods whose logs it prints.
+  - apiGroups: ["jobset.x-k8s.io"]
+    resources: ["jobsets"]
+    verbs: ["get", "list", "watch"]
+  - apiGroups: ["batch"]
+    resources: ["jobs"]
+    verbs: ["get", "list", "watch"]
+---
+# Training runtimes are cluster-scoped, so reading them needs a cluster role
+# even though everything else here is confined to one namespace.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: pipeline-runner-training-runtimes
+rules:
+  - apiGroups: ["trainer.kubeflow.org"]
+    resources: ["clustertrainingruntimes"]
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: pipeline-runner-trainjobs
+  namespace: kubeflow
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: pipeline-runner-trainjobs
+subjects:
+  - kind: ServiceAccount
+    name: pipeline-runner
+    namespace: kubeflow
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: pipeline-runner-training-runtimes
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: pipeline-runner-training-runtimes
+subjects:
+  - kind: ServiceAccount
+    name: pipeline-runner
+    namespace: kubeflow

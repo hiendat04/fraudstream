@@ -3,6 +3,9 @@
 .venv
 flink/.venv
 datahub/.venv
+ml/.venv
+feature_store/.venv
+.env
 __pycache__
 *.pyc
 *.pyo

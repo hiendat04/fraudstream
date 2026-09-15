@@ -10,6 +10,8 @@
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-feature-store.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-feature-store.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-flink-runtime.iml" />
       <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-ml.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-ml.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream-pipelines.iml" filepath="$PROJECT_DIR$/.idea/fraudstream-pipelines.iml" />
+      <module fileurl="file://$PROJECT_DIR$/.idea/fraudstream@1.iml" filepath="$PROJECT_DIR$/.idea/fraudstream@1.iml" />
     </modules>
   </component>
 </project>
