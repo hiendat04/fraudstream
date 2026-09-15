@@ -1,10 +1,11 @@
 """The training pipeline graph: the notebook's stages, wired together."""
 
-from kfp import dsl
+from kfp import dsl, kubernetes
 
 from fraudstream_pipelines.components import (
     HANDOFF_BUCKET,
     HANDOFF_PREFIX,
+    TRAINING_IMAGE,
     evaluate,
     prepare,
     retrieve,
@@ -17,6 +18,25 @@ from fraudstream_pipelines.components import (
 FEAST_REPO = "/opt/fraudstream/feature_store/feature_repo"
 MINIO_ENDPOINT = "minio:9000"
 CREDENTIALS_SECRET = "lakehouse-credentials"
+
+LAKEHOUSE_KEYS = {
+    "POSTGRES_USER": "POSTGRES_USER",
+    "POSTGRES_PASSWORD": "POSTGRES_PASSWORD",
+    "MINIO_ACCESS_KEY": "MINIO_ACCESS_KEY",
+    "MINIO_SECRET_KEY": "MINIO_SECRET_KEY",
+}
+
+
+def _with_lakehouse_credentials(task):
+    """Hand a step the usernames and passwords it needs to reach the lakehouse.
+
+    Only the steps that actually read storage get these. The rest work on
+    pipeline artifacts alone and never see a credential.
+    """
+
+    return kubernetes.use_secret_as_env(
+        task, secret_name=CREDENTIALS_SECRET, secret_key_to_env=LAKEHOUSE_KEYS
+    )
 
 
 @dsl.pipeline(
@@ -34,10 +54,12 @@ def fraud_training_pipeline(
     num_boost_round: int = 400,
     feast_repo: str = FEAST_REPO,
     minio_endpoint: str = MINIO_ENDPOINT,
+    training_image: str = TRAINING_IMAGE,
 ) -> None:
     """Train the fraud model end to end, with the training step spread across workers."""
 
     retrieved = retrieve(start_date=start_date, end_date=end_date, feast_repo=feast_repo)
+    _with_lakehouse_credentials(retrieved)
 
     prepared = prepare(frame=retrieved.outputs["frame"])
 
@@ -65,7 +87,9 @@ def fraud_training_pipeline(
         minio_endpoint=minio_endpoint,
         bucket=HANDOFF_BUCKET,
         prefix=HANDOFF_PREFIX,
+        training_image=training_image,
     )
+    _with_lakehouse_credentials(distributed)
 
     # The test split enters the graph here and nowhere else.
     evaluated = evaluate(

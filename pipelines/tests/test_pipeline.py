@@ -19,12 +19,20 @@ from fraudstream_pipelines.pipeline import fraud_training_pipeline
 
 
 def _compile() -> dict:
-    """Compile the pipeline once and hand back the parsed specification."""
+    """Compile the pipeline once and hand back the parsed specification.
+
+    Kubernetes-specific settings are written as a second document, so the two
+    are merged here and the tests can treat it as one thing.
+    """
 
     with TemporaryDirectory() as tmp:
         target = Path(tmp) / "pipeline.yaml"
         compiler.Compiler().compile(fraud_training_pipeline, str(target))
-        return yaml.safe_load(target.read_text())
+        merged: dict = {}
+        for document in yaml.safe_load_all(target.read_text()):
+            if document:
+                merged.update(document)
+        return merged
 
 
 class CompiledPipeline(unittest.TestCase):
@@ -115,6 +123,30 @@ class GraphShapeTest(CompiledPipeline):
 
     def test_the_bundle_saves_the_distributed_model(self):
         self.assertIn(("train-distributed", "model"), self._producers_of("save-bundle"))
+
+
+class CredentialsTest(CompiledPipeline):
+    def _steps_given_credentials(self) -> set[str]:
+        executors = (
+            self.spec.get("platforms", {})
+            .get("kubernetes", {})
+            .get("deploymentSpec", {})
+            .get("executors", {})
+        )
+        return {
+            name.removeprefix("exec-")
+            for name, spec in executors.items()
+            if spec.get("secretAsEnv")
+        }
+
+    def test_the_steps_that_read_storage_get_credentials(self):
+        self.assertEqual({"retrieve", "train-distributed"}, self._steps_given_credentials())
+
+    def test_no_other_step_is_handed_a_password(self):
+        """Steps working purely on pipeline artifacts have no business holding secrets."""
+
+        for step in ("prepare", "split", "train-baseline", "evaluate", "save-bundle"):
+            self.assertNotIn(step, self._steps_given_credentials())
 
 
 class ParametersTest(CompiledPipeline):

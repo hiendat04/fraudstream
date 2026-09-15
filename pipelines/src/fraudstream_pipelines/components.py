@@ -117,6 +117,7 @@ def train_distributed(
     minio_endpoint: str,
     bucket: str,
     prefix: str,
+    training_image: str,
     model: Output[Model],
 ) -> None:
     """Run the training as a Kubeflow TrainJob spread over several workers.
@@ -209,7 +210,7 @@ def train_distributed(
         runtime=client.get_runtime("xgboost-distributed"),
         trainer=CustomTrainer(
             func=training_function,
-            image=TRAINING_IMAGE,
+            image=training_image,
             num_nodes=num_nodes,
             env={
                 "MINIO_ACCESS_KEY": os.environ["MINIO_ACCESS_KEY"],
