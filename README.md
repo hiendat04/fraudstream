@@ -49,6 +49,7 @@ The repository currently includes:
 | Database schema diagrams | Demonstrates the physical Bronze, Silver, and Gold models exported from DBeaver | [docs/12_database_schema.md](docs/12_database_schema.md) |
 | Feast feature store | Feast repo over Gold Iceberg tables, a Redis online store, and an Airflow DAG that incrementally materializes offline features into it | [docs/17_feature_store.md](docs/17_feature_store.md) |
 | Fraud model training | Pulls features from Feast, joins the separate label table, splits by date, trains an XGBoost classifier against a logistic-regression baseline, and saves the model with its column order and decision cut-off | [docs/18_ml_training.md](docs/18_ml_training.md) |
+| Kubeflow training pipeline | Runs the same training steps on a local Kubernetes cluster, with the training step spread across several XGBoost workers that build one model together | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -176,7 +177,9 @@ fraudstream/
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/postgres/           # PostgreSQL schema initialization SQL
+├── k8s/                      # kind cluster bootstrap, training image, and pipeline RBAC
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
+├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
 ├── reports/                  # Generated human-readable reports
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
@@ -531,6 +534,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/16_change_data_capture.md](docs/16_change_data_capture.md) | Debezium CDC on `bronze.raw_transactions`: why this one table, architecture, and how to run and verify it |
 | [docs/17_feature_store.md](docs/17_feature_store.md) | Feast feature store: architecture, why the Spark offline store, the incremental materialization DAG, the streaming push job, and the measured TTL rationale |
 | [docs/18_ml_training.md](docs/18_ml_training.md) | Fraud model training: how the training set is built from Feast plus the label table, measured feature coverage and why it picked the model, splitting by date, the metrics that survive a 1.5% fraud rate, and what the saved model carries |
+| [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) | Kubeflow training pipeline: the seven steps on Kubernetes, how the training step is spread across workers and why the rows are dealt out the way they are, the metrics it reproduces, and the traps worth knowing |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -549,7 +553,10 @@ materialization, and streaming offline+online push) sits on top of Gold and
 the Flink features -- see [docs/17_feature_store.md](docs/17_feature_store.md).
 On top of that, a training pipeline in `ml/` pulls point-in-time features from
 Feast, joins the separate label table, and trains and saves an XGBoost fraud
-classifier -- see [docs/18_ml_training.md](docs/18_ml_training.md). The
+classifier -- see [docs/18_ml_training.md](docs/18_ml_training.md). Those same
+steps also run as a Kubeflow pipeline on a local kind cluster, where the training
+step is spread across several XGBoost workers -- see
+[docs/19_ml_pipeline.md](docs/19_ml_pipeline.md). The
 repository does not currently contain MLflow, a fraud scoring API, or a deployed
 monitoring dashboard. ClickHouse and Grafana are
 documented only as a proposed novel extension in
