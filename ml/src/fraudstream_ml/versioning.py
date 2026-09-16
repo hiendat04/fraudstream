@@ -1,10 +1,11 @@
-"""Record each retrieved training set as a version of an Iceberg table.
+"""Save each training set as a new version of one Iceberg table.
 
-Every run merges what it retrieved into one table keyed by transaction id.
-Iceberg writes only the files a commit actually changed and points at the rest,
-so a run that extends the date window costs the new rows rather than a second
-copy of everything. The snapshot id it returns is what makes a model
-reproducible: read the table at that snapshot, and you have the exact rows.
+Every run merges its rows into the table, matching on transaction id. Iceberg
+only stores the rows that changed. It reuses the files that did not. So a second
+run that adds one more month of data costs one month, not a whole new copy.
+
+Each run gets back a snapshot id. Read the table at that snapshot, and you get
+back exactly the rows that run used.
 """
 
 from __future__ import annotations
@@ -22,11 +23,11 @@ def _namespace_of(table: str) -> str:
 
 
 def ensure_table(spark: Any, source: Any, table: str = TRAINING_TABLE) -> None:
-    """Create the versioned table on first use, taking its shape from the data.
+    """Create the table the first time it is needed, using the shape of the data.
 
-    Partitioned by month so a run that adds a new month touches only that
-    month's files, and merge-on-read so an updated row writes a small delete
-    rather than rewriting every file that happened to contain it.
+    Split by month, so adding a new month only touches that month's files.
+    Set to merge-on-read, so changing a row writes a small marker instead of
+    rewriting whole files.
     """
 
     spark.sql(f"CREATE NAMESPACE IF NOT EXISTS {_namespace_of(table)}")
@@ -50,7 +51,11 @@ def ensure_table(spark: Any, source: Any, table: str = TRAINING_TABLE) -> None:
 
 
 def write_snapshot(spark: Any, frame: Any, table: str = TRAINING_TABLE) -> int:
-    """Merge the retrieved rows into the table and return the snapshot holding them."""
+    """Add the rows to the table and return the snapshot id that now holds them.
+
+    Rows that are already there with the same values are left alone. Without
+    that check, every run would rewrite every row it matched.
+    """
 
     source = spark.createDataFrame(frame) if not hasattr(frame, "sparkSession") else frame
     ensure_table(spark, source, table)
@@ -86,13 +91,13 @@ def current_snapshot_id(spark: Any, table: str = TRAINING_TABLE) -> int:
 
 
 def read_at_snapshot(spark: Any, snapshot_id: int, table: str = TRAINING_TABLE) -> Any:
-    """Read the table exactly as it stood at a given snapshot."""
+    """Read the table as it was at one snapshot."""
 
     return spark.read.option("snapshot-id", snapshot_id).format("iceberg").load(table)
 
 
 def added_records(spark: Any, table: str, snapshot_id: int) -> int:
-    """Return how many rows a single commit actually wrote."""
+    """Return how many rows one commit wrote."""
 
     row = spark.sql(
         f"SELECT summary['added-records'] AS added FROM {table}.snapshots "
@@ -102,7 +107,7 @@ def added_records(spark: Any, table: str, snapshot_id: int) -> int:
 
 
 def snapshot_history(spark: Any, table: str = TRAINING_TABLE) -> list[dict[str, Any]]:
-    """Return each commit in order, with what it added and what the table then held."""
+    """Return every commit in order, with how many rows it added and the new total."""
 
     rows = spark.sql(
         f"""

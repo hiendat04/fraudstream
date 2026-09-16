@@ -1,8 +1,7 @@
-"""Contract tests for recording each training set as a version of an Iceberg table.
+"""Tests for saving each training set as a new version of an Iceberg table.
 
-These run against a real Iceberg table in a temporary directory. The whole
-claim of this module is about what a commit physically stores, and a mock
-cannot tell you that.
+These use a real Iceberg table in a temporary folder. The thing being tested is
+how many rows each commit actually stores. A fake table cannot tell you that.
 """
 
 from __future__ import annotations
@@ -26,7 +25,7 @@ ICEBERG_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0"
 
 
 def _frame(count: int, *, first_id: int = 0, amount: float = 10.0) -> pd.DataFrame:
-    """A small stand-in for the retrieved training set."""
+    """A small fake version of the training data."""
 
     day_offsets = [(first_id + i) % 90 for i in range(count)]
     return pd.DataFrame(
@@ -68,7 +67,7 @@ class VersionedTrainingDataTest(unittest.TestCase):
         cls._tmp.cleanup()
 
     def table(self) -> str:
-        """A table of this test's own, so the tests cannot interfere with each other."""
+        """Give each test its own table so they do not affect each other."""
 
         return f"iceberg.ml.{self.id().rsplit('.', 1)[-1]}"
 
@@ -84,10 +83,10 @@ class VersionedTrainingDataTest(unittest.TestCase):
         self.assertEqual(100, self.rows_in(table))
 
     def test_writing_the_same_data_again_stores_nothing(self):
-        """Re-running a window must not duplicate the rows or rewrite them.
+        """Running the same data twice must not copy or rewrite the rows.
 
-        Iceberg still records a commit, which is fine and costs only metadata.
-        What must not happen is that commit carrying data.
+        Iceberg still records a commit. That is fine, it is only a note. What
+        matters is that the commit contains no rows.
         """
 
         table = self.table()
@@ -102,11 +101,11 @@ class VersionedTrainingDataTest(unittest.TestCase):
         )
 
     def test_extending_the_window_stores_only_the_new_rows(self):
-        """The whole point of the exercise.
+        """This is the main thing being tested.
 
-        The second write contains every row of the first plus twenty more. If
-        the commit stores 120 rows instead of 20, this is not incremental and
-        each run costs a full copy of the training set.
+        The second write has all 100 rows from the first, plus 20 new ones. It
+        should store 20 rows. If it stores 120, then every run costs a full
+        copy of the training data.
         """
 
         table = self.table()
@@ -132,7 +131,7 @@ class VersionedTrainingDataTest(unittest.TestCase):
         self.assertEqual(current_snapshot_id(self.spark, table), returned)
 
     def test_an_earlier_snapshot_still_sees_the_data_of_its_own_run(self):
-        """Without this, a recorded snapshot id would not reproduce anything."""
+        """A saved snapshot id must still return the rows that run used."""
 
         table = self.table()
         first = write_snapshot(self.spark, _frame(40), table=table)
