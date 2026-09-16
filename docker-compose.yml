@@ -173,15 +173,18 @@ services:
       PGPASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
     volumes:
       - ./infra/postgres/init/001_create_fraudstream_schema.sql:/schema/001_create_fraudstream_schema.sql:ro
+      - ./infra/postgres/init/002_create_mlflow_database.sql:/schema/002_create_mlflow_database.sql:ro
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        psql \
-          --host postgres \
-          --username "${POSTGRES_USER:-fraudstream}" \
-          --dbname "${POSTGRES_DB:-fraudstream}" \
-          --set ON_ERROR_STOP=1 \
-          --file /schema/001_create_fraudstream_schema.sql
+        for file in /schema/*.sql; do
+          psql \
+            --host postgres \
+            --username "${POSTGRES_USER:-fraudstream}" \
+            --dbname "${POSTGRES_DB:-fraudstream}" \
+            --set ON_ERROR_STOP=1 \
+            --file "$$file"
+        done
 
   minio:
     image: minio/minio:RELEASE.2025-04-08T15-41-24Z
@@ -213,6 +216,40 @@ services:
       - |
         mc alias set local http://minio:9000 "${MINIO_ROOT_USER:-fraudstream}" "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
         mc mb --ignore-existing local/fraudstream
+
+  mlflow:
+    build:
+      context: ./infra/mlflow
+    image: fraudstream-mlflow:3.16.0
+    container_name: fraudstream-mlflow
+    depends_on:
+      postgres:
+        condition: service_healthy
+      postgres-schema-init:
+        condition: service_completed_successfully
+      minio:
+        condition: service_healthy
+    ports:
+      - "${MLFLOW_PORT:-18085}:5000"
+    environment:
+      MLFLOW_S3_ENDPOINT_URL: "http://minio:9000"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-fraudstream}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
+    command:
+      - mlflow
+      - server
+      - --host=0.0.0.0
+      - --port=5000
+      - --backend-store-uri=postgresql+psycopg2://${POSTGRES_USER:-fraudstream}:${POSTGRES_PASSWORD:-fraudstream_local_password}@postgres:5432/mlflow
+      - --artifacts-destination=s3://fraudstream/mlflow
+      - --serve-artifacts
+      - --allowed-hosts=mlflow:5000,localhost,localhost:${MLFLOW_PORT:-18085},127.0.0.1
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import urllib.request; urllib.request.urlopen('http://localhost:5000/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 20s
 
   trino:
     image: trinodb/trino:483
