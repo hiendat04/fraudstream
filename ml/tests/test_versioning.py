@@ -140,6 +140,22 @@ class VersionedTrainingDataTest(unittest.TestCase):
         self.assertEqual(60, self.rows_in(table))
         self.assertEqual(40, read_at_snapshot(self.spark, first, table=table).count())
 
+    def test_it_accepts_a_frame_that_went_through_a_parquet_file(self):
+        """The pipeline hands over data by writing parquet, not in memory.
+
+        pandas writes timestamps in nanoseconds by default and Spark cannot
+        read those back, so this path has to be tested on its own.
+        """
+
+        table = self.table()
+        with TemporaryDirectory() as tmp:
+            path = Path(tmp) / "frame.parquet"
+            _frame(40).to_parquet(path, coerce_timestamps="us", allow_truncated_timestamps=True)
+
+            write_snapshot(self.spark, self.spark.read.parquet(str(path)), table=table)
+
+        self.assertEqual(40, self.rows_in(table))
+
     def test_the_history_reports_what_each_commit_added(self):
         table = self.table()
         write_snapshot(self.spark, _frame(100), table=table)

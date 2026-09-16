@@ -159,7 +159,7 @@ kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80
 And in another:
 
 ```bash
-cd pipelines && uv run python -m fraudstream_pipelines.submit --num-nodes 2
+cd pipelines && PYTHONPATH=src uv run python -m fraudstream_pipelines.submit --num-nodes 2
 ```
 
 Tests need no cluster — they compile the pipeline and inspect the result:

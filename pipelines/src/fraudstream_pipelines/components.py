@@ -41,7 +41,9 @@ def retrieve(
     from typing import NamedTuple
 
     result = load_training_frame(feast_repo, start_date, end_date)
-    result.to_parquet(frame.path)
+    # pandas writes timestamps in nanoseconds, which Spark cannot read back.
+    # Microseconds are far finer than payment times need.
+    result.to_parquet(frame.path, coerce_timestamps="us", allow_truncated_timestamps=True)
 
     coverage.log_metric("rows", float(len(result)))
     coverage.log_metric("fraud_rate", float(result["is_fraud"].mean()))
@@ -54,7 +56,8 @@ def retrieve(
     if spark is None:
         raise RuntimeError("no Spark session after retrieval, so the data cannot be versioned")
 
-    snapshot_id = write_snapshot(spark, result, table=data_table)
+
+    snapshot_id = write_snapshot(spark, spark.read.parquet(frame.path), table=data_table)
     print(f"saved {len(result)} rows as snapshot {snapshot_id}", flush=True)
 
     outputs = NamedTuple("Outputs", [("data_snapshot_id", str)])
