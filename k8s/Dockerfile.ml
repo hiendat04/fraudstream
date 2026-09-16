@@ -26,6 +26,7 @@ RUN pip install --no-cache-dir \
     "pandas>=2.2,<3" \
     "joblib>=1.4,<2" \
     "kubeflow>=0.1" \
+    "mlflow==3.16.0" \
     && pip freeze | grep -i '^nvidia-' | cut -d= -f1 | xargs -r pip uninstall --yes
 
 # Fetch the Spark jars now, while the build still has a network. A fresh pod
