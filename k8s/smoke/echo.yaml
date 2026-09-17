@@ -48,8 +48,14 @@ kind: Ingress
 metadata:
   name: echo
   namespace: platform-smoke
+  annotations:
+    cert-manager.io/cluster-issuer: local-ca
 spec:
   ingressClassName: nginx
+  tls:
+    - hosts:
+        - echo.localhost
+      secretName: echo-tls
   rules:
     - host: echo.localhost
       http:

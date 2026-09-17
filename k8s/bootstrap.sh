@@ -16,6 +16,8 @@ CLUSTER_NAME=fraudstream
 PIPELINE_VERSION=2.17.0
 TRAINER_VERSION=v2.2.0
 NGINX_INGRESS_CHART=2.7.3
+CERT_MANAGER_VERSION=v1.21.2
+METRICS_SERVER_CHART=3.14.0
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
@@ -121,10 +123,45 @@ helm upgrade --install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
   --wait --timeout 5m
 
 
+echo "==> Installing cert-manager ${CERT_MANAGER_VERSION}"
+# cert-manager makes the certificates that KServe's webhook needs, and the HTTPS
+# certificates for the ingress.
+helm upgrade --install cert-manager oci://quay.io/jetstack/charts/cert-manager \
+  --version "${CERT_MANAGER_VERSION}" \
+  --namespace cert-manager --create-namespace \
+  --values "$HERE/platform/cert-manager-values.yaml" \
+  --wait --timeout 5m
+
+
+echo "==> Creating the local certificate authority"
+# cert-manager checks new issuers through its webhook, so the webhook must be up
+# first. local-ca signs the HTTPS certificates for *.localhost names.
+kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy/cert-manager-webhook
+kubectl apply -f "$HERE/platform/local-ca-issuer.yaml"
+kubectl -n cert-manager wait --for=condition=Ready --timeout=2m certificate/local-ca
+
+
+echo "==> Installing metrics-server ${METRICS_SERVER_CHART}"
+# kind uses self-signed kubelet certificates that Metrics Server cannot verify.
+# --kubelet-insecure-tls lets Metrics Server connect to the kubelet anyway.
+# We download the Helm chart directly from GitHub instead of using a Helm repo.
+# This avoids problems with other Helm repos configured on the machine.
+CHART_DIR="$(mktemp -d)"
+curl -sfL -o "$CHART_DIR/metrics-server.tgz" \
+  "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-${METRICS_SERVER_CHART}/metrics-server-${METRICS_SERVER_CHART}.tgz"
+helm upgrade --install metrics-server "$CHART_DIR/metrics-server.tgz" \
+  --namespace kube-system \
+  --values "$HERE/platform/metrics-server-values.yaml" \
+  --wait --timeout 5m
+rm -rf "$CHART_DIR"
+
+
 echo "==> Waiting for everything to come up"
 kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy --all
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
 kubectl -n nginx-ingress wait --for=condition=Available --timeout=5m deploy --all
+kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy --all
+kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
 
 
 echo "==> Checking the XGBoost runtime exists"
