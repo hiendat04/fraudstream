@@ -4,3 +4,13 @@ name: fraudstream
 nodes:
   - role: control-plane
     image: kindest/node:v1.34.3
+    extraPortMappings:
+      - containerPort: 80
+        hostPort: 80
+        protocol: TCP
+      - containerPort: 443
+        hostPort: 443
+        protocol: TCP
+      - containerPort: 31080
+        hostPort: 8081
+        protocol: TCP
