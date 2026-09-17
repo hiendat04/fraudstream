@@ -5,6 +5,8 @@ package rather than restating its logic. Imports sit inside the functions
 because Kubeflow ships each function body to the cluster on its own.
 """
 
+from typing import NamedTuple
+
 from kfp import dsl
 from kfp.dsl import Dataset, Input, Markdown, Metrics, Model, Output
 
@@ -22,20 +24,44 @@ def retrieve(
     start_date: str,
     end_date: str,
     feast_repo: str,
+    data_table: str,
     frame: Output[Dataset],
     coverage: Output[Metrics],
-) -> None:
-    """Pull point-in-time features from the feature store and attach the labels."""
+) -> NamedTuple("Outputs", [("data_snapshot_id", str)]):
+    """Get features from the feature store, attach the labels, and save a data version.
+
+    Returns the snapshot id as text. Snapshot ids are too large to survive being
+    passed around as numbers, so they are kept as strings everywhere.
+    """
+
+    from pyspark.sql import SparkSession
 
     from fraudstream_ml.dataset import coverage_report, load_training_frame
+    from fraudstream_ml.versioning import write_snapshot
+    from typing import NamedTuple
 
     result = load_training_frame(feast_repo, start_date, end_date)
-    result.to_parquet(frame.path)
+    # pandas writes timestamps in nanoseconds, which Spark cannot read back.
+    # Microseconds are far finer than payment times need.
+    result.to_parquet(frame.path, coerce_timestamps="us", allow_truncated_timestamps=True)
 
     coverage.log_metric("rows", float(len(result)))
     coverage.log_metric("fraud_rate", float(result["is_fraud"].mean()))
     for view, share in coverage_report(result).items():
         coverage.log_metric(f"coverage_{view}", float(share))
+
+    # Feast leaves its Spark session running, already pointed at the lakehouse.
+    # Reusing it saves starting a second one just to write the table.
+    spark = SparkSession.getActiveSession()
+    if spark is None:
+        raise RuntimeError("no Spark session after retrieval, so the data cannot be versioned")
+
+
+    snapshot_id = write_snapshot(spark, spark.read.parquet(frame.path), table=data_table)
+    print(f"saved {len(result)} rows as snapshot {snapshot_id}", flush=True)
+
+    outputs = NamedTuple("Outputs", [("data_snapshot_id", str)])
+    return outputs(str(snapshot_id))
 
 
 @dsl.component(base_image=TRAINING_IMAGE)
@@ -317,3 +343,45 @@ def save_bundle(
         threshold=evaluated["threshold"],
         metrics=evaluated["metrics"],
     )
+
+
+@dsl.component(base_image=TRAINING_IMAGE)
+def register_model(
+    xgboost_model: Input[Model],
+    evaluation: Input[Dataset],
+    data_snapshot_id: str,
+    data_table: str,
+    mlflow_uri: str,
+    num_nodes: int,
+    max_depth: int,
+    learning_rate: float,
+    num_boost_round: int,
+) -> None:
+    """Save the trained model to MLflow with its settings, scores and data version.
+
+    This adds a new model version. It does not make it the production model.
+    """
+
+    import json
+
+    from fraudstream_ml.distributed import booster_to_classifier
+    from fraudstream_ml.registry import log_training_run
+
+    with open(evaluation.path) as handle:
+        evaluated = json.load(handle)
+
+    recorded = log_training_run(
+        booster_to_classifier(xgboost_model.path),
+        params={
+            "max_depth": max_depth,
+            "learning_rate": learning_rate,
+            "num_boost_round": num_boost_round,
+            "num_nodes": num_nodes,
+            "threshold": evaluated["threshold"],
+        },
+        metrics=evaluated["metrics"],
+        data_snapshot_id=data_snapshot_id,
+        data_table=data_table,
+        tracking_uri=mlflow_uri,
+    )
+    print(f"registered version {recorded.model_version} from run {recorded.run_id}", flush=True)

@@ -66,6 +66,7 @@ class PipelineCompilesTest(CompiledPipeline):
             "train-distributed",
             "evaluate",
             "save-bundle",
+            "register-model",
         }
         self.assertEqual(expected, set(self.tasks))
 
@@ -147,6 +148,50 @@ class CredentialsTest(CompiledPipeline):
 
         for step in ("prepare", "split", "train-baseline", "evaluate", "save-bundle"):
             self.assertNotIn(step, self._steps_given_credentials())
+
+
+class VersioningTest(CompiledPipeline):
+    def _parameter_sources(self, task_name: str) -> set[tuple[str, str]]:
+        """Return the (step, output name) pairs a task takes as plain values."""
+
+        parameters = self.tasks[task_name].get("inputs", {}).get("parameters", {})
+        return {
+            (spec["taskOutputParameter"]["producerTask"],
+             spec["taskOutputParameter"]["outputParameterKey"])
+            for spec in parameters.values()
+            if "taskOutputParameter" in spec
+        }
+
+    def test_the_model_is_registered_against_the_data_it_used(self):
+        """This is the link between the two halves of the phase.
+
+        The registration step must take the snapshot id from the step that
+        fetched the data. Without it a model version cannot be traced back to
+        its rows.
+        """
+
+        sources = self._parameter_sources("register-model")
+        producers = {step for step, _ in sources}
+        self.assertIn("retrieve", producers)
+
+    def test_registration_waits_for_the_scores(self):
+        self.assertIn("evaluate", self.tasks["register-model"].get("dependentTasks", []))
+
+    def test_registration_gets_the_trained_model(self):
+        self.assertIn(("train-distributed", "model"), self._producers_of("register-model"))
+
+    def test_registration_is_not_handed_any_passwords(self):
+        """MLflow uploads the model itself, so this step needs no credentials."""
+
+        executors = (
+            self.spec.get("platforms", {})
+            .get("kubernetes", {})
+            .get("deploymentSpec", {})
+            .get("executors", {})
+        )
+        self.assertNotIn("exec-register-model", {
+            name for name, spec in executors.items() if spec.get("secretAsEnv")
+        })
 
 
 class ParametersTest(CompiledPipeline):

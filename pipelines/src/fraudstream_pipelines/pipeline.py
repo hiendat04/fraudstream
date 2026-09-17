@@ -9,6 +9,7 @@ from fraudstream_pipelines.components import (
     evaluate,
     prepare,
     retrieve,
+    register_model,
     save_bundle,
     split,
     train_baseline,
@@ -17,6 +18,8 @@ from fraudstream_pipelines.components import (
 
 FEAST_REPO = "/opt/fraudstream/feature_store/feature_repo"
 MINIO_ENDPOINT = "minio:9000"
+MLFLOW_URI = "http://mlflow:5000"
+DATA_TABLE = "iceberg.ml.training_data"
 CREDENTIALS_SECRET = "lakehouse-credentials"
 
 LAKEHOUSE_KEYS = {
@@ -55,11 +58,20 @@ def fraud_training_pipeline(
     feast_repo: str = FEAST_REPO,
     minio_endpoint: str = MINIO_ENDPOINT,
     training_image: str = TRAINING_IMAGE,
+    mlflow_uri: str = MLFLOW_URI,
+    data_table: str = DATA_TABLE,
 ) -> None:
     """Train the fraud model end to end, with the training step spread across workers."""
 
-    retrieved = retrieve(start_date=start_date, end_date=end_date, feast_repo=feast_repo)
+    retrieved = retrieve(
+        start_date=start_date,
+        end_date=end_date,
+        feast_repo=feast_repo,
+        data_table=data_table,
+    )
     _with_lakehouse_credentials(retrieved)
+
+    retrieved.set_memory_request("4Gi").set_memory_limit("8Gi")
 
     prepared = prepare(frame=retrieved.outputs["frame"])
 
@@ -104,4 +116,18 @@ def fraud_training_pipeline(
         xgboost_model=distributed.outputs["model"],
         feature_names=prepared.outputs["feature_names"],
         evaluation=evaluated.outputs["threshold_out"],
+    )
+
+    # Records the model against the data version it came from, so a model
+    # version can be traced back to the rows it was trained on.
+    register_model(
+        xgboost_model=distributed.outputs["model"],
+        evaluation=evaluated.outputs["threshold_out"],
+        data_snapshot_id=retrieved.outputs["data_snapshot_id"],
+        data_table=data_table,
+        mlflow_uri=mlflow_uri,
+        num_nodes=num_nodes,
+        max_depth=max_depth,
+        learning_rate=learning_rate,
+        num_boost_round=num_boost_round,
     )
