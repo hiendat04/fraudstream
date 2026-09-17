@@ -15,6 +15,7 @@ set -euo pipefail
 CLUSTER_NAME=fraudstream
 PIPELINE_VERSION=2.17.0
 TRAINER_VERSION=v2.2.0
+NGINX_INGRESS_CHART=2.7.3
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
@@ -110,9 +111,20 @@ echo "==> Switching off the two components with no build for this machine"
 kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
 
 
+echo "==> Installing the NGINX Ingress Controller ${NGINX_INGRESS_CHART}"
+# This is F5's controller. The older ingress-nginx project was retired in March
+# 2026. It listens on the node's ports 80 and 443, which kind maps to the local network.
+helm upgrade --install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
+  --version "${NGINX_INGRESS_CHART}" \
+  --namespace nginx-ingress --create-namespace \
+  --values "$HERE/platform/nginx-ingress-values.yaml" \
+  --wait --timeout 5m
+
+
 echo "==> Waiting for everything to come up"
 kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy --all
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
+kubectl -n nginx-ingress wait --for=condition=Available --timeout=5m deploy --all
 
 
 echo "==> Checking the XGBoost runtime exists"

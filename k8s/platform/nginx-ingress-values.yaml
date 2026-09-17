@@ -1,0 +1,11 @@
+controller:
+  hostPort:
+    enable: true
+    http: 80
+    https: 443
+  ingressClass:
+    name: nginx
+    create: true
+    setAsDefaultIngress: true
+  service:
+    type: ClusterIP

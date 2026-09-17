@@ -1,0 +1,23 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: echo-protected
+  namespace: platform-smoke
+  annotations:
+    nginx.org/basic-auth-secret: "echo-htpasswd"
+    nginx.org/basic-auth-realm: "platform smoke test"
+    nginx.org/limit-req-rate: "5r/s"
+    nginx.org/limit-req-reject-code: "429"
+spec:
+  ingressClassName: nginx
+  rules:
+    - host: protected.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: echo
+                port:
+                  number: 80
