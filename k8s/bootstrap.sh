@@ -18,6 +18,7 @@ TRAINER_VERSION=v2.2.0
 NGINX_INGRESS_CHART=2.7.3
 CERT_MANAGER_VERSION=v1.21.2
 METRICS_SERVER_CHART=3.14.0
+KEDA_VERSION=v2.20.2
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
@@ -156,12 +157,21 @@ helm upgrade --install metrics-server "$CHART_DIR/metrics-server.tgz" \
 rm -rf "$CHART_DIR"
 
 
+echo "==> Installing KEDA ${KEDA_VERSION}"
+# KEDA scales ordinary Deployments. Knative scales the services it runs on its
+# own, so KEDA must never be pointed at a Deployment that Knative created.
+kubectl apply --server-side \
+  -f "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml"
+kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
+
+
 echo "==> Waiting for everything to come up"
 kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy --all
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
 kubectl -n nginx-ingress wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
+kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 
 
 echo "==> Checking the XGBoost runtime exists"

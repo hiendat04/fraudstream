@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: platform-smoke
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: keda-target
+  namespace: platform-smoke
+spec:
+  replicas: 0
+  selector:
+    matchLabels:
+      app: keda-target
+  template:
+    metadata:
+      labels:
+        app: keda-target
+    spec:
+      containers:
+        - name: echo
+          image: hashicorp/http-echo:1.0
+          args: ["-text=scaled by keda", "-listen=:5678"]
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: keda-target
+  namespace: platform-smoke
+spec:
+  scaleTargetRef:
+    name: keda-target
+  minReplicaCount: 0
+  maxReplicaCount: 2
+  pollingInterval: 10
+  cooldownPeriod: 30
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 0
+  triggers:
+    - type: cron
+      metadata:
+        timezone: Etc/UTC
+        start: "0/4 * * * *"
+        end: "2/4 * * * *"
+        desiredReplicas: "2"
