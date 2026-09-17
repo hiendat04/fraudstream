@@ -12,7 +12,7 @@ needs is set up by `k8s/bootstrap.sh`.
 
 ```mermaid
 flowchart TB
-    subgraph host[On your machine, in Docker]
+    subgraph host[On the host, in Docker]
         pg[(PostgreSQL<br/>registry + catalog)]
         minio[(MinIO<br/>warehouse)]
     end

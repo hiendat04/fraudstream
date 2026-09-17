@@ -50,6 +50,7 @@ The repository currently includes:
 | Feast feature store | Feast repo over Gold Iceberg tables, a Redis online store, and an Airflow DAG that incrementally materializes offline features into it | [docs/17_feature_store.md](docs/17_feature_store.md) |
 | Fraud model training | Pulls features from Feast, joins the separate label table, splits by date, trains an XGBoost classifier against a logistic-regression baseline, and saves the model with its column order and decision cut-off | [docs/18_ml_training.md](docs/18_ml_training.md) |
 | Kubeflow training pipeline | Runs the same training steps on a local Kubernetes cluster, with the training step spread across several XGBoost workers that build one model together | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) |
+| Model and data versioning | Records every trained model in an MLflow registry alongside the Iceberg snapshot of the exact rows it was trained on, storing only the rows that changed between runs | [docs/20_versioning.md](docs/20_versioning.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -535,6 +536,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/17_feature_store.md](docs/17_feature_store.md) | Feast feature store: architecture, why the Spark offline store, the incremental materialization DAG, the streaming push job, and the measured TTL rationale |
 | [docs/18_ml_training.md](docs/18_ml_training.md) | Fraud model training: how the training set is built from Feast plus the label table, measured feature coverage and why it picked the model, splitting by date, the metrics that survive a 1.5% fraud rate, and what the saved model carries |
 | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) | Kubeflow training pipeline: the seven steps on Kubernetes, how the training step is spread across workers and why the rows are dealt out the way they are, the metrics it reproduces, and the traps worth knowing |
+| [docs/20_versioning.md](docs/20_versioning.md) | Model and data versioning: the MLflow registry, how each run records the data snapshot it used, the measured cost of storing only the changes, and how to get the exact training rows back |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -556,8 +558,10 @@ Feast, joins the separate label table, and trains and saves an XGBoost fraud
 classifier -- see [docs/18_ml_training.md](docs/18_ml_training.md). Those same
 steps also run as a Kubeflow pipeline on a local kind cluster, where the training
 step is spread across several XGBoost workers -- see
-[docs/19_ml_pipeline.md](docs/19_ml_pipeline.md). The
-repository does not currently contain MLflow, a fraud scoring API, or a deployed
+[docs/19_ml_pipeline.md](docs/19_ml_pipeline.md). Each run records the model in
+an MLflow registry against the Iceberg snapshot of the data it used -- see
+[docs/20_versioning.md](docs/20_versioning.md). The
+repository does not currently contain a fraud scoring API or a deployed
 monitoring dashboard. ClickHouse and Grafana are
 documented only as a proposed novel extension in
 [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md);

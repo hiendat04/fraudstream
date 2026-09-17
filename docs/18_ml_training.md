@@ -85,8 +85,8 @@ Shuffling would quietly break it in four ways:
   end up having helped build a training row.
 - **The rows are not independent.** 500,000 payments across ~40,000 merchants means
   the same merchant appears on both sides, carrying its history with it.
-- **It asks an easier question than the real one.** In production you train on the
-  past and predict the future. Shuffling asks "can you fill a gap in a period you
+- **It asks an easier question than the real one.** In production a model trains on
+  the past and predicts the future. Shuffling asks "can it fill a gap in a period it
   have already seen?", which flatters the score.
 
 Validation and test do different jobs. Validation picks the settings and the
