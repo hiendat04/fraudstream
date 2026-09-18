@@ -1,0 +1,26 @@
+apiVersion: serving.knative.dev/v1
+kind: Service
+metadata:
+  name: split
+  namespace: platform-smoke
+spec:
+  template:
+    metadata:
+      name: split-v2
+    spec:
+      containers:
+        - image: hashicorp/http-echo:1.0
+          args: ["-text=v2", "-listen=:8080"]
+          ports:
+            - containerPort: 8080
+          resources:
+            requests:
+              cpu: 10m
+              memory: 16Mi
+            limits:
+              memory: 32Mi
+  traffic:
+    - revisionName: split-v1
+      percent: 80
+    - revisionName: split-v2
+      percent: 20
