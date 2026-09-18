@@ -19,6 +19,8 @@ NGINX_INGRESS_CHART=2.7.3
 CERT_MANAGER_VERSION=v1.21.2
 METRICS_SERVER_CHART=3.14.0
 KEDA_VERSION=v2.20.2
+KNATIVE_SERVING_VERSION=knative-v1.20.3
+KOURIER_VERSION=knative-v1.20.1
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
@@ -165,6 +167,40 @@ kubectl apply --server-side \
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 
 
+echo "==> Installing Knative Serving ${KNATIVE_SERVING_VERSION}"
+# Pinned to 1.20 on purpose. Knative's install page uses a newer release, but
+# KServe 0.20 only supports Knative 1.19 and 1.20.
+KNATIVE_SERVING_URL="https://github.com/knative/serving/releases/download/${KNATIVE_SERVING_VERSION}"
+kubectl apply -f "${KNATIVE_SERVING_URL}/serving-crds.yaml"
+kubectl wait --for=condition=Established --timeout=60s \
+  crd/services.serving.knative.dev crd/revisions.serving.knative.dev \
+  crd/routes.serving.knative.dev crd/configurations.serving.knative.dev
+kubectl apply -f "${KNATIVE_SERVING_URL}/serving-core.yaml"
+kubectl -n knative-serving wait --for=condition=Available --timeout=5m \
+  deploy/activator deploy/autoscaler deploy/controller deploy/webhook
+
+
+echo "==> Installing Kourier ${KOURIER_VERSION}"
+# Kourier is the gateway that sends requests to Knative services. Its controller
+# runs in knative-serving; only the gateway itself runs in kourier-system.
+kubectl apply -f "https://github.com/knative-extensions/net-kourier/releases/download/${KOURIER_VERSION}/kourier.yaml"
+kubectl -n knative-serving wait --for=condition=Available --timeout=5m deploy/net-kourier-controller
+kubectl -n kourier-system wait --for=condition=Available --timeout=5m deploy/3scale-kourier-gateway
+
+# Knative checks changes to these settings through its webhook, which is ready
+# from the step above. Services get addresses like hello.<namespace>.knative.localhost.
+kubectl -n knative-serving patch configmap/config-network --type merge \
+  -p '{"data":{"ingress-class":"kourier.ingress.networking.knative.dev"}}'
+kubectl -n knative-serving patch configmap/config-domain --type merge \
+  -p '{"data":{"knative.localhost":""}}'
+
+# The gateway's Service asks for a cloud load balancer, which kind does not have,
+# so it would wait for an address forever. Node port 31080 is mapped to port 8081
+# on the host by kind-cluster.yaml.
+kubectl -n kourier-system patch service/kourier \
+  -p '{"spec":{"type":"NodePort","ports":[{"port":80,"nodePort":31080}]}}'
+
+
 echo "==> Waiting for everything to come up"
 kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy --all
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
@@ -172,6 +208,8 @@ kubectl -n nginx-ingress wait --for=condition=Available --timeout=5m deploy --al
 kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
+kubectl -n knative-serving wait --for=condition=Available --timeout=5m deploy --all
+kubectl -n kourier-system wait --for=condition=Available --timeout=5m deploy --all
 
 
 echo "==> Checking the XGBoost runtime exists"
