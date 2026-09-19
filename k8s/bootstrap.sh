@@ -21,6 +21,7 @@ METRICS_SERVER_CHART=3.14.0
 KEDA_VERSION=v2.20.2
 KNATIVE_SERVING_VERSION=knative-v1.20.3
 KOURIER_VERSION=knative-v1.20.1
+KSERVE_VERSION=v0.20.0
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 
@@ -199,6 +200,45 @@ kubectl -n knative-serving patch configmap/config-domain --type merge \
 # on the host by kind-cluster.yaml.
 kubectl -n kourier-system patch service/kourier \
   -p '{"spec":{"type":"NodePort","ports":[{"port":80,"nodePort":31080}]}}'
+
+
+echo "==> Installing KServe ${KSERVE_VERSION}"
+# Applied server-side because the file is large: a normal apply stores a copy of
+# it in an annotation and would go over the size limit.
+KSERVE_URL="https://github.com/kserve/kserve/releases/download/${KSERVE_VERSION}"
+# 48 objects in the file expect the kserve namespace, but the file does not
+# create it.
+kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
+
+# The file holds both the custom resource definitions and objects that use them,
+# so the first pass cannot create everything. It is applied again once the
+# definitions exist.
+kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve.yaml" || true
+kubectl wait --for=condition=Established --timeout=120s \
+  crd/inferenceservices.serving.kserve.io \
+  crd/clusterservingruntimes.serving.kserve.io \
+  crd/clusterstoragecontainers.serving.kserve.io
+# Every controller has to be running before the second pass. The file also
+# registers their webhooks, and a webhook whose controller is still starting
+# rejects the very objects being applied.
+kubectl -n kserve wait --for=condition=Available --timeout=10m deploy --all
+kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve.yaml"
+kubectl -n kserve wait --for=condition=Available --timeout=10m deploy --all
+
+# The runtimes below are checked by the webhook that the controller serves, so
+# they can only be created once it is running.
+kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve-cluster-resources.yaml"
+
+# The MLflow runtime is published for Intel machines only. Left switched on it
+# could be picked for a model and then fail with an unreadable image error.
+kubectl patch clusterservingruntime kserve-mlserver --type merge -p '{"spec":{"disabled":true}}'
+
+# KServe assumes Istio in several settings. These point it at Kourier instead,
+# and at the domain Knative was given.
+kubectl -n kserve patch configmap inferenceservice-config --type merge \
+  --patch-file "$HERE/platform/kserve-ingress-config.yaml"
+kubectl -n kserve rollout restart deploy/kserve-controller-manager
+kubectl -n kserve rollout status deploy/kserve-controller-manager --timeout=5m
 
 
 echo "==> Waiting for everything to come up"
