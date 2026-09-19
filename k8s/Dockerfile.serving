@@ -1,0 +1,32 @@
+# Serves the fraud model behind KServe. Kept apart from Dockerfile.ml, which
+# carries Spark and Feast and is over 5 GB. This one starts on demand, so its
+# size is what a waiting request pays for.
+#
+# Build from the repository root:
+#   docker build -f k8s/Dockerfile.serving -t dev.local/fraudstream-serving:dev .
+FROM python:3.12-slim
+
+# kserve 0.20.0 asks for psutil below 6.0, and no release in that range ships a
+# ready-built package for Apple Silicon's processor. It has to be compiled, so a
+# compiler is installed, used, and removed again in this one step. Left in, it
+# would sit in the image for no reason.
+RUN apt-get update \
+    && apt-get install --yes --no-install-recommends gcc libc6-dev \
+    && pip install --no-cache-dir \
+        "kserve==0.20.0" \
+        "mlflow==3.16.0" \
+        "xgboost==3.4.1" \
+        "pandas>=2.2,<3" \
+    && pip freeze | grep -i '^nvidia-' | cut -d= -f1 | xargs -r pip uninstall --yes \
+    && apt-get purge --yes gcc libc6-dev \
+    && apt-get autoremove --yes \
+    && apt-get clean \
+    && rm -rf /var/lib/apt/lists/*
+
+COPY serving/src /opt/fraudstream/serving/src
+
+ENV PYTHONPATH=/opt/fraudstream/serving/src
+ENV MLFLOW_TRACKING_URI=http://mlflow:5000
+
+WORKDIR /opt/fraudstream
+CMD ["python", "-m", "fraudstream_serving.predictor"]

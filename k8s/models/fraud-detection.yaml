@@ -1,0 +1,31 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: kserve-models
+---
+apiVersion: serving.kserve.io/v1beta1
+kind: InferenceService
+metadata:
+  name: fraud-detection
+  namespace: kserve-models
+spec:
+  predictor:
+    minReplicas: 0
+    containers:
+      - name: kserve-container
+        image: dev.local/fraudstream-serving:dev
+        imagePullPolicy: IfNotPresent
+        ports:
+          - containerPort: 8080
+            protocol: TCP
+        env:
+          - name: MODEL_URI
+            value: models:/fraud-detection/2
+          - name: MLFLOW_TRACKING_URI
+            value: http://mlflow:5000
+        resources:
+          requests:
+            cpu: 100m
+            memory: 512Mi
+          limits:
+            memory: 2Gi

@@ -1,0 +1,14 @@
+[project]
+name = "fraudstream-serving"
+version = "0.1.0"
+description = "Serves the registered fraud model behind KServe"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "kserve==0.20.0",
+    "mlflow==3.16.0",
+    "xgboost==3.4.1",
+    "pandas>=2.2,<3",
+]
+
+[tool.uv]
+package = false
