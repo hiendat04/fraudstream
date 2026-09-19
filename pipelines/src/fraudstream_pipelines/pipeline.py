@@ -72,6 +72,7 @@ def fraud_training_pipeline(
     _with_lakehouse_credentials(retrieved)
 
     retrieved.set_memory_request("4Gi").set_memory_limit("8Gi")
+    retrieved.set_cpu_request("2").set_cpu_limit("4")
 
     prepared = prepare(frame=retrieved.outputs["frame"])
 
