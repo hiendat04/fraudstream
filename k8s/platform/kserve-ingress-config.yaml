@@ -1,0 +1,16 @@
+data:
+  ingress: |-
+    {
+      "enableGatewayApi": false,
+      "kserveIngressGateway": "kserve/kserve-ingress-gateway",
+      "ingressGateway": "knative-serving/knative-ingress-gateway",
+      "localGateway": "knative-serving/knative-local-gateway",
+      "localGatewayService": "kourier-internal.kourier-system.svc.cluster.local",
+      "ingressDomain": "knative.localhost",
+      "ingressClassName": "nginx",
+      "domainTemplate": "{{ .Name }}-{{ .Namespace }}.{{ .IngressDomain }}",
+      "urlScheme": "http",
+      "disableIstioVirtualHost": true,
+      "disableIngressCreation": false,
+      "disableHTTPRouteTimeout": false
+    }
