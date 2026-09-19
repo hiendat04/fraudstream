@@ -51,6 +51,7 @@ The repository currently includes:
 | Fraud model training | Pulls features from Feast, joins the separate label table, splits by date, trains an XGBoost classifier against a logistic-regression baseline, and saves the model with its column order and decision cut-off | [docs/18_ml_training.md](docs/18_ml_training.md) |
 | Kubeflow training pipeline | Runs the same training steps on a local Kubernetes cluster, with the training step spread across several XGBoost workers that build one model together | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) |
 | Model and data versioning | Records every trained model in an MLflow registry alongside the Iceberg snapshot of the exact rows it was trained on, storing only the rows that changed between runs | [docs/20_versioning.md](docs/20_versioning.md) |
+| Local Kubernetes platform | Adds an NGINX ingress with HTTPS, basic auth and rate limiting, KEDA and Knative autoscaling down to zero, and KServe serving the registered fraud model over HTTP | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -178,10 +179,14 @@ fraudstream/
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/postgres/           # PostgreSQL schema initialization SQL
-├── k8s/                      # kind cluster bootstrap, training image, and pipeline RBAC
+├── k8s/                      # kind cluster bootstrap, training and serving images, pipeline RBAC
+│   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
+│   ├── models/               # KServe InferenceService for the fraud model
+│   └── smoke/                # Checks for ingress, HTTPS, KEDA, and Knative
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
 ├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
 ├── reports/                  # Generated human-readable reports
+├── serving/                  # Isolated Python 3.12 predictor that serves the fraud model on KServe
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
 │   ├── jobs/                 # Spark, Flink, and shared MinIO/PostgreSQL warehouse helpers
@@ -537,6 +542,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/18_ml_training.md](docs/18_ml_training.md) | Fraud model training: how the training set is built from Feast plus the label table, measured feature coverage and why it picked the model, splitting by date, the metrics that survive a 1.5% fraud rate, and what the saved model carries |
 | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) | Kubeflow training pipeline: the seven steps on Kubernetes, how the training step is spread across workers and why the rows are dealt out the way they are, the metrics it reproduces, and the traps worth knowing |
 | [docs/20_versioning.md](docs/20_versioning.md) | Model and data versioning: the MLflow registry, how each run records the data snapshot it used, the measured cost of storing only the changes, and how to get the exact training rows back |
+| [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) | Local Kubernetes platform: what runs where and on which port, how a request reaches the fraud model, measured memory and cold start, how to re-run each check, and the traps worth knowing |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -560,8 +566,11 @@ steps also run as a Kubeflow pipeline on a local kind cluster, where the trainin
 step is spread across several XGBoost workers -- see
 [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md). Each run records the model in
 an MLflow registry against the Iceberg snapshot of the data it used -- see
-[docs/20_versioning.md](docs/20_versioning.md). The
-repository does not currently contain a fraud scoring API or a deployed
+[docs/20_versioning.md](docs/20_versioning.md). The same cluster now also runs
+an NGINX ingress with HTTPS, KEDA, Knative and KServe, and serves the registered
+fraud model over HTTP, scaling to zero when idle -- see
+[docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md). The repository
+does not yet contain the feature-pull or drift-detection APIs, or a deployed
 monitoring dashboard. ClickHouse and Grafana are
 documented only as a proposed novel extension in
 [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md);
