@@ -1,0 +1,32 @@
+[project]
+name = "fraudstream-api"
+version = "0.1.0"
+description = "The web APIs: fraud inference and real-time drift detection"
+requires-python = ">=3.12,<3.13"
+dependencies = []
+
+[project.optional-dependencies]
+inference = [
+    "feast[redis,postgres]==0.66.0",
+    "fastapi==0.141.1",
+    "uvicorn==0.53.0",
+    "httpx==0.28.1",
+    "pydantic-settings==2.15.0",
+    "pandas>=2.2,<3",
+]
+drift = [
+    "fastapi==0.141.1",
+    "uvicorn==0.53.0",
+    "pydantic-settings==2.15.0",
+    "redis==7.4.1",
+    "numpy>=2,<3",
+]
+
+[dependency-groups]
+dev = [
+    "fakeredis==2.38.0",
+    "httpx==0.28.1",
+]
+
+[tool.uv]
+package = false
