@@ -1,0 +1,11 @@
+image:
+  repository: fraudstream-inference
+secretName: feature-store-registry
+env:
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: fraudstream
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+ingress:
+  host: inference.localhost

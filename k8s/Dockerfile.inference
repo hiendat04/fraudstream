@@ -1,0 +1,28 @@
+# The inference API. Carries Feast for online reads only: no Spark, no JVM.
+#
+# Build from the repository root:
+#   docker build -f k8s/Dockerfile.inference -t fraudstream-inference:v1 .
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir \
+        "feast[redis,postgres]==0.66.0" \
+        "fastapi==0.141.1" \
+        "uvicorn==0.53.0" \
+        "httpx==0.28.1" \
+        "pydantic-settings==2.15.0" \
+        "pandas==2.3.3"
+
+# The training code that builds the model's inputs, used as is.
+COPY ml/src/fraudstream_ml /app/ml/src/fraudstream_ml
+COPY api/src /app/api/src
+
+ENV PYTHONPATH=/app/api/src:/app/ml/src
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV HOME=/tmp
+
+USER 10001
+WORKDIR /app
+EXPOSE 8080
+CMD ["uvicorn", "fraudstream_api.inference.app:create_app", "--factory", \
+     "--host", "0.0.0.0", "--port", "8080", "--timeout-graceful-shutdown", "20"]

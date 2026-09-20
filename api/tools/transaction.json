@@ -1,0 +1,9 @@
+{
+  "transaction_id": "demo-000001",
+  "customer_id": "cust_00103290",
+  "merchant_id": "merch_00023570",
+  "event_timestamp": "2026-06-30T20:00:00Z",
+  "amount": 36.35,
+  "channel": "atm",
+  "city": "New York"
+}
