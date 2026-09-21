@@ -1,0 +1,12 @@
+image:
+  repository: fraudstream-inference
+secretName: feature-store-registry
+env:
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: fraudstream
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  DRIFT_URL: http://drift-detection.fraudstream-apis.svc.cluster.local/v1/observations
+ingress:
+  host: inference.localhost

@@ -1,0 +1,29 @@
+# The drift detection API. NumPy and Redis only: no Feast, no Spark, no Trino.
+# The reference profile travels inside the image.
+#
+# Build from the repository root:
+#   docker build -f k8s/Dockerfile.drift-detection -t fraudstream-drift-detection:v1 .
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir \
+        "fastapi==0.141.1" \
+        "uvicorn==0.53.0" \
+        "pydantic-settings==2.15.0" \
+        "redis==7.4.1" \
+        "numpy==2.5.3"
+
+COPY api/src /app/api/src
+COPY api/reference /app/reference
+
+ENV PYTHONPATH=/app/api/src
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV HOME=/tmp
+
+USER 10001
+WORKDIR /app
+EXPOSE 8080
+# Idle connections stay open for 65 s. Uvicorn's default is 5 s.
+CMD ["uvicorn", "fraudstream_api.drift_detection.app:create_app", "--factory", \
+     "--host", "0.0.0.0", "--port", "8080", "--timeout-graceful-shutdown", "20", \
+     "--timeout-keep-alive", "65"]

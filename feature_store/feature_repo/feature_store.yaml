@@ -10,13 +10,6 @@ registry:
 online_store:
   type: redis
   connection_string: ${REDIS_HOST}:${REDIS_PORT}
-  # Reclaims Redis memory for entities that stop appearing in the stream.
-  # This expiry is per KEY and global to the store -- it is not the per-view
-  # `ttl`, and one key holds every view's fields for an entity. It is
-  # therefore set to the LONGEST view ttl (customer_orders_90d, 91 days);
-  # a shorter value would delete batch features that are only refreshed by
-  # the daily materialization. Read-time staleness is already enforced
-  # separately by each feature view's own ttl, so nothing readable is lost.
   key_ttl_seconds: 7862400
 
 offline_store:
@@ -25,10 +18,6 @@ offline_store:
     spark.master: ${FEAST_SPARK_MASTER}
     spark.app.name: FraudStreamFeastOfflineStore
     spark.sql.shuffle.partitions: "8"
-    # The lakehouse stores event times in UTC. Without this, Spark reads them
-    # into the JVM's local zone, shifting every timestamp and moving TTL and
-    # retrieval window boundaries by the local offset -- which also changes
-    # across a DST transition partway through the data.
     spark.sql.session.timeZone: UTC
     spark.jars.packages: org.apache.hadoop:hadoop-aws:3.4.1,org.postgresql:postgresql:42.7.4,org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0
     spark.sql.extensions: org.apache.iceberg.spark.extensions.IcebergSparkSessionExtensions

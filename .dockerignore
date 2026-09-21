@@ -22,3 +22,4 @@ airflow/logs
 docs
 tests
 reports
+api/.venv

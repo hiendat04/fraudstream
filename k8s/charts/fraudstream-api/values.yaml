@@ -1,0 +1,50 @@
+image:
+  repository: ""
+  tag: ""
+  pullPolicy: IfNotPresent
+port: 8080
+env: {}
+secretName: ""
+resources:
+  requests:
+    cpu: 250m
+    memory: 256Mi
+  limits:
+    cpu: "1"
+    memory: 512Mi
+probes:
+  startup:
+    httpGet:
+      path: /livez
+      port: http
+    periodSeconds: 2
+    failureThreshold: 30
+  liveness:
+    httpGet:
+      path: /livez
+      port: http
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    httpGet:
+      path: /readyz
+      port: http
+    periodSeconds: 5
+    timeoutSeconds: 2
+    failureThreshold: 2
+rollout:
+  maxSurge: 1
+  maxUnavailable: 0
+  minReadySeconds: 5
+  progressDeadlineSeconds: 600
+  preStopSleepSeconds: 5
+  terminationGracePeriodSeconds: 30
+ingress:
+  host: ""
+  maxBodySize: ""
+autoscaling:
+  minReplicas: 1
+  maxReplicas: 3
+  cpuUtilization: 60
+  scaleDownStabilizationSeconds: 120
