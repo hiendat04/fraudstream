@@ -20,4 +20,7 @@ class Settings(BaseSettings):
     )
     # The model scales to zero. Its first answer after a quiet spell took 5.9 s.
     model_timeout_seconds: float = 30.0
+    # Unset means the inference API runs on its own.
+    drift_url: str | None = None
+    drift_timeout_seconds: float = 2.0
     app_version: str = "dev"

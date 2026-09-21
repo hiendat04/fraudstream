@@ -91,9 +91,24 @@ class FakeModel:
         pass
 
 
-def build(reader=None, model=None):
+class FakeDrift:
+    """Stands in for the drift detection API. Records every row it is sent."""
+
+    def __init__(self):
+        self.sent = []
+
+    async def send(self, inputs):
+        self.sent.append(inputs)
+
+    async def close(self):
+        pass
+
+
+def build(reader=None, model=None, drift=None):
     settings = Settings(postgres_user="u", postgres_password="p", app_version="test")
-    return create_app(settings, reader=reader or FakeReader(), model=model or FakeModel())
+    return create_app(
+        settings, reader=reader or FakeReader(), model=model or FakeModel(), drift=drift
+    )
 
 
 class InferenceAppTest(unittest.TestCase):
@@ -199,6 +214,45 @@ class InferenceAppTest(unittest.TestCase):
         for answer in (scored, refused, unready):
             with self.subTest(status=answer.status_code):
                 self.assertEqual("test", answer.headers["x-app-version"])
+
+
+class DriftFeedWiringTest(unittest.TestCase):
+    def test_a_prediction_sends_the_exact_model_inputs_to_the_drift_detector(self):
+        model, drift = FakeModel(), FakeDrift()
+
+        with TestClient(build(model=model, drift=drift)) as client:
+            client.post("/v1/predict", json=PAYMENT)
+
+        self.assertEqual(1, len(drift.sent))
+        self.assertEqual(model.calls[0], drift.sent[0])
+
+    def test_a_failed_prediction_sends_nothing(self):
+        """The window must hold only what the model actually scored."""
+
+        drift = FakeDrift()
+        broken = FakeModel(error=ModelUnavailable("no route"))
+
+        with TestClient(build(model=broken, drift=drift)) as client:
+            answer = client.post("/v1/predict", json=PAYMENT)
+
+        self.assertEqual(503, answer.status_code)
+        self.assertEqual([], drift.sent)
+
+    def test_a_refused_payment_sends_nothing(self):
+        drift = FakeDrift()
+
+        with TestClient(build(drift=drift)) as client:
+            client.post("/v1/predict", json={**PAYMENT, "channel": "fax"})
+
+        self.assertEqual([], drift.sent)
+
+    def test_without_a_drift_url_nothing_is_sent(self):
+        """The inference API runs on its own when no drift detector is configured."""
+
+        with TestClient(build()) as client:
+            answer = client.post("/v1/predict", json=PAYMENT)
+
+        self.assertEqual(200, answer.status_code)
 
 
 if __name__ == "__main__":

@@ -2,10 +2,11 @@
 
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, HTTPException
+from fastapi import BackgroundTasks, FastAPI, HTTPException
 from fastapi.responses import JSONResponse
 from redis.exceptions import RedisError
 
+from fraudstream_api.inference.drift_feed import DriftFeed
 from fraudstream_api.inference.features import history_found, model_inputs, usable_features
 from fraudstream_api.inference.model import (
     ModelClient,
@@ -18,8 +19,10 @@ from fraudstream_api.inference.settings import Settings
 from fraudstream_api.versioning import VersionHeader
 
 
-def create_app(settings: Settings | None = None, *, reader=None, model=None) -> FastAPI:
-    """Build the app. Tests pass their own reader and model; nothing else does."""
+def create_app(
+    settings: Settings | None = None, *, reader=None, model=None, drift=None
+) -> FastAPI:
+    """Build the app. Tests pass their own reader, model and feed; nothing else does."""
 
     config = settings or Settings()
 
@@ -29,9 +32,17 @@ def create_app(settings: Settings | None = None, *, reader=None, model=None) -> 
 
         app.state.reader = reader or FeastReader(config)
         app.state.model = model or ModelClient(config.model_url, config.model_timeout_seconds)
+        if drift is not None:
+            app.state.drift = drift
+        elif config.drift_url:
+            app.state.drift = DriftFeed(config.drift_url, config.drift_timeout_seconds)
+        else:
+            app.state.drift = None
         # Uvicorn opens its port only after this returns, so no request meets a cold store.
         await app.state.reader.start()
         yield
+        if app.state.drift is not None:
+            await app.state.drift.close()
         await app.state.model.close()
         await app.state.reader.close()
 
@@ -39,7 +50,7 @@ def create_app(settings: Settings | None = None, *, reader=None, model=None) -> 
     app.add_middleware(VersionHeader, version=config.app_version)
 
     @app.post("/v1/predict", response_model=Prediction)
-    async def predict(transaction: Transaction) -> Prediction:
+    async def predict(transaction: Transaction, background: BackgroundTasks) -> Prediction:
         try:
             online = await app.state.reader.read(transaction.customer_id, transaction.merchant_id)
         except RedisError as error:
@@ -56,6 +67,11 @@ def create_app(settings: Settings | None = None, *, reader=None, model=None) -> 
             raise HTTPException(503, "the model cannot be reached") from error
         except ModelRejected as error:
             raise HTTPException(502, f"the model refused the request: {error}") from error
+
+        if app.state.drift is not None:
+            # Runs after the answer is sent. A slow drift detector never delays a prediction,
+            # and a failed score raises above this line, so only scored rows are sent.
+            background.add_task(app.state.drift.send, inputs)
 
         return Prediction(
             transaction_id=transaction.transaction_id,
