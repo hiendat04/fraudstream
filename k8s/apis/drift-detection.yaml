@@ -1,0 +1,17 @@
+image:
+  repository: fraudstream-drift-detection
+env:
+  REDIS_URL: redis://redis:6379/1
+  REFERENCE_PATH: /app/reference/fraud-detection-v2.json
+resources:
+  requests:
+    cpu: 100m
+    memory: 128Mi
+  limits:
+    cpu: "1"
+    memory: 256Mi
+ingress:
+  host: drift-detection.localhost
+  maxBodySize: 8m
+autoscaling:
+  maxReplicas: 2

@@ -42,6 +42,7 @@ rollout:
   terminationGracePeriodSeconds: 30
 ingress:
   host: ""
+  maxBodySize: ""
 autoscaling:
   minReplicas: 1
   maxReplicas: 3

@@ -5,6 +5,10 @@ metadata:
   name: {{ .Release.Name }}
   labels:
     app.kubernetes.io/name: {{ .Release.Name }}
+  {{- with .Values.ingress.maxBodySize }}
+  annotations:
+    nginx.org/client-max-body-size: {{ . | quote }}
+  {{- end }}
 spec:
   ingressClassName: nginx
   rules:
