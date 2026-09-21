@@ -23,8 +23,7 @@ ENV HOME=/tmp
 USER 10001
 WORKDIR /app
 EXPOSE 8080
-# --timeout-keep-alive must exceed the proxy's, or NGINX sends a request into a
-# connection this server is closing and the caller sees 502.
+# Idle connections stay open for 65 s. Uvicorn's default is 5 s.
 CMD ["uvicorn", "fraudstream_api.drift_detection.app:create_app", "--factory", \
      "--host", "0.0.0.0", "--port", "8080", "--timeout-graceful-shutdown", "20", \
      "--timeout-keep-alive", "65"]

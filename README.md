@@ -52,6 +52,7 @@ The repository currently includes:
 | Kubeflow training pipeline | Runs the same training steps on a local Kubernetes cluster, with the training step spread across several XGBoost workers that build one model together | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) |
 | Model and data versioning | Records every trained model in an MLflow registry alongside the Iceberg snapshot of the exact rows it was trained on, storing only the rows that changed between runs | [docs/20_versioning.md](docs/20_versioning.md) |
 | Local Kubernetes platform | Adds an NGINX ingress with HTTPS, basic auth and rate limiting, KEDA and Knative autoscaling down to zero, and KServe serving the registered fraud model over HTTP | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) |
+| Web APIs | An async inference API that fetches a payment's history from the Feast online store and asks the fraud model for a score, and a drift detection API that reports how far live model inputs have moved from the training data. Both roll out and roll back automatically with Helm and scale with KEDA | [docs/22_web_apis.md](docs/22_web_apis.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -171,6 +172,7 @@ lightweight metadata rather than the bulk table data.
 ```text
 fraudstream/
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
+├── api/                      # Isolated Python 3.12 web APIs: fraud inference and drift detection
 ├── configs/                  # Generator configs and measured Flink latency profile
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
@@ -179,7 +181,9 @@ fraudstream/
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/postgres/           # PostgreSQL schema initialization SQL
-├── k8s/                      # kind cluster bootstrap, training and serving images, pipeline RBAC
+├── k8s/                      # kind cluster bootstrap, service images, pipeline RBAC
+│   ├── apis/                 # Helm values for the inference and drift detection releases
+│   ├── charts/               # One Helm chart shared by both web APIs
 │   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
 │   ├── models/               # KServe InferenceService for the fraud model
 │   └── smoke/                # Checks for ingress, HTTPS, KEDA, and Knative
@@ -543,6 +547,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/19_ml_pipeline.md](docs/19_ml_pipeline.md) | Kubeflow training pipeline: the seven steps on Kubernetes, how the training step is spread across workers and why the rows are dealt out the way they are, the metrics it reproduces, and the traps worth knowing |
 | [docs/20_versioning.md](docs/20_versioning.md) | Model and data versioning: the MLflow registry, how each run records the data snapshot it used, the measured cost of storing only the changes, and how to get the exact training rows back |
 | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) | Local Kubernetes platform: what runs where and on which port, how a request reaches the fraud model, measured memory and cold start, how to re-run each check, and the traps worth knowing |
+| [docs/22_web_apis.md](docs/22_web_apis.md) | Web APIs: what runs where, how one prediction is built from stored history and the payment, the health checks, autoscaling and rolling update evidence, automatic rollback, and how drift is measured and replayed |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -569,9 +574,12 @@ an MLflow registry against the Iceberg snapshot of the data it used -- see
 [docs/20_versioning.md](docs/20_versioning.md). The same cluster now also runs
 an NGINX ingress with HTTPS, KEDA, Knative and KServe, and serves the registered
 fraud model over HTTP, scaling to zero when idle -- see
-[docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md). The repository
-does not yet contain the feature-pull or drift-detection APIs, or a deployed
-monitoring dashboard. ClickHouse and Grafana are
+[docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md). Two web APIs run
+on it: one fetches a payment's history from the online store and asks the model
+for a score, the other reports how far live inputs have drifted from the
+training data. Helm rolls both out and back automatically, and KEDA scales them
+-- see [docs/22_web_apis.md](docs/22_web_apis.md). The repository does not
+currently contain a deployed monitoring dashboard. ClickHouse and Grafana are
 documented only as a proposed novel extension in
 [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md);
 they are not part of the implemented architecture or Docker Compose stack.
