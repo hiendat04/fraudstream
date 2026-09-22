@@ -111,6 +111,15 @@ class PredictorTest(unittest.TestCase):
             self.scores(incomplete)
         self.assertIn("customer_txn_count_30d", str(caught.exception))
 
+    def test_without_a_tracking_uri_it_uses_the_one_mlflow_already_has(self):
+        import mlflow
+
+        mlflow.set_tracking_uri(self.tracking_uri)
+        predictor = FraudPredictor(name="test-fraud", model_uri=self.model_uri)
+
+        self.assertTrue(predictor.load())
+        self.assertEqual(COLUMNS, predictor.feature_names)
+
     def test_an_extra_field_is_ignored(self):
         with_extra = [{**row, "not_a_feature": 99.0} for row in self.rows.to_dict("records")]
 

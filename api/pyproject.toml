@@ -26,11 +26,36 @@ drift = [
 dev = [
     "fakeredis==2.38.0",
     "httpx==0.28.1",
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "mutmut==3.8.0",
+    "hypothesis==6.168.0",
+    "hypothesis-crosshair==0.0.30",
 ]
 reference = [
     "trino==0.339.0",
     "pandas>=2.2,<3",
 ]
+loadtest = [
+    "locust==2.46.6",
+]
 
 [tool.uv]
 package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "../ml/src", "."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/fraudstream_api"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if __name__ == .__main__.:"]
+fail_under = 90
+
+[tool.mutmut]
+source_paths = ["src/fraudstream_api"]
+pytest_add_cli_args_test_selection = ["tests"]

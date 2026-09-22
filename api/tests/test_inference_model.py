@@ -38,6 +38,13 @@ class ModelClientTest(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(URL, sent["url"])
         self.assertIn(b'"instances"', sent["body"])
 
+    async def test_it_waits_no_longer_than_its_timeout(self):
+        model = ModelClient(URL, timeout_seconds=7.5)
+        try:
+            self.assertEqual(7.5, model._http.timeout.read)
+        finally:
+            await model.close()
+
     async def test_a_slow_model_becomes_model_timeout(self):
         def handler(request: httpx.Request) -> httpx.Response:
             raise httpx.ReadTimeout("too slow", request=request)

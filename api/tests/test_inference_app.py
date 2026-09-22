@@ -11,6 +11,7 @@ from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from fraudstream_api.inference.app import create_app
+from fraudstream_api.inference.drift_feed import DriftFeed
 from fraudstream_api.inference.features import OnlineFeatures
 from fraudstream_api.inference.model import ModelRejected, ModelTimeout, ModelUnavailable
 from fraudstream_api.inference.settings import Settings
@@ -253,6 +254,21 @@ class DriftFeedWiringTest(unittest.TestCase):
             answer = client.post("/v1/predict", json=PAYMENT)
 
         self.assertEqual(200, answer.status_code)
+
+    def test_a_drift_url_opens_a_feed_to_it(self):
+        settings = Settings(
+            postgres_user="u",
+            postgres_password="p",
+            drift_url="http://drift-detection/v1/observations",
+            drift_timeout_seconds=0.5,
+        )
+        app = create_app(settings, reader=FakeReader(), model=FakeModel())
+
+        with TestClient(app):
+            feed = app.state.drift
+            self.assertIsInstance(feed, DriftFeed)
+            self.assertEqual("http://drift-detection/v1/observations", feed._url)
+            self.assertEqual(0.5, feed._http.timeout.read)
 
 
 if __name__ == "__main__":

@@ -53,6 +53,7 @@ The repository currently includes:
 | Model and data versioning | Records every trained model in an MLflow registry alongside the Iceberg snapshot of the exact rows it was trained on, storing only the rows that changed between runs | [docs/20_versioning.md](docs/20_versioning.md) |
 | Local Kubernetes platform | Adds an NGINX ingress with HTTPS, basic auth and rate limiting, KEDA and Knative autoscaling down to zero, and KServe serving the registered fraud model over HTTP | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) |
 | Web APIs | An async inference API that fetches a payment's history from the Feast online store and asks the fraud model for a score, and a drift detection API that reports how far live model inputs have moved from the training data. Both roll out and roll back automatically with Helm and scale with KEDA | [docs/22_web_apis.md](docs/22_web_apis.md) |
+| Validation and verification | 100% line and branch coverage on both API projects, test cases designed from equivalence classes and boundary values, mutation testing at 86%, property-based idempotency checks with Hypothesis, and a Locust load test measured against an SLA fixed in advance | [docs/23_validation_and_verification.md](docs/23_validation_and_verification.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -173,6 +174,7 @@ lightweight metadata rather than the bulk table data.
 fraudstream/
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
 ├── api/                      # Isolated Python 3.12 web APIs: fraud inference and drift detection
+│   └── loadtest/             # Locust load test and its SLA check
 ├── configs/                  # Generator configs and measured Flink latency profile
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
@@ -189,7 +191,7 @@ fraudstream/
 │   └── smoke/                # Checks for ingress, HTTPS, KEDA, and Knative
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
 ├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
-├── reports/                  # Generated human-readable reports
+├── reports/                  # Generated human-readable reports and load test results
 ├── serving/                  # Isolated Python 3.12 predictor that serves the fraud model on KServe
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
@@ -548,6 +550,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/20_versioning.md](docs/20_versioning.md) | Model and data versioning: the MLflow registry, how each run records the data snapshot it used, the measured cost of storing only the changes, and how to get the exact training rows back |
 | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) | Local Kubernetes platform: what runs where and on which port, how a request reaches the fraud model, measured memory and cold start, how to re-run each check, and the traps worth knowing |
 | [docs/22_web_apis.md](docs/22_web_apis.md) | Web APIs: what runs where, how one prediction is built from stored history and the payment, the health checks, autoscaling and rolling update evidence, automatic rollback, and how drift is measured and replayed |
+| [docs/23_validation_and_verification.md](docs/23_validation_and_verification.md) | Validating the web APIs: coverage and the mocks that made it possible, boundary cases, mutation testing, idempotency properties, and the load test with its SLA verdict |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
@@ -578,8 +581,11 @@ fraud model over HTTP, scaling to zero when idle -- see
 on it: one fetches a payment's history from the online store and asks the model
 for a score, the other reports how far live inputs have drifted from the
 training data. Helm rolls both out and back automatically, and KEDA scales them
--- see [docs/22_web_apis.md](docs/22_web_apis.md). The repository does not
-currently contain a deployed monitoring dashboard. ClickHouse and Grafana are
+-- see [docs/22_web_apis.md](docs/22_web_apis.md). Both APIs are covered by
+tests to 100% of lines and branches, an 86% mutation score, property-based
+idempotency checks, and a load test measured against a fixed SLA -- see
+[docs/23_validation_and_verification.md](docs/23_validation_and_verification.md).
+The repository does not currently contain a deployed monitoring dashboard. ClickHouse and Grafana are
 documented only as a proposed novel extension in
 [docs/14_novel_idea_realtime_analytics.md](docs/14_novel_idea_realtime_analytics.md);
 they are not part of the implemented architecture or Docker Compose stack.

@@ -69,6 +69,30 @@ class DriftWindowTest(unittest.IsolatedAsyncioTestCase):
         rows, _ = await window.totals()
         self.assertEqual(50, rows)
 
+    async def test_rows_and_counts_add_up_across_minutes(self):
+        clock = Clock()
+        window = window_on(self.redis(), clock)
+
+        await window.add(observations(3))
+        clock.forward(30)
+        await window.add(observations(5))
+        clock.forward(20)
+        await window.add(observations(2))
+        rows, counts = await window.totals()
+
+        self.assertEqual(10, rows)
+        self.assertEqual(10, int(counts["amount"].sum()))
+
+    async def test_the_oldest_minute_of_the_window_still_counts(self):
+        clock = Clock()
+        window = window_on(self.redis(), clock)
+
+        await window.add(observations(4))
+        clock.forward(59)
+        rows, _ = await window.totals()
+
+        self.assertEqual(4, rows)
+
     async def test_two_replicas_share_one_window(self):
         """Every pod adds to the same numbers, which is why the counts live in Redis."""
 

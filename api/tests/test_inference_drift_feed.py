@@ -44,7 +44,21 @@ class DriftFeedTest(unittest.IsolatedAsyncioTestCase):
 
         feed = feed_answering(handler)
         try:
-            with self.assertLogs("fraudstream_api.inference.drift_feed", level=logging.WARNING):
+            with self.assertLogs("fraudstream_api.inference.drift_feed", logging.WARNING) as logs:
+                await feed.send(INPUTS)
+        finally:
+            await feed.close()
+
+        self.assertIn("ConnectError", logs.output[0])
+        self.assertIn("no route", logs.output[0])
+
+    async def test_a_good_answer_is_not_logged(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"accepted": 1})
+
+        feed = feed_answering(handler)
+        try:
+            with self.assertNoLogs("fraudstream_api.inference.drift_feed", level=logging.WARNING):
                 await feed.send(INPUTS)
         finally:
             await feed.close()
@@ -55,10 +69,13 @@ class DriftFeedTest(unittest.IsolatedAsyncioTestCase):
 
         feed = feed_answering(handler)
         try:
-            with self.assertLogs("fraudstream_api.inference.drift_feed", level=logging.WARNING):
+            with self.assertLogs("fraudstream_api.inference.drift_feed", logging.WARNING) as logs:
                 await feed.send(INPUTS)
         finally:
             await feed.close()
+
+        self.assertIn("422", logs.output[0])
+        self.assertIn("amount", logs.output[0])
 
 
 if __name__ == "__main__":
