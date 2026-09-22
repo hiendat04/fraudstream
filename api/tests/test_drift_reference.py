@@ -55,7 +55,10 @@ class ReferenceTest(unittest.TestCase):
 
         restored = Reference.from_json(reference.to_json())
 
+        self.assertEqual(reference.model_name, restored.model_name)
         self.assertEqual(reference.model_version, restored.model_version)
+        self.assertEqual(reference.data_snapshot_id, restored.data_snapshot_id)
+        self.assertEqual(reference.rows, restored.rows)
         self.assertEqual(list(reference.features), list(restored.features))
         for name, feature in reference.features.items():
             with self.subTest(feature=name):
@@ -85,6 +88,18 @@ class CompareTest(unittest.TestCase):
         self.assertEqual("amount", drifts[0].name)
         self.assertEqual("drift", drifts[0].status)
         self.assertEqual("stable", drifts[-1].status)
+
+    def test_psi_is_reported_to_four_decimals(self):
+        """Rounded, because a report is read by people; not so far that a warning reads as 0."""
+
+        reference = reference_of()
+
+        drifts = compare(reference, self.counts_for(reference, columns(shift=40.0)), ROWS)
+
+        for drift in drifts:
+            with self.subTest(feature=drift.name):
+                self.assertEqual(round(drift.psi, 4), drift.psi)
+        self.assertGreater(drifts[0].psi, 0.25)
 
     def test_it_reports_every_input(self):
         reference = reference_of()

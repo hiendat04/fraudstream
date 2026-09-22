@@ -6,6 +6,7 @@ written to a temporary file, the same shape as the committed one.
 
 import json
 import unittest
+import unittest.mock
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -69,6 +70,21 @@ class DriftAppTest(unittest.TestCase):
     def client(self) -> TestClient:
         redis = fakeredis.FakeAsyncRedis(server=self.server, decode_responses=True)
         return TestClient(create_app(self.settings, redis=redis))
+
+    def test_it_opens_redis_with_decoding_and_short_timeouts(self):
+        """Without decoding, every field name comes back as bytes and no count is found."""
+
+        with unittest.mock.patch(
+            "fraudstream_api.drift_detection.app.Redis.from_url"
+        ) as from_url:
+            create_app(self.settings)
+
+        from_url.assert_called_once_with(
+            self.settings.redis_url,
+            decode_responses=True,
+            socket_timeout=1,
+            socket_connect_timeout=1,
+        )
 
     def test_observations_are_counted(self):
         with self.client() as client:

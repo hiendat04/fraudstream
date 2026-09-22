@@ -95,6 +95,10 @@ def test_the_registry_is_built_from_the_settings(reader, feature_store):
     assert config.registry.cache_mode == "thread"
     assert config.registry.cache_ttl_seconds == 60
     assert config.online_store.connection_string == "redis:6379"
+    assert config.provider == "local"
+    assert config.registry.registry_type == "sql"
+    # Version 3 decides how a key is built, so reads find nothing if it changes.
+    assert config.entity_key_serialization_version == 3
 
 
 def test_the_password_is_read_from_the_secret_value(feature_store, redis_server):
