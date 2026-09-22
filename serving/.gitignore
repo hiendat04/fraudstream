@@ -1,3 +1,6 @@
 .venv/
 __pycache__/
 mlruns/
+.coverage
+htmlcov/
+.hypothesis/

@@ -134,6 +134,13 @@ class DriftAppTest(unittest.TestCase):
 
         self.assertEqual(200, answer.status_code)
 
+    def test_readiness_passes_while_redis_answers(self):
+        with self.client() as client:
+            answer = client.get("/readyz")
+
+        self.assertEqual(200, answer.status_code)
+        self.assertEqual({"status": "ready"}, answer.json())
+
     def test_readiness_fails_while_redis_is_down(self):
         with self.client() as client:
             self.server.connected = False
