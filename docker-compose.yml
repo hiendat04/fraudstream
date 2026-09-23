@@ -363,10 +363,7 @@ services:
       FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
       FEAST_SPARK_MASTER: "local[2]"
-      # Each flush is one Iceberg commit, so a small batch produces many tiny
-      # data files and one metadata version per commit. 10k rows keeps files
-      # in a sane size range while draining a backlog; the flush interval is
-      # what bounds online staleness once the stream is caught up.
+
       FEAST_PUSH_BATCH_SIZE: "${FEAST_PUSH_BATCH_SIZE:-10000}"
       FEAST_PUSH_FLUSH_SECONDS: "${FEAST_PUSH_FLUSH_SECONDS:-30}"
       MINIO_ENDPOINT: "http://minio:9000"
@@ -453,6 +450,34 @@ services:
       retries: 5
       start_period: 30s
 
+  jenkins:
+    build:
+      context: ci/jenkins
+    container_name: fraudstream-jenkins
+    user: root
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      JENKINS_ADMIN_PASSWORD: "${JENKINS_ADMIN_PASSWORD:-fraudstream_local_password}"
+      KUBECONFIG: /var/jenkins_home/.kube/config
+      COMPOSE_PROJECT: fraudstream
+    ports:
+      - "${JENKINS_PORT:-18086}:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./ci/jenkins/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${AIRFLOW_PROJECT_DIR:-.}:/deploy
+    networks:
+      - default
+      - kind
+    profiles: ["ci"]
+
+networks:
+  default:
+  kind:
+    external: true
+
 volumes:
   kafka-data:
   postgres-data:
@@ -460,3 +485,4 @@ volumes:
   airflow-db-data:
   redis-data:
   redisinsight-data:
+  jenkins-home:

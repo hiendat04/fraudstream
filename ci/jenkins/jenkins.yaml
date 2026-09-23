@@ -1,0 +1,52 @@
+jenkins:
+  systemMessage: "FraudStream CI/CD"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "postgres"
+              username: "${POSTGRES_USER}"
+              password: "${POSTGRES_PASSWORD}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "minio"
+              username: "${MINIO_ACCESS_KEY}"
+              password: "${MINIO_SECRET_KEY}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github"
+              username: "${GITHUB_USER}"
+              password: "${GITHUB_TOKEN}"
+
+jobs:
+  - script: >
+      pipelineJob('fraudstream') {
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/hiendat04/fraudstream.git')
+                  credentials('github')
+                }
+                branch('*/main')
+              }
+            }
+            scriptPath('Jenkinsfile')
+          }
+        }
+        triggers { scm('H/5 * * * *') }
+      }
