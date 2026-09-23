@@ -112,6 +112,7 @@ def feast_spark_conf(
         "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
         "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
         "spark.sql.shuffle.partitions": "8",
+        "spark.sql.session.timeZone": "UTC",
     }
     if iceberg.catalog_type == "hadoop":
         conf[f"spark.sql.catalog.{catalog}.type"] = "hadoop"
