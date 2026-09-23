@@ -5,3 +5,4 @@ git
 credentials-binding
 timestamper
 ws-cleanup
+pipeline-stage-view

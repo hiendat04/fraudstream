@@ -10,7 +10,7 @@ run_ml()            { cd ml && PYTHONPATH=src uv run python -m unittest discover
 run_pipelines()     { cd pipelines && PYTHONPATH=src uv run python -m unittest discover -s tests; }
 run_feature_store() { cd feature_store && PYTHONPATH=src:../src uv run python -m unittest discover -s tests; }
 run_datahub()       { cd datahub && PYTHONPATH=src uv run python -m unittest discover -s tests; }
-run_api()           { cd api && uv run pytest -q --cov; }
+run_api()           { cd api && uv run --all-extras --group reference pytest -q --cov; }
 run_serving()       { cd serving && uv run pytest -q --cov; }
 
 all_suites=(root ml pipelines feature_store datahub api serving)

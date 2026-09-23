@@ -456,11 +456,16 @@ services:
     container_name: fraudstream-jenkins
     user: root
     restart: unless-stopped
-    env_file: .env
     environment:
-      JENKINS_ADMIN_PASSWORD: "${JENKINS_ADMIN_PASSWORD:-fraudstream_local_password}"
       KUBECONFIG: /var/jenkins_home/.kube/config
-      COMPOSE_PROJECT: fraudstream
+    secrets:
+      - JENKINS_ADMIN_PASSWORD
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - MINIO_ACCESS_KEY
+      - MINIO_SECRET_KEY
+      - GITHUB_USER
+      - GITHUB_TOKEN
     ports:
       - "${JENKINS_PORT:-18086}:8080"
     volumes:
@@ -472,6 +477,24 @@ services:
       - default
       - kind
     profiles: ["ci"]
+
+# Files under /run/secrets, so Jenkins can read them at start-up without every
+# build inheriting them as environment variables.
+secrets:
+  JENKINS_ADMIN_PASSWORD:
+    environment: JENKINS_ADMIN_PASSWORD
+  POSTGRES_USER:
+    environment: POSTGRES_USER
+  POSTGRES_PASSWORD:
+    environment: POSTGRES_PASSWORD
+  MINIO_ACCESS_KEY:
+    environment: MINIO_ACCESS_KEY
+  MINIO_SECRET_KEY:
+    environment: MINIO_SECRET_KEY
+  GITHUB_USER:
+    environment: GITHUB_USER
+  GITHUB_TOKEN:
+    environment: GITHUB_TOKEN
 
 networks:
   default:

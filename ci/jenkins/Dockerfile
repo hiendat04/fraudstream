@@ -8,8 +8,10 @@ ARG HELM_VERSION=v3.19.0
 ARG COMPOSE_VERSION=v5.5.1
 ARG DOCKER_VERSION=29.8.1
 
+# build-essential: psutil (serving) and crosshair-tool (api) publish no Linux
+# arm64 wheels, so uv compiles them from source.
 RUN apt-get update \
- && apt-get install --yes --no-install-recommends rsync \
+ && apt-get install --yes --no-install-recommends rsync build-essential \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # The Debian docker.io package ships only dockerd, not the docker CLI, so the

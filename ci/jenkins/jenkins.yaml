@@ -11,6 +11,10 @@ jenkins:
     loggedInUsersCanDoAnything:
       allowAnonymousRead: false
 
+unclassified:
+  location:
+    url: "http://localhost:18086/"
+
 credentials:
   system:
     domainCredentials:
@@ -32,21 +36,26 @@ credentials:
               password: "${GITHUB_TOKEN}"
 
 jobs:
-  - script: >
-      pipelineJob('fraudstream') {
-        definition {
-          cpsScm {
-            scm {
-              git {
-                remote {
-                  url('https://github.com/hiendat04/fraudstream.git')
-                  credentials('github')
-                }
-                branch('*/main')
-              }
-            }
+  - script: |
+      multibranchPipelineJob('fraudstream') {
+        branchSources {
+          git {
+            id('fraudstream')
+            remote('https://github.com/hiendat04/fraudstream.git')
+            credentialsId('github')
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
             scriptPath('Jenkinsfile')
           }
         }
-        triggers { scm('H/5 * * * *') }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(5)
+          }
+        }
+        triggers {
+          cron('H/5 * * * *')
+        }
       }
