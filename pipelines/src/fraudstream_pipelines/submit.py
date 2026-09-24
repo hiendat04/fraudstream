@@ -5,6 +5,9 @@ Reach the endpoint first with:
 
 Then:
     uv run python -m fraudstream_pipelines.submit --num-nodes 2
+
+CI registers a version instead of starting a run:
+    uv run python -m fraudstream_pipelines.submit --host http://localhost:8888 --upload-version 9f789a7
 """
 
 import argparse
@@ -16,6 +19,7 @@ from kfp import Client, compiler
 from fraudstream_pipelines.pipeline import fraud_training_pipeline
 
 EXPERIMENT = "fraud-model-training"
+PIPELINE = "fraud-training"
 
 
 def main() -> int:
@@ -27,6 +31,7 @@ def main() -> int:
     parser.add_argument("--timeout", type=int, default=3600)
     parser.add_argument("--compile-only", action="store_true")
     parser.add_argument("--output", default="fraud_training_pipeline.yaml")
+    parser.add_argument("--upload-version", help="register the pipeline under this version name instead of running it")
     arguments = parser.parse_args()
 
     target = Path(arguments.output)
@@ -36,6 +41,16 @@ def main() -> int:
         return 0
 
     client = Client(host=arguments.host)
+    if arguments.upload_version:
+        pipeline_id = client.get_pipeline_id(PIPELINE)
+        if pipeline_id is None:
+            pipeline_id = client.upload_pipeline(str(target), pipeline_name=PIPELINE).pipeline_id
+        version = client.upload_pipeline_version(
+            str(target), pipeline_version_name=arguments.upload_version, pipeline_id=pipeline_id
+        )
+        print(f"{PIPELINE}: version {arguments.upload_version} ({version.pipeline_version_id})")
+        return 0
+
     run = client.create_run_from_pipeline_package(
         str(target),
         arguments={

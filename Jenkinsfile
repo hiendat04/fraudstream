@@ -90,6 +90,23 @@ pipeline {
         '''
       }
     }
+
+    stage('Training pipeline') {
+      when { expression { deploying('ml/src pipelines/src feature_store/feature_repo k8s/Dockerfile.ml') } }
+      steps {
+        sh '''
+          docker build -f k8s/Dockerfile.ml -t "fraudstream-ml:$TAG" .
+          kind load docker-image "fraudstream-ml:$TAG" --name fraudstream
+          kubectl -n kubeflow port-forward svc/ml-pipeline 8888:8888 &
+          forward=$!
+          trap "kill $forward" EXIT
+          for i in $(seq 20); do curl -s -o /dev/null http://localhost:8888/apis/v2beta1/healthz && break; sleep 1; done
+          cd pipelines
+          PYTHONPATH=src TRAINING_IMAGE="fraudstream-ml:$TAG" uv run python -m fraudstream_pipelines.submit \
+            --host http://localhost:8888 --upload-version "$TAG"
+        '''
+      }
+    }
   }
 
   post {
