@@ -77,6 +77,19 @@ pipeline {
         '''
       }
     }
+    stage('Model server') {
+      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models') } }
+      steps {
+        sh '''
+          docker build -f k8s/Dockerfile.serving -t "dev.local/fraudstream-serving:$TAG" .
+          kind load docker-image "dev.local/fraudstream-serving:$TAG" --name fraudstream
+          sed "s#fraudstream-serving:dev#fraudstream-serving:$TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
+          kubectl -n kserve-models wait --for=condition=Ready inferenceservice/fraud-detection --timeout=5m
+          curl -sf --max-time 30 -H 'Host: inference.localhost' -H 'Content-Type: application/json' \
+            -d @api/tools/transaction.json http://fraudstream-control-plane/v1/predict
+        '''
+      }
+    }
   }
 
   post {
