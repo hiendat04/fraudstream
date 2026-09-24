@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Copy what Airflow runs into a deploy folder. Jenkins does this on every deploy;
+# Copy what Airflow and the stream push job run into a deploy folder. Jenkins does this on every deploy;
 # run it once by hand so the folder is filled before Airflow first starts.
 #   ./ci/sync_airflow.sh /your/airflow/deploy/folder
 set -euo pipefail

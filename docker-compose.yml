@@ -378,7 +378,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
     volumes:
-      - ./:/opt/fraudstream
+      - ${AIRFLOW_PROJECT_DIR:-.}/:/opt/fraudstream
     profiles: ["feature-store"]
 
   airflow-db:

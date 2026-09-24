@@ -136,6 +136,29 @@ pipeline {
         }
       }
     }
+
+    stage('Stream push job') {
+      when { expression { deploying('feature_store/src feature_store/feature_repo src') } }
+      steps {
+        script {
+          if (sh(script: 'test -d /deploy/.git', returnStatus: true) == 0) {
+            unstable('AIRFLOW_PROJECT_DIR is not set, so the stream push job was not deployed')
+            return
+          }
+          sh './ci/sync_airflow.sh /deploy'
+          if (sh(script: 'docker ps --format "{{.Names}}" | grep -qx fraudstream-feast-stream-push', returnStatus: true) != 0) {
+            unstable('The stream push job is not running: its code was copied, but not restarted')
+            return
+          }
+          sh '''
+            docker restart fraudstream-feast-stream-push
+            sleep 30
+            test "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' fraudstream-feast-stream-push)" = "true 0" \
+              || { docker logs --tail 30 fraudstream-feast-stream-push; exit 1; }
+          '''
+        }
+      }
+    }
   }
 
   post {
