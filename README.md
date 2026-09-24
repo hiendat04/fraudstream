@@ -54,6 +54,7 @@ The repository currently includes:
 | Local Kubernetes platform | Adds an NGINX ingress with HTTPS, basic auth and rate limiting, KEDA and Knative autoscaling down to zero, and KServe serving the registered fraud model over HTTP | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) |
 | Web APIs | An async inference API that fetches a payment's history from the Feast online store and asks the fraud model for a score, and a drift detection API that reports how far live model inputs have moved from the training data. Both roll out and roll back automatically with Helm and scale with KEDA | [docs/22_web_apis.md](docs/22_web_apis.md) |
 | Validation and verification | 100% line and branch coverage on both API projects, test cases designed from equivalence classes and boundary values, mutation testing at 86%, property-based idempotency checks with Hypothesis, and a Locust load test measured against an SLA fixed in advance | [docs/23_validation_and_verification.md](docs/23_validation_and_verification.md) |
+| CI/CD | Jenkins tests every branch and deploys the deploy branch: both web APIs, the KServe model, the training pipeline, the Airflow pipelines and the stream push job, each image tagged with its commit; secrets live in Jenkins | [docs/24_ci_cd.md](docs/24_ci_cd.md) |
 
 The deterministic default configurations produce 510,000 raw offline rows
 (500,000 base transactions plus 10,000 duplicate rows) and 512,500 streaming
@@ -551,6 +552,7 @@ Use the README for the project-level view. Use the docs for implementation detai
 | [docs/21_local_k8s_platform.md](docs/21_local_k8s_platform.md) | Local Kubernetes platform: what runs where and on which port, how a request reaches the fraud model, measured memory and cold start, how to re-run each check, and the traps worth knowing |
 | [docs/22_web_apis.md](docs/22_web_apis.md) | Web APIs: what runs where, how one prediction is built from stored history and the payment, the health checks, autoscaling and rolling update evidence, automatic rollback, and how drift is measured and replayed |
 | [docs/23_validation_and_verification.md](docs/23_validation_and_verification.md) | Validating the web APIs: coverage and the mocks that made it possible, boundary cases, mutation testing, idempotency properties, and the load test with its SLA verdict |
+| [docs/24_ci_cd.md](docs/24_ci_cd.md) | CI/CD: the Jenkins architecture, what deploys when, and the before and after of a real deploy |
 | [docs/optimization/flink/streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md) | Controlled Flink UI benchmark for operator chaining, parallelism, backpressure, throughput, and checkpoints |
 | [docs/optimization/spark/silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md) | Spark UI baseline, Silver bottleneck analysis, AQE and shuffle-partition optimization, measured tradeoffs, and evidence |
 
