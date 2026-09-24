@@ -107,6 +107,35 @@ pipeline {
         '''
       }
     }
+
+    stage('Airflow pipelines') {
+      when { expression { deploying('airflow src configs feature_store/src feature_store/feature_repo') } }
+      steps {
+        script {
+          if (sh(script: 'test -d /deploy/.git', returnStatus: true) == 0) {
+            unstable('AIRFLOW_PROJECT_DIR is not set, so the Airflow pipelines were not deployed')
+            return
+          }
+          sh '''
+            uv run python -m compileall -q airflow/dags
+            ./ci/sync_airflow.sh /deploy
+          '''
+          if (sh(script: 'docker ps --format "{{.Names}}" | grep -qx fraudstream-airflow-scheduler', returnStatus: true) != 0) {
+            unstable('Airflow is not running: the pipelines were copied, but not checked')
+            return
+          }
+          sh '''
+            docker exec fraudstream-airflow-scheduler airflow dags reserialize
+            errors=$(docker exec fraudstream-airflow-scheduler airflow dags list-import-errors)
+            echo "$errors" | grep -q "No data found" || { echo "$errors"; exit 1; }
+            dags=$(docker exec fraudstream-airflow-scheduler airflow dags list)
+            for dag in fraudstream_raw_to_bronze fraudstream_bronze_to_silver_gold fraudstream_offline_features fraudstream_feature_store_materialize; do
+              echo "$dags" | grep -qw "$dag" || { echo "$dag is missing"; exit 1; }
+            done
+          '''
+        }
+      }
+    }
   }
 
   post {

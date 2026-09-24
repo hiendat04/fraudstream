@@ -31,12 +31,13 @@ x-airflow-common: &airflow-common
     MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-fraudstream}"
     MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
     PYTHONPATH: /opt/airflow/project/src:/opt/airflow/include
+  # AIRFLOW_PROJECT_DIR set: Airflow runs the tree Jenkins deploys, not this checkout.
   volumes:
-    - ./:/opt/airflow/project
-    - ./airflow/dags:/opt/airflow/dags:ro
-    - ./airflow/include:/opt/airflow/include:ro
-    - ./airflow/config:/opt/airflow/config:ro
-    - ./airflow/scripts:/opt/airflow/scripts:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/:/opt/airflow/project
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/dags:/opt/airflow/dags:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/include:/opt/airflow/include:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/config:/opt/airflow/config:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/scripts:/opt/airflow/scripts:ro
     - ./airflow/logs:/opt/airflow/logs
   depends_on:
     airflow-db:
