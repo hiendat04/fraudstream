@@ -4,8 +4,9 @@ USER root
 
 ARG KUBECTL_VERSION=v1.34.0
 ARG KIND_VERSION=v0.30.0
-ARG HELM_VERSION=v3.19.0
+ARG HELM_VERSION=v4.2.4
 ARG COMPOSE_VERSION=v5.5.1
+ARG BUILDX_VERSION=v0.37.1
 ARG DOCKER_VERSION=29.8.1
 
 # build-essential: psutil (serving) and crosshair-tool (api) publish no Linux
@@ -15,8 +16,9 @@ RUN apt-get update \
  && apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # The Debian docker.io package ships only dockerd, not the docker CLI, so the
-# client and docker-compose-plugin (Docker's own apt repo, not Debian's) are
-# both fetched as static binaries the same way kubectl, kind and helm are.
+# client, compose and buildx (Docker's own apt repo, not Debian's) are fetched as
+# static binaries the same way kubectl, kind and helm are. Without buildx the
+# legacy builder runs and warns that it is deprecated.
 RUN ARCH=$(dpkg --print-architecture) \
  && case "$ARCH" in arm64) DOCKER_ARCH=aarch64 ;; amd64) DOCKER_ARCH=x86_64 ;; *) echo "unsupported arch: $ARCH" >&2; exit 1 ;; esac \
  && curl -fsSLo /usr/local/bin/kubectl "https://dl.k8s.io/release/${KUBECTL_VERSION}/bin/linux/${ARCH}/kubectl" \
@@ -28,8 +30,10 @@ RUN ARCH=$(dpkg --print-architecture) \
  && mkdir -p /usr/local/lib/docker/cli-plugins \
  && curl -fsSLo /usr/local/lib/docker/cli-plugins/docker-compose \
       "https://github.com/docker/compose/releases/download/${COMPOSE_VERSION}/docker-compose-linux-${DOCKER_ARCH}" \
+ && curl -fsSLo /usr/local/lib/docker/cli-plugins/docker-buildx \
+      "https://github.com/docker/buildx/releases/download/${BUILDX_VERSION}/buildx-${BUILDX_VERSION}.linux-${ARCH}" \
  && chmod +x /usr/local/bin/kubectl /usr/local/bin/kind /usr/local/bin/helm /usr/local/bin/docker \
-      /usr/local/lib/docker/cli-plugins/docker-compose \
+      /usr/local/lib/docker/cli-plugins/docker-compose /usr/local/lib/docker/cli-plugins/docker-buildx \
  && rm -rf /tmp/docker /tmp/linux-${ARCH}
 
 COPY --from=ghcr.io/astral-sh/uv:0.9.10 /uv /usr/local/bin/uv

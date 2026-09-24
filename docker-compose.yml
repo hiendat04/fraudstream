@@ -458,6 +458,7 @@ services:
     restart: unless-stopped
     environment:
       KUBECONFIG: /var/jenkins_home/.kube/config
+      HOME: /var/jenkins_home
     secrets:
       - JENKINS_ADMIN_PASSWORD
       - POSTGRES_USER
