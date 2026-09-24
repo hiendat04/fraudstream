@@ -1,143 +1,58 @@
-# Gold Layer Data Model
+# Gold Layer
 
-The Gold layer is the business-ready layer of the platform. It contains facts,
-dimensions, aggregate facts, one-big-table views, and feature tables used for
-fraud analytics, reporting, governance, and future model training.
+Gold is the business-ready layer: facts, dimensions, daily aggregates, one flat view
+for exploring, and the feature tables that feed model training. It is built from
+Silver, never straight from Bronze.
 
-## Architecture
+## Two stores, one flow
 
-FraudStream uses two storage patterns:
-
-| Area | Storage | Purpose |
+| Store | Holds | For |
 |---|---|---|
-| Lakehouse processing | Apache Iceberg tables (`iceberg.bronze.*`, `iceberg.silver.*`, `iceberg.gold.*`) on Parquet data files in MinIO -- see [docs/15](15_lakehouse_iceberg.md) | Efficient Spark (and Flink) reads, writes, partitioning, and reproducible batch processing, with a shared table catalog instead of bare files. |
-| Serving and inspection | PostgreSQL database `fraudstream` | DBeaver exploration, ER diagrams, DataHub-style lineage, data contracts, and future API access. |
+| Iceberg on MinIO (`iceberg.bronze.*`, `.silver.*`, `.gold.*`) | The lakehouse tables (see [15_lakehouse_iceberg.md](15_lakehouse_iceberg.md)) | Spark and Flink processing |
+| PostgreSQL database `fraudstream` | A relational copy of the curated tables | DBeaver, ER diagrams, DataHub lineage, contracts |
 
-PostgreSQL is not the replacement for the Iceberg lakehouse. Spark still
-performs the core Bronze, Silver, and Gold transformations and writes their
-output to the Iceberg tables in MinIO. Each layer's Spark job also writes its
-own PostgreSQL tables directly over JDBC, right after its Iceberg write, so
-the relational serving copy of the curated tables stays in lockstep with the
-lakehouse tables without a separate publish step.
+PostgreSQL does not replace the lakehouse. Each Spark job writes its Iceberg table,
+then writes its PostgreSQL tables over JDBC in the same session, so the two never
+drift apart:
 
 ```text
-Raw CSV/JSONL
--> Spark (Bronze -> Silver -> Gold -> Features)
-     |-> Iceberg tables in MinIO
-     `-> PostgreSQL serving tables (direct JDBC write)
+Raw CSV/JSONL -> Spark (Bronze -> Silver -> Gold -> Features)
+                   |-> Iceberg tables in MinIO
+                   `-> PostgreSQL tables (direct JDBC write)
 ```
 
-## PostgreSQL Layout
-
-Local PostgreSQL runs from Docker Compose and creates one database with multiple
-schemas:
-
-```text
-database: fraudstream
-
-schemas:
-  metadata
-  bronze
-  silver
-  gold
-```
-
-This design keeps the three data zones visible in DBeaver without creating
-separate physical databases for each zone.
+One database, four schemas:
 
 | Schema | Role |
 |---|---|
-| `metadata` | Pipeline run logs, validation reports, and data contract records. |
-| `bronze` | Raw-preserved table representation for lineage and governance. |
-| `silver` | Clean staged table representation used as the Gold source. |
-| `gold` | Dimensional model, aggregate facts, feature tables, and reporting views. |
-
-## Local Setup
-
-Create PostgreSQL and initialize the schemas:
+| `metadata` | Pipeline runs (`pipeline_runs`), validation reports (`data_quality_reports`), data contracts (`data_contracts`) |
+| `bronze` | `raw_transactions`, `raw_transaction_ingest_runs` |
+| `silver` | `stg_transactions`, `stg_transaction_quality_issues` |
+| `gold` | Dimensions, facts, aggregates, features, labels and the flat view |
 
 ```bash
-docker compose up -d postgres postgres-schema-init
+docker compose up -d postgres postgres-schema-init   # POSTGRES_PORT=15432 if 5432 is taken
 ```
 
-DBeaver connection:
+DBeaver: `localhost:5432`, database `fraudstream`, user `fraudstream`, password
+`fraudstream_local_password`. The initialiser is idempotent.
 
-| Setting | Value |
-|---|---|
-| Host | `localhost` |
-| Port | `5432` |
-| Database | `fraudstream` |
-| Username | `fraudstream` |
-| Password | `fraudstream_local_password` |
+## Naming
 
-If port `5432` is already used locally:
-
-```bash
-POSTGRES_PORT=15432 docker compose up -d postgres postgres-schema-init
-```
-
-The initializer is idempotent. Re-running it creates missing objects without
-dropping existing data.
-
-Implementation files:
-
-| File | Purpose |
-|---|---|
-| `docker-compose.yml` | Runs MinIO, PostgreSQL, and the one-shot bucket/schema initializers. |
-| `infra/postgres/init/001_create_fraudstream_schema.sql` | Defines schemas, tables, constraints, indexes, comments, and the Gold OBT view. |
-| `src/fraudstream/jobs/warehouse.py` | Shared MinIO (S3A), Iceberg catalog, and PostgreSQL JDBC configuration and write helpers used by every Spark job. |
-| `src/fraudstream/jobs/gold/transactions.py` | Builds core Gold dimensions, facts, and aggregates from Silver, writing Iceberg tables in MinIO and every table directly to PostgreSQL; direct runs may also include features. |
-| `src/fraudstream/jobs/gold/offline_features.py` | Builds offline feature tables from persisted core Gold facts, writing Iceberg tables in MinIO and PostgreSQL directly. |
-| `src/fraudstream/jobs/gold/transaction_labels.py` | Loads the generator's raw label CSV into `gold.transaction_labels`, writing Iceberg tables in MinIO and PostgreSQL directly. |
-
-## Naming Standards
-
-Table prefixes identify the layer and modeling purpose.
-
-| Layer | Prefix | Example |
-|---|---|---|
-| Bronze | `raw_` | `bronze.raw_transactions` |
-| Silver | `stg_` | `silver.stg_transactions` |
-| Gold dimension | `dim_` | `gold.dim_customer` |
-| Gold fact | `fact_` | `gold.fact_transactions` |
-| Gold one-big table | `obt_` | `gold.obt_transaction_enriched` |
-| Gold feature table | `feat_` | `gold.feat_customer_total_orders_90d` |
-
-Column names use lowercase `snake_case`. Technical processing columns keep the
-leading underscore convention, such as `_gold_processed_at`.
-
-Time columns follow this convention:
+Prefixes show the layer: `raw_` (Bronze), `stg_` (Silver), `dim_`, `fact_`, `obt_`,
+`feat_` (Gold). Columns are lowercase `snake_case`, and technical columns start with
+`_` (for example `_gold_processed_at`).
 
 | Column | Meaning |
 |---|---|
-| `event_time` | Business transaction timestamp from Silver. |
-| `event_date` | Date derived from `event_time`. |
-| `event_timestamp` | Business timestamp used by feature tables. |
-| `created` | Timestamp when a feature value was created. |
-| `created_at` | Metadata record creation time. |
-| `_gold_processed_at` | Time a Gold job processed the row. |
+| `event_time` / `event_date` | Business time from Silver, and its date |
+| `event_timestamp` | Business time as feature tables use it |
+| `created` | When a feature value was computed |
+| `created_at` | When a metadata record was created |
 
-## Source Tables
+## Model
 
-Gold is built from Silver, not directly from Bronze.
-
-| Table | Purpose |
-|---|---|
-| `silver.stg_transactions` | Clean, typed, deduplicated transaction records. One selected row per `transaction_id`. |
-| `silver.stg_transaction_quality_issues` | Evidence rows for warnings, quarantines, and rejected duplicate candidates. |
-
-The canonical Spark source is the Iceberg table, not a raw path:
-
-```text
-iceberg.silver.stg_transactions
-iceberg.silver.stg_transaction_quality_issues
-```
-
-## Snowflake Model
-
-The Gold PostgreSQL schema uses a light snowflake model. The central transaction
-fact joins to dimensions, and selected dimensions normalize into smaller lookup
-dimensions.
+A light snowflake: one transaction fact, its dimensions, and a few normalised lookups.
 
 ```mermaid
 flowchart LR
@@ -164,271 +79,114 @@ flowchart LR
     customer --> city
 ```
 
-## Metadata Schema
+### Dimensions
 
-The `metadata` schema stores operational records for orchestration and
-governance.
-
-| Table | Grain | Purpose |
+| Table | Key | Business key |
 |---|---|---|
-| `metadata.pipeline_runs` | One row per pipeline run | Tracks run ID, layer, status, source path, target table, and row count. |
-| `metadata.data_quality_reports` | One row per validation report | Stores quality status, issue count, report path, and report JSON. |
-| `metadata.data_contracts` | One row per table contract version | Stores active table contracts for governance checks. |
+| `dim_date` | `date_key` | `event_date` |
+| `dim_city` | `city_key` | `city`, `country_code` |
+| `dim_channel` | `channel_key` | `channel` |
+| `dim_quality_issue` | `quality_issue_code` | `quality_issue_code` |
+| `dim_merchant_category` | `merchant_category_key` | `merchant_category` |
+| `dim_customer` | `customer_key` | `customer_id` (SCD2) |
+| `dim_account` | `account_key` | `account_id` (SCD2) |
+| `dim_merchant` | `merchant_key` | `merchant_dim_id` (SCD2) |
 
-These tables support Airflow and DataHub workflows without mixing operational
-metadata into business fact tables.
+The three SCD2 dimensions carry `valid_from_ts`, `valid_to_ts` (`NULL` means current)
+and `is_current`. A partial unique index allows only one current row per business
+key, and old versions stay for point-in-time joins.
 
-## Bronze Serving Tables
+### Facts
 
-Bronze tables expose raw-preserved data in PostgreSQL for lineage and DBeaver
-inspection. They mirror the Bronze Iceberg table's contract and keep source
-values as text.
-
-| Table | Grain | Purpose |
-|---|---|---|
-| `bronze.raw_transaction_ingest_runs` | One row per Bronze ingestion run | Tracks source path, manifest path, ingest date, status, and summary JSON. |
-| `bronze.raw_transactions` | One row per raw source record | Stores raw transaction columns, source metadata, partition columns, and raw record hash. |
-
-Bronze records can contain duplicates, blank strings, casing issues, missing
-evolved columns, and corrupt-record evidence. Cleanup belongs in Silver.
-
-## Silver Serving Tables
-
-Silver tables expose the cleaned transaction contract in PostgreSQL.
-
-| Table | Grain | Purpose |
-|---|---|---|
-| `silver.stg_transactions` | One row per selected `transaction_id` | Clean typed transaction table used as the Gold source. |
-| `silver.stg_transaction_quality_issues` | One row per quality evidence record | Stores quarantined rows, duplicate-rejected rows, and warning evidence. |
-
-`silver.stg_transactions` uses `event_time` as the business timestamp and
-`event_date` as the business-date partition field.
-
-## Gold Dimensions
-
-Gold dimensions describe entities used by the transaction fact table.
-
-| Table | Primary Key | Business Key | Notes |
-|---|---|---|---|
-| `gold.dim_date` | `date_key` | `event_date` | Calendar attributes for joins and reporting. |
-| `gold.dim_city` | `city_key` | `city`, `country_code` | Standardized location lookup. |
-| `gold.dim_channel` | `channel_key` | `channel` | Channel grouping such as digital, card, or cash. |
-| `gold.dim_quality_issue` | `quality_issue_code` | `quality_issue_code` | Human-readable quality issue definitions. |
-| `gold.dim_merchant_category` | `merchant_category_key` | `merchant_category` | Normalized merchant-category lookup. |
-| `gold.dim_customer` | `customer_key` | `customer_id` | SCD Type 2 customer behavior dimension. |
-| `gold.dim_account` | `account_key` | `account_id` | SCD Type 2 account behavior dimension. |
-| `gold.dim_merchant` | `merchant_key` | `merchant_dim_id` | SCD Type 2 merchant behavior dimension. |
-
-### SCD Type 2 Dimensions
-
-The customer, account, and merchant dimensions use Slowly Changing Dimension
-Type 2 columns:
-
-| Column | Meaning |
-|---|---|
-| `valid_from_ts` | Start timestamp for the dimension version. |
-| `valid_to_ts` | End timestamp for the dimension version. `NULL` means current. |
-| `is_current` | Indicates the active version for the natural business key. |
-
-Current rows are enforced with partial unique indexes, for example one current
-`customer_id` in `gold.dim_customer`. Historical versions remain available for
-point-in-time joins.
-
-## Gold Fact Tables
-
-### `gold.fact_transactions`
-
-Grain: one row per selected Silver transaction.
-
-Primary key: `transaction_id`.
-
-This is the central transaction fact table. It stores transaction measures,
-foreign keys to dimensions, quality metadata, and lineage fields copied through
-Silver.
-
-Key column groups:
+**`gold.fact_transactions`**, one row per selected Silver transaction, key `transaction_id`.
 
 | Group | Columns |
 |---|---|
-| Transaction identity | `transaction_id`, `event_time`, `event_date`, `date_key` |
+| Identity | `transaction_id`, `event_time`, `event_date`, `date_key` |
 | Dimension keys | `customer_key`, `account_key`, `merchant_key`, `channel_key`, `city_key` |
-| Business identifiers | `customer_id`, `account_id`, `merchant_id`, `merchant_dim_id` |
+| Business IDs | `customer_id`, `account_id`, `merchant_id`, `merchant_dim_id` |
 | Measures | `amount`, `transaction_count`, `arrival_delay_minutes` |
-| Status flags | `is_approved`, `is_declined`, `is_reversed`, `is_fraud` |
+| Status | `is_approved`, `is_declined`, `is_reversed`, `is_fraud` |
 | Quality | `quality_status`, `quality_issue_codes`, `quality_issue_count`, `duplicate_record_count` |
 | Lineage | `_bronze_raw_record_hash`, `_silver_processed_at`, `_gold_processed_at` |
 
-`is_fraud` is a historical label. It is useful for analytics and model training
-after the label is known, but it is not a prediction input for production
-scoring.
+`is_fraud` is a historical label, useful for analytics and training. It is never an
+input when scoring live.
 
-### `gold.fact_transaction_quality_issue`
+**`fact_transaction_quality_issue`**, one row per transaction and issue code. It
+unpacks the `quality_issue_codes` array so SQL and ER diagrams can join to
+`dim_quality_issue`.
 
-Grain: one row per transaction and quality issue code.
+**Daily aggregates**, built from the fact and reconciling back to it:
 
-This bridge table normalizes the `quality_issue_codes` array from
-`fact_transactions`. It allows SQL queries and ER diagrams to show a direct
-relationship between transactions and `gold.dim_quality_issue`.
-
-### Aggregate Fact Tables
-
-Aggregate fact tables store reusable daily metrics built from
-`gold.fact_transactions`.
-
-| Table | Grain | Purpose |
-|---|---|---|
-| `gold.fact_customer_daily` | `customer_key`, `feature_date` | Daily customer activity, amount, merchant diversity, warning count, late-arrival count, and fraud count. |
-| `gold.fact_account_daily` | `account_key`, `feature_date` | Daily account amount, merchant diversity, city diversity, decline count, and fraud count. |
-| `gold.fact_merchant_daily` | `merchant_key`, `feature_date` | Daily merchant volume, customer diversity, fraud rate, and warning count. |
-| `gold.fact_city_category_daily` | `city_key`, `merchant_category_key`, `feature_date` | Daily geographic and merchant-category activity. |
-| `gold.fact_device_ip_daily` | `network_identifier`, `identifier_type`, `feature_date` | Daily device/IP sharing behavior across customers and accounts. |
-
-Daily aggregate counts must reconcile back to `gold.fact_transactions` for the
-same date range.
-
-## Feature Tables
-
-Feature tables use the `feat_` prefix and include the required feature-time
-columns:
-
-| Column | Meaning |
+| Table | Grain |
 |---|---|
-| `event_timestamp` | Timestamp the feature value represents. |
-| `created` | Timestamp the feature was computed or published. |
+| `fact_customer_daily` | `customer_key`, `feature_date` |
+| `fact_account_daily` | `account_key`, `feature_date` |
+| `fact_merchant_daily` | `merchant_key`, `feature_date` |
+| `fact_city_category_daily` | `city_key`, `merchant_category_key`, `feature_date` |
+| `fact_device_ip_daily` | `network_identifier`, `identifier_type`, `feature_date` |
 
-| Table | Grain | Purpose |
-|---|---|---|
-| `gold.feat_customer_rolling` | `customer_key`, `event_timestamp` | Rolling 7-day and 30-day customer behavior features. |
-| `gold.feat_customer_total_orders_90d` | `customer_key`, `event_timestamp` | Example 90-day offline feature table. |
-| `gold.feat_merchant_risk_rolling` | `merchant_key`, `event_timestamp` | Rolling merchant burst, historical fraud-rate, and merchant-category comparison features. |
-| `gold.feat_transaction_training` | `transaction_id` | Model-training table joining transaction facts with point-in-time-safe features. |
+### Features and labels
 
-Feature computation prevents future leakage by joining each transaction only to
-features created from data available before that transaction's business time.
-The feature definitions, formulas, missing-history rules, and validation contract
-are documented in [`docs/06_feature_engineering.md`](06_feature_engineering.md).
+Feature tables carry `event_timestamp` (what the value represents) and `created`
+(when it was computed). Each transaction only joins to features built from data
+available before it. Definitions are in [06_feature_engineering.md](06_feature_engineering.md).
 
-## Transaction Labels Table
-
-`gold.transaction_labels` is loaded directly from the offline generator's raw
-label CSV rather than derived from Silver or the transaction fact table. It
-exists so feature tables can carry features only, with the label joined in
-separately at training time.
-
-| Table | Grain | Purpose |
-|---|---|---|
-| `gold.transaction_labels` | `transaction_id` | Fraud label and event time for each generated transaction, loaded from the generator's raw label CSV. |
-
-Columns:
-
-| Column | Meaning |
+| Table | Grain |
 |---|---|
-| `transaction_id` | Transaction identifier, joinable to `gold.feat_transaction_training` and the other feature tables. |
-| `is_fraud` | Historical fraud label (`0` or `1`). |
-| `event_timestamp` | Business timestamp the label corresponds to. |
+| `feat_customer_rolling` | `customer_key`, `event_timestamp` (7 and 30 days) |
+| `feat_customer_total_orders_90d` | `customer_key`, `event_timestamp` |
+| `feat_merchant_risk_rolling` | `merchant_key`, `event_timestamp` (bursts, fraud rate) |
+| `feat_transaction_training` | `transaction_id` (facts joined to safe features) |
+| `transaction_labels` | `transaction_id`: `is_fraud`, `event_timestamp` |
 
-## One-Big Table View
+`transaction_labels` is loaded straight from the generator's label CSV, not derived
+from Silver, so feature tables stay features-only and the label is joined at training.
 
-`gold.obt_transaction_enriched` is a flattened PostgreSQL view for DBeaver and
-ad hoc analysis.
+`gold.obt_transaction_enriched` is a flat view of the fact plus customer, account,
+merchant and channel, for exploring in DBeaver. The normalised tables stay the
+source of truth.
 
-It joins:
+## Loading
 
-```text
-gold.fact_transactions
-gold.dim_customer
-gold.dim_account
-gold.dim_merchant
-gold.dim_channel
-```
-
-The OBT view is convenient for exploration, but the normalized fact and
-dimension tables remain the authoritative model.
-
-## Loading Pattern
-
-Each Spark job writes its own Iceberg table in MinIO, then writes its own PostgreSQL tables directly over JDBC using the same Spark session, right after the Iceberg write.
-
-Pipeline loading pattern:
-
-| Pipeline | Iceberg Table (MinIO) | PostgreSQL Target (direct JDBC write) |
+| Job | Iceberg table | PostgreSQL |
 |---|---|---|
-| Bronze ingestion | `iceberg.bronze.raw_transactions` | `bronze.raw_transaction_ingest_runs`, `bronze.raw_transactions` |
-| Silver build | `iceberg.silver.stg_transactions`, `iceberg.silver.stg_transaction_quality_issues` | `silver.stg_transactions`, `silver.stg_transaction_quality_issues` |
-| Core Gold build | `iceberg.gold.<table_name>` | `gold.dim_*`, `gold.fact_*` |
+| Bronze | `iceberg.bronze.raw_transactions` | `bronze.raw_transaction_ingest_runs`, `bronze.raw_transactions` |
+| Silver | `iceberg.silver.stg_*` | `silver.stg_*` |
+| Core Gold | `iceberg.gold.*` | `gold.dim_*`, `gold.fact_*` |
 | Offline features | `iceberg.gold.feat_*` | `gold.feat_*` |
-| Transaction labels | `iceberg.gold.transaction_labels` | `gold.transaction_labels` |
+| Labels | `iceberg.gold.transaction_labels` | `gold.transaction_labels` |
 
-For local development, full refresh loading is acceptable for facts, daily
-aggregates, and feature tables. SCD2 dimensions currently reload in full too --
-the Gold job truncates every Gold table together (PostgreSQL resolves the
-foreign-key order) before reinserting, rather than performing true incremental
-change detection.
-
-Install the Spark extra. The MinIO (S3A), Iceberg, and PostgreSQL JDBC driver
-jars are fetched automatically on first Spark session startup via
-`spark.jars.packages`:
+Locally, every table reloads in full: the Gold job truncates all Gold tables together
+before reinserting. There is no incremental change detection yet.
 
 ```bash
-uv sync --extra spark
+uv sync --extra spark      # the MinIO, Iceberg and JDBC jars download on first run
+# core Gold first, features second (this is the Airflow boundary)
+PYTHONPATH=src python -m fraudstream.jobs.gold.transactions --output-dir data/gold --write-mode overwrite --core-only
+PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features --gold-dir data/gold --write-mode overwrite
 ```
 
-Build Gold Iceberg tables from Silver, writing every table to MinIO and
-PostgreSQL:
+Drop `--core-only` to build features in the same run, add `--skip-postgres-write` for
+Iceberg only, and add `--spark-ui --spark-ui-retain-seconds 300` to inspect the plans.
+Each job checks its required columns (`GOLD_TABLE_COLUMNS` in `gold/transactions.py`)
+before writing anything, so a missing column fails the job before either store is touched.
 
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
-  --output-dir data/gold \
-  --write-mode overwrite
-```
+Code: `src/fraudstream/jobs/warehouse.py` (shared config and write helpers),
+`jobs/gold/transactions.py`, `jobs/gold/offline_features.py`,
+`jobs/gold/transaction_labels.py`, and the schema in
+`infra/postgres/init/001_create_fraudstream_schema.sql`.
 
-For the Airflow execution boundary, build core Gold first and features second:
+## What "correct" looks like
 
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.gold.transactions \
-  --output-dir data/gold \
-  --write-mode overwrite \
-  --core-only
-
-PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features \
-  --gold-dir data/gold \
-  --write-mode overwrite
-```
-
-Add `--skip-postgres-write` to either command to build the Iceberg tables only.
-
-To inspect Gold feature engineering in Spark UI:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.gold.offline_features \
-  --gold-dir data/gold \
-  --write-mode overwrite \
-  --spark-ui \
-  --spark-ui-retain-seconds 300
-```
-
-Open the URL printed by Spark, normally `http://localhost:4040`. Each table has
-its own `Offline features: materialize and write ...` job group. The most useful captures
-for feature engineering are `feat_customer_rolling`,
-`feat_merchant_risk_rolling`, and `feat_transaction_training`; their SQL plans
-show rolling windows, daily pre-aggregation, broadcast category joins,
-point-in-time lookups, and adaptive skew handling.
-
-Each job validates its documented column list (`GOLD_TABLE_COLUMNS` in
-`gold/transactions.py`) before writing. If a DataFrame is missing a required
-column, the job fails before writing either MinIO or PostgreSQL.
-
-## Validation Expectations
-
-These checks define the minimum quality bar for Gold publishing:
-
-| Check | Expected Result |
+| Check | Expected |
 |---|---|
-| Fact row count | `gold.fact_transactions` matches the selected row count from Silver. |
-| Transaction uniqueness | `transaction_id` is unique in `gold.fact_transactions`. |
-| Foreign keys | Fact rows join successfully to customer, account, merchant, date, and channel dimensions. |
-| SCD2 current records | Each natural key has at most one current dimension row. |
-| Date logic | `event_date` is derived from business `event_time`. |
-| Quality lineage | Warning rows remain visible through `quality_status` and issue tables. |
-| Aggregate reconciliation | Daily aggregate counts reconcile to transaction facts. |
-| Feature time safety | Feature values use only data available before the feature `event_timestamp`. |
+| Row count | `fact_transactions` matches Silver's selected rows |
+| Uniqueness | `transaction_id` is unique |
+| Foreign keys | Every fact row joins to its dimensions |
+| SCD2 | At most one current row per business key |
+| Date logic | `event_date` comes from `event_time` |
+| Quality lineage | Warning rows stay visible through `quality_status` |
+| Aggregates | Daily counts reconcile to the fact |
+| Time safety | Features use only data from before their `event_timestamp` |

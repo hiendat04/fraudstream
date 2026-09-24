@@ -1,13 +1,12 @@
-# Flink Streaming Transaction Pipeline
+# Flink Streaming Pipeline
 
-This job consumes transaction events from Kafka and produces clean events,
-five-minute fraud features, alerts, and audit records.
+Reads transactions from Kafka and produces clean events, five-minute fraud features,
+alerts and audit records.
 
-The core problem is that transactions do not always arrive in event-time order.
-Flink therefore groups records by when the transaction happened, while a
-watermark decides when a time window is ready to produce a result.
+Transactions don't arrive in the order they happened. So Flink groups them by *when
+they happened*, and a watermark decides when a window is ready to emit.
 
-## Pipeline Flow
+## Flow
 
 ```mermaid
 flowchart LR
@@ -28,297 +27,172 @@ flowchart LR
     merchant -.upsert.-> iceberg
 ```
 
-For every Kafka record, the job:
+Nothing is dropped silently: invalid, duplicate and too-late records each get their own topic.
 
-1. validates the JSON envelope and required fields;
-2. keeps the first occurrence of each `event_id`;
-3. publishes the normalized transaction to the clean topic;
-4. adds it to customer and merchant event-time windows;
-5. produces features and fraud alerts;
-6. audits invalid, duplicate, and too-late records instead of silently dropping
-   them.
+## Input
 
-## Source Contract
-
-| Setting | Value |
-|---|---|
-| Kafka topic | `financial_transactions` |
-| Partitions | 24 |
-| Consumer group | `fraudstream-flink-features-v1` |
-| Event type | `transaction.created` |
-| Schema version | `stream_v1` |
-
-The most important input fields are:
+Topic `financial_transactions` (24 partitions, consumer group
+`fraudstream-flink-features-v1`, schema `stream_v1`). Fields the job relies on:
 
 | Field | Use |
 |---|---|
 | `value.event_id` | Deduplication key |
-| `value.event_timestamp` | Event time used by windows |
-| `produced_at` | Arrival-time evidence used to measure source delay |
-| `value.customer_id` | Customer feature key |
-| `value.merchant_id` | Merchant feature key |
+| `value.event_timestamp` | Event time for windows |
+| `produced_at` | When the source published it; measures delay |
+| `value.customer_id`, `value.merchant_id` | Feature keys |
 | `value.amount`, `value.transaction_status` | Feature measures |
 
-`value.is_fraud` is evaluation truth. The online feature job does not use it,
-because doing so would leak the answer into the fraud features.
+`value.is_fraud` is evaluation truth only. The job never reads it, or it would leak the
+answer into the features.
 
-## Event Time And Watermarks
+## Watermarks
 
-Two timestamps have different meanings:
-
-- `event_timestamp`: when the transaction happened;
-- `produced_at`: when the source published the transaction.
-
-Windows use `event_timestamp`. If a transaction happened at 10:02 but arrived
-at 10:08, it still belongs to the 10:00–10:05 window.
-
-### Watermark intuition
-
-The job uses a **bounded out-of-orderness watermark**:
+Windows use `event_timestamp`: a transaction from 10:02 that arrives at 10:08 still
+belongs to the 10:00–10:05 window. The watermark says when to stop waiting:
 
 ```text
-watermark = largest event_timestamp observed - measured p95 source delay
+watermark = largest event_timestamp seen - measured p95 source delay
 ```
 
-When the watermark passes 10:05, Flink considers the 10:00–10:05 window ready
-and emits its first result. A larger delay waits longer for out-of-order events
-but also makes features slower. A smaller delay produces features faster but
-classifies more events as late.
+A longer delay waits for stragglers but makes features slower. A shorter one is faster
+but marks more events late. The delay isn't hard-coded. It comes from a measured profile
+(`produced_at - event_timestamp`, p95 of first-seen events; duplicates, invalid rows and
+negative delays are excluded). Idle Kafka partitions are ignored after 60 seconds so
+one empty partition can't stall everything.
 
-The delay is not hard-coded. It is loaded from a measured latency profile:
-
-```text
-source delay = produced_at - event_timestamp
-configured delay = nearest-rank p95 of first-seen event IDs
-```
-
-P95 means 95% of the measured first arrivals had this delay or less.
-
-The calibrator excludes duplicate replays, invalid records, and negative delays.
-Idle Kafka subtasks are ignored after 60 seconds so an empty partition cannot
-stop the watermark for the whole pipeline.
-
-### Current local measurement
-
-The committed profile was measured from the generated local source:
+Local measurement (from the generated source, not production):
 
 | Metric | Value |
 |---|---:|
 | Records scanned | 512,500 |
-| Unique events measured | 500,000 |
+| Unique events | 500,000 |
 | Duplicate replays excluded | 12,500 |
-| p50 delay | 68 seconds |
-| p95 watermark delay | 11,900 seconds (3h 18m 20s) |
-| p99 delay | 37,032 seconds |
+| p50 delay | 68 s |
+| p95 watermark delay | 11,900 s (3h 18m) |
 
-The p95 is large because the generator intentionally includes very late events.
-This is development evidence, not production telemetry.
-
-Measure a representative production export before deployment:
+The p95 is large because the generator injects very late events on purpose. Before a
+real deployment, measure a production export and start the job with it:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.flink.watermark_calibration \
   --source /path/to/production-events.jsonl \
-  --output /path/to/production-latency-profile.json \
-  --environment production
-```
+  --output /path/to/production-latency-profile.json --environment production
 
-Then start the job with that profile:
-
-```bash
 PYTHONPATH=src python -m fraudstream.jobs.flink.transactions \
   --latency-profile /path/to/production-latency-profile.json
 ```
 
-Recalibrate when the producer, network, source system, or latency distribution
-changes.
+## Windows and alerts
 
-## Windows And Features
+Two five-minute tumbling windows, so each transaction lands in one of each:
 
-The current job implements two five-minute tumbling windows. A transaction
-belongs to exactly one window of each type.
-
-| Window key | Features |
+| Key | Features |
 |---|---|
-| `customer_id` | Transaction count, total/average/maximum amount, decline count, distinct merchants, distinct devices |
-| `merchant_id` | Transaction count, total/average/maximum amount, decline count, distinct customers, merchant category |
+| `customer_id` | Count, total / average / max amount, declines, distinct merchants, distinct devices |
+| `merchant_id` | Count, total / average / max amount, declines, distinct customers, category |
 
-The job emits alerts when configured thresholds are reached:
+Alerts fire on high customer velocity, high customer amount and merchant bursts. Feature
+and alert IDs are deterministic, so a corrected window re-emits the same ID with
+`is_correction = true` and downstream can upsert.
 
-- high customer transaction velocity;
-- high customer transaction amount;
-- merchant transaction burst.
+## Late events
 
-Feature and alert IDs are deterministic. If a window is corrected later, the
-same ID is emitted with `is_correction = true`, allowing downstream systems to
-upsert instead of creating duplicate rows.
+The watermark controls when the *first* result comes out. Allowed lateness (40 minutes)
+keeps closed-window state so a result can still be *corrected*.
 
-## Late Events
-
-Watermark delay and allowed lateness solve different problems:
-
-- watermark delay controls how long Flink waits before the first result;
-- allowed lateness keeps closed-window state for another 40 minutes so the
-  result can still be corrected.
-
-| Arrival condition | Result |
+| Arrival | Result |
 |---|---|
-| Before the watermark closes the window | Included in the first result |
-| After first result but within 40-minute allowed lateness | Feature is corrected |
-| After window state is removed | Written to `financial_transactions_late` |
+| Before the window closes | In the first result |
+| After it, within 40 minutes | Feature corrected |
+| After the state is removed | Sent to `financial_transactions_late` |
 
-A too-late transaction still remains in the clean transaction topic. The online
-window is not changed, but the offline Spark pipeline can use the complete clean
-history to rebuild exact features.
+A too-late event is still in the clean topic, so the offline Spark job can rebuild exact
+features from the full history.
 
-## Kafka Outputs
+## Outputs
 
 | Topic | Contents |
 |---|---|
-| `financial_transactions_clean` | Valid, normalized, first-seen transactions |
-| `financial_transactions_invalid` | Invalid JSON or contract violations |
-| `financial_transactions_duplicate` | Replayed IDs and conflicting duplicate payloads |
-| `financial_transactions_late` | Events received after window state expired |
-| `fraud_features_customer_5m` | Customer window features |
-| `fraud_features_merchant_5m` | Merchant window features |
-| `fraud_alerts` | Customer velocity, amount, and merchant burst alerts |
+| `financial_transactions_clean` | Valid, first-seen transactions |
+| `financial_transactions_invalid` | Bad JSON or contract violations |
+| `financial_transactions_duplicate` | Replayed IDs and conflicting duplicates |
+| `financial_transactions_late` | Events past allowed lateness |
+| `fraud_features_customer_5m` / `fraud_features_merchant_5m` | Window features |
+| `fraud_alerts` | Velocity, amount and burst alerts |
 
-Kafka sinks use transactional exactly-once delivery. Consumers should use
-`isolation.level=read_committed`. Derived topics use `LogAppendTime` so Kafka
-retention is based on when the result was written, not its historical event time.
+Kafka sinks are transactional (exactly-once), so consumers should use
+`isolation.level=read_committed`.
 
-## Iceberg Outputs
+Three streams also **upsert** into Iceberg (see [15_lakehouse_iceberg.md](15_lakehouse_iceberg.md)),
+so a batch job can later join streaming features with labels that arrive weeks after the
+transaction. A correction replaces the row instead of duplicating it.
 
-Alongside the Kafka topics above, three of the same streams also upsert into
-Iceberg tables in the shared lakehouse catalog -- see
-[docs/15_lakehouse_iceberg.md](15_lakehouse_iceberg.md) for the catalog design
-and the Table API bridge this uses:
-
-| Iceberg Table | Source Stream | Primary Key |
+| Iceberg table | Source | Key |
 |---|---|---|
-| `iceberg.streaming.clean_transactions` | `financial_transactions_clean` | `event_id` |
-| `iceberg.streaming.customer_features_5m` | `fraud_features_customer_5m` | `feature_id` |
-| `iceberg.streaming.merchant_features_5m` | `fraud_features_merchant_5m` | `feature_id` |
+| `iceberg.streaming.clean_transactions` | clean topic | `event_id` |
+| `iceberg.streaming.customer_features_5m` | customer features | `feature_id` |
+| `iceberg.streaming.merchant_features_5m` | merchant features | `feature_id` |
 
-Kafka stays the low-latency contract consumers subscribe to; the Iceberg
-copy is what lets a later batch job join today's streaming features against a
-fraud/chargeback label that only arrives weeks after the transaction. A late
-correction for a window that already emitted a row **replaces** it in Iceberg
-(`write.upsert.enabled`) rather than duplicating it, unlike the append-only
-Kafka topics.
+## State and recovery
 
-## State And Recovery
-
-| Setting | Value |
-|---|---:|
-| Checkpoint interval | 30 seconds |
-| Checkpoint mode | Exactly once |
-| Deduplication state TTL | 24 hours |
-| Allowed lateness | 40 minutes |
-| Idle partition timeout | 60 seconds |
-| Local parallelism | 4 |
-
-Checkpoints store Kafka offsets, deduplication state, window state, and timers.
-After a failure, Flink restores them together and resumes from the checkpointed
-Kafka offsets. Production checkpoints must use durable shared storage.
+Checkpoints every 30 seconds (exactly-once) store Kafka offsets, dedup state, window
+state and timers together. After a failure Flink restores all of it and resumes from the
+checkpointed offsets. Dedup state expires after 24 hours; local parallelism is 4.
+Production checkpoints need durable shared storage.
 
 ## Run Locally
 
-Create the Python 3.12 PyFlink environment:
-
 ```bash
-UV_CACHE_DIR=/tmp/fraudstream-uv-cache \
-  uv sync --project flink --python 3.12
-```
+UV_CACHE_DIR=/tmp/fraudstream-uv-cache uv sync --project flink --python 3.12
 
-Download the Kafka connector and start Kafka:
-
-```bash
-mvn dependency:copy \
-  -Dartifact=org.apache.flink:flink-sql-connector-kafka:5.0.0-2.1 \
+# Kafka connector, then Kafka
+mvn dependency:copy -Dartifact=org.apache.flink:flink-sql-connector-kafka:5.0.0-2.1 \
   -DoutputDirectory=flink/lib
-
 docker compose up -d kafka kafka-topic-init kafka-ui
-```
 
-Download the Iceberg lakehouse jars (Iceberg Flink runtime, the PostgreSQL
-JDBC driver for the Iceberg catalog, and hadoop-aws for MinIO access) and
-start MinIO + PostgreSQL. See
-[`docs/15_lakehouse_iceberg.md`](15_lakehouse_iceberg.md) for why these three
-jars specifically and what each one is for:
-
-```bash
-mvn dependency:copy \
-  -Dartifact=org.apache.iceberg:iceberg-flink-runtime-2.1:1.11.0 \
+# Iceberg jars (why these three: see doc 15), then MinIO + PostgreSQL
+mvn dependency:copy -Dartifact=org.apache.iceberg:iceberg-flink-runtime-2.1:1.11.0 \
   -DoutputDirectory=flink/lib/iceberg
-
-mvn dependency:copy \
-  -Dartifact=org.postgresql:postgresql:42.7.4 \
+mvn dependency:copy -Dartifact=org.postgresql:postgresql:42.7.4 \
   -DoutputDirectory=flink/lib/iceberg
-
-mvn dependency:copy-dependencies \
-  -Dartifact=org.apache.hadoop:hadoop-aws:3.4.1 \
-  -DoutputDirectory=flink/lib/iceberg \
-  -DincludeScope=runtime
-
+mvn dependency:copy-dependencies -Dartifact=org.apache.hadoop:hadoop-aws:3.4.1 \
+  -DoutputDirectory=flink/lib/iceberg -DincludeScope=runtime
 docker compose up -d minio minio-bucket-init postgres postgres-schema-init
-```
 
-Start Flink:
-
-```bash
+# Start the job (Flink UI: http://localhost:8081)
 PYTHONPATH=src UV_CACHE_DIR=/tmp/fraudstream-uv-cache \
   uv run --project flink --python 3.12 \
   python -m fraudstream.jobs.flink.transactions --flink-ui
 ```
 
-The local Flink UI is available at `http://localhost:8081`. For a controlled
-baseline and optimized comparison, follow
-[`optimization/flink/streaming_job_optimization.md`](optimization/flink/streaming_job_optimization.md).
-
 Replay events from another terminal:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.producers.stream_replay \
-  --bootstrap-servers localhost:9092 \
-  --topic financial_transactions \
-  --events-per-second 5000
+  --bootstrap-servers localhost:9092 --topic financial_transactions --events-per-second 5000
 ```
 
-Print the resolved configuration without starting Flink:
+`--dry-run` prints the resolved configuration without starting Flink. Tuning results are
+in [optimization/flink/streaming_job_optimization.md](optimization/flink/streaming_job_optimization.md).
 
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.flink.transactions --dry-run
-```
+## What to watch
 
-## What To Monitor
+Consumer lag, watermark lag, records in and out of each operator, invalid / duplicate /
+corrected / too-late counts, checkpoint duration, backpressure and keyed-state size.
 
-Focus on:
-
-- Kafka consumer lag and pending records;
-- current watermark and watermark lag;
-- records entering and leaving each operator;
-- invalid, duplicate, corrected, and too-late event counts;
-- checkpoint duration and failures;
-- operator busy time and backpressure;
-- keyed-state size.
-
-For the generated source, the main reconciliation checks are:
+For the generated source, the counts should reconcile:
 
 ```text
-512,500 source records
-= 500,000 first-seen events + 12,500 duplicate replays
-
-valid deduplicated window memberships
-= accepted memberships + too-late memberships
+512,500 source records = 500,000 first-seen events + 12,500 duplicate replays
+valid deduplicated window memberships = accepted + too-late memberships
 ```
 
-## Code Map
+## Code
 
-| File | Responsibility |
+| File | Does |
 |---|---|
-| `src/fraudstream/jobs/flink/transactions.py` | Configuration, validation, feature contracts, CLI |
-| `src/fraudstream/jobs/flink/runtime.py` | PyFlink operators, Kafka topology, and Hadoop/Iceberg classpath setup |
-| `src/fraudstream/jobs/flink/iceberg_sink.py` | Table API bridge: Iceberg catalog/table DDL, typed row mapping, `StatementSet` wiring -- see [docs/15](15_lakehouse_iceberg.md) |
-| `src/fraudstream/jobs/flink/watermark_calibration.py` | Measures source delay and writes the p95 profile |
-| `configs/flink/streaming_latency_profile.json` | Current measured local profile |
+| `src/fraudstream/jobs/flink/transactions.py` | Config, validation, feature contracts, CLI |
+| `src/fraudstream/jobs/flink/runtime.py` | PyFlink operators, Kafka topology, Iceberg classpath |
+| `src/fraudstream/jobs/flink/iceberg_sink.py` | Iceberg table DDL and sink wiring (see [doc 15](15_lakehouse_iceberg.md)) |
+| `src/fraudstream/jobs/flink/watermark_calibration.py` | Measures delay, writes the p95 profile |
+| `configs/flink/streaming_latency_profile.json` | Current local profile |

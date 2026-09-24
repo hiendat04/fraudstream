@@ -1,95 +1,75 @@
 # Novel Idea: Real-Time Fraud Analytics
 
-## Motivation
+Flink already writes clean transactions, five-minute features, late events and alerts to
+Kafka. Kafka moves them well, but it isn't built for history or interactive
+investigation. The idea is to add a real-time analytics layer:
 
-The Flink pipeline produces clean transactions, five-minute features, late
-events, and fraud alerts as Kafka topics. Kafka is effective for transporting
-these records, but it is not intended for historical analytical queries or
-interactive investigation.
+- **ClickHouse** stores and aggregates the streaming results.
+- **Grafana** shows operational and fraud dashboards on top of it.
 
-The proposed extension adds a real-time analytics layer:
-
-- **ClickHouse** stores and aggregates high-volume streaming results.
-- **Grafana** presents operational and fraud-analysis dashboards from
-  ClickHouse.
-
-This complements the existing PostgreSQL serving layer. PostgreSQL continues to
-serve batch Bronze, Silver, Gold, and offline feature tables, while ClickHouse
+PostgreSQL keeps serving the batch tables (Bronze, Silver, Gold, features). ClickHouse
 serves recent streaming analytics.
 
-## Proposed Data Flow
+## Data flow
 
-```text
-Kafka transactions
-        |
-        v
-      Flink
-        |
-        v
-Kafka feature, alert, and audit topics
-        |
-        v
-   ClickHouse
-        |
-        v
-     Grafana
+```mermaid
+flowchart LR
+    tx[Kafka transactions] --> flink[Flink]
+
+    subgraph Topics["Existing Flink output topics"]
+        clean[financial_transactions_clean]
+        late[financial_transactions_late]
+        cust[fraud_features_customer_5m]
+        merch[fraud_features_merchant_5m]
+        alerts[fraud_alerts]
+    end
+
+    flink --> clean & late & cust & merch & alerts
+
+    subgraph CH["ClickHouse"]
+        kafka["Kafka-engine tables"]
+        mv1["Materialized views<br/>validate and transform"]
+        raw[("MergeTree tables<br/>event history")]
+        mv2["Materialized views<br/>minute and hourly rollups"]
+        agg[("Aggregate tables")]
+        kafka --> mv1 --> raw
+        raw --> mv2 --> agg
+    end
+
+    clean & late & cust & merch & alerts --> kafka
+    raw --> grafana[Grafana]
+    agg --> grafana
 ```
 
-ClickHouse would consume these existing Flink output topics:
+## What it stores
 
-- `financial_transactions_clean`
-- `financial_transactions_late`
-- `fraud_features_customer_5m`
-- `fraud_features_merchant_5m`
-- `fraud_alerts`
-
-Kafka-engine tables would receive the messages. Incremental materialized views
-would validate and transform each message into persistent `MergeTree` tables.
-Additional materialized views would maintain query-ready minute and hourly
-aggregates.
-
-## Proposed Data Products
-
-| Data product | Purpose |
+| Data product | Use |
 |---|---|
-| Real-time transaction history | Investigate recent customer and merchant activity |
-| Customer feature history | Track customer velocity and amount changes by window |
-| Merchant feature history | Track merchant burst and risk signals by window |
-| Fraud alert history | Search alerts by time, customer, merchant, and alert type |
-| Late-event history | Measure event-time reliability and investigate delayed records |
+| Transaction history | Investigate recent customer and merchant activity |
+| Customer feature history | Velocity and amount changes by window |
+| Merchant feature history | Burst and risk signals by window |
+| Alert history | Search by time, customer, merchant and alert type |
+| Late-event history | Measure event-time reliability |
 
-Grafana would expose the most useful operational views:
+Grafana dashboards: transactions and alerts per minute, p95 event-to-alert latency,
+late and duplicate rates, highest-risk customers and merchants, and fraud by city and
+category.
 
-- transactions and fraud alerts per minute;
-- p95 event-to-alert latency;
-- late- and duplicate-event rates;
-- highest-risk customers and merchants;
-- fraud and alert distribution by city and merchant category.
+## Why it's worth building
 
-## Engineering Value
+It adds a real-time OLAP and visualisation stack without replacing anything, and exercises
+direct Kafka-to-database ingestion, columnar table and sorting-key design, incremental
+aggregation, retention, and dashboard design.
 
-This extension introduces a new real-time OLAP and visualization stack without
-replacing the current pipelines. It demonstrates:
+The useful experiment: aggregate raw rows at query time versus reading the pre-aggregated
+tables. Report query time, rows and bytes read, memory, and dashboard refresh latency. No
+speed-up gets claimed without measurements.
 
-- direct Kafka-to-analytical-database ingestion;
-- columnar table, partition, and sorting-key design;
-- incremental aggregation with materialized views;
-- retention management for high-volume event data;
-- dashboard design for streaming data products;
-- analytical query and ingestion-performance measurement.
+## Boundaries
 
-A useful performance study would compare aggregating raw event rows at query
-time with reading pre-aggregated materialized-view tables. The comparison should
-report measured query duration, rows and bytes read, memory use, and dashboard
-refresh latency. No performance improvement should be claimed without captured
-results.
-
-## Design Boundaries
-
-The proposal does not introduce a fraud model or scoring API. It also does not
-replace Flink, Kafka, PostgreSQL, Airflow, or DataHub. Its responsibility is
-limited to persisting, querying, and visualizing the streaming outputs that the
-current platform already produces.
+No fraud model or scoring API here, and it doesn't replace Flink, Kafka, PostgreSQL,
+Airflow or DataHub. It only stores, queries and visualises what the platform already
+produces.
 
 ## References
 

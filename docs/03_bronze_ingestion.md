@@ -1,130 +1,30 @@
-# Bronze Ingestion Design
+# Bronze Ingestion
 
-This document defines the Bronze transaction table for the offline Spark path.
-Bronze is the first lakehouse layer after raw source files. Its job is to
-preserve source behavior, add ingestion metadata, and write a queryable
-Iceberg table without cleaning business values. See
-[docs/15_lakehouse_iceberg.md](15_lakehouse_iceberg.md) for the shared
-Iceberg catalog design; this document covers Bronze's own schema and rules.
+Bronze is the first lakehouse layer. It answers one question: *what did the source
+send, where did it come from, and when did we ingest it?* It keeps everything as the
+source wrote it and adds ingestion metadata. Iceberg catalog details are in
+[15_lakehouse_iceberg.md](15_lakehouse_iceberg.md).
 
-## Core Principle
+**Bronze never cleans.** It keeps duplicate `transaction_id`s, late arrivals,
+padded, mixed-case and blank values, `v1` rows without the newer columns, and `v2`
+rows with them. Fixing those is Silver's job.
 
-Bronze should answer one question:
+## Where things live
 
-```text
-What did the source system send, where did it come from, and when did we ingest it?
-```
+| What | Where |
+|---|---|
+| Source CSVs | `s3a://fraudstream/raw/offline_transactions/` (found through `_manifest.json`, or by listing `--source-uri`) |
+| Bronze table | `iceberg.bronze.raw_transactions`, data in MinIO under `s3a://fraudstream/warehouse/bronze/raw_transactions/`, catalog in PostgreSQL |
+| Copies in PostgreSQL | `bronze.raw_transactions` and `bronze.raw_transaction_ingest_runs`, one row per source record and per run |
+| Job summary | `data/bronze/raw_transactions/_bronze_ingestion_summary.json` |
 
-Bronze must not deduplicate, standardize, enrich, or repair records. Those
-changes belong in Silver. This means Bronze intentionally keeps:
+Always read and write through the table name, not the file path: Iceberg owns the layout.
 
-- duplicate `transaction_id` values
-- late arrivals where `created_ts` is much later than `event_timestamp`
-- uppercase, lowercase, padded, or blank source values
-- old `v1` rows that do not have evolved columns
-- new `v2` rows with device, IP, authentication, and risk signal fields
-
-## Source Input
-
-Raw CSV partitions live in MinIO, under the default `raw_uri`:
-
-```text
-s3a://fraudstream/raw/offline_transactions/
-```
-
-Source layout:
-
-```text
-schema_version=v1/transaction_date=YYYY-MM-DD/transactions.csv
-schema_version=v2/transaction_date=YYYY-MM-DD/transactions.csv
-```
-
-The Bronze Spark job reads the local `_manifest.json` (under `--source-dir`,
-default `data/raw_source/offline_transactions/`) for file discovery when
-possible -- the manifest's `files` list holds the MinIO URI of every source
-partition. When no manifest is present, the job falls back to listing
-`--source-uri` in MinIO directly.
-
-## Target Table
-
-Recommended table name:
-
-```text
-bronze.raw_transactions
-```
-
-Iceberg table (data in MinIO, catalog metadata in PostgreSQL):
-
-```text
-iceberg.bronze.raw_transactions
-```
-
-Physical Parquet data files live under the same MinIO location as before
-(`s3a://fraudstream/warehouse/bronze/raw_transactions/`), but Iceberg manages
-that layout -- read/write through the table name above, not the raw path.
-
-Local output path (job summary JSON evidence only, not the table itself):
-
-```text
-data/bronze/raw_transactions/
-```
-
-The ingestion job also writes `bronze.raw_transaction_ingest_runs` and
-`bronze.raw_transactions` directly to PostgreSQL over JDBC after the Iceberg
-write, using the same Spark session (see "Run Bronze Ingestion" below).
-
-## Local Spark Setup
-
-Spark is installed as an optional project dependency so the core data generators
-can still run without a JVM-based Spark runtime.
-
-Install the Spark extra:
+## Run it
 
 ```bash
-uv sync --extra spark
-```
-
-If you also need the Kafka replay producer in the same environment, sync both
-extras:
-
-```bash
-uv sync --extra kafka --extra spark
-```
-
-PySpark local execution requires Java 17 or later. Check your local Java runtime:
-
-```bash
-java -version
-```
-
-Run the local Spark smoke check:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.spark_local_check
-```
-
-The smoke check writes a tiny Parquet dataset to:
-
-```text
-/tmp/fraudstream_spark_local_check
-```
-
-and reads it back with a local Spark session. This validates the project
-dependency and local run path independently from the full Bronze ingestion job.
-
-## Run Bronze Ingestion
-
-Generate the raw offline source files first:
-
-```bash
+uv sync --extra spark                       # PySpark needs Java 17+
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions
-```
-
-Start MinIO and PostgreSQL first (see the README Quick Start), then ingest the
-raw CSV partitions into the `iceberg.bronze.raw_transactions` table in MinIO
-and write the ingest-run and raw-transaction tables directly to PostgreSQL:
-
-```bash
 PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
   --source-dir data/raw_source/offline_transactions \
   --source-uri s3a://fraudstream/raw/offline_transactions \
@@ -133,59 +33,12 @@ PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
   --write-mode overwrite
 ```
 
-Add `--skip-postgres-write` to build the Iceberg table only, for example when
-PostgreSQL is not running locally.
+MinIO and PostgreSQL must be running (see the README Quick Start). Use
+`--skip-postgres-write` for the Iceberg table alone, `--write-mode append` to keep
+several runs, and `--spark-ui --spark-ui-retain-seconds 300` to keep the Spark UI
+(`http://localhost:4040`) open for screenshots.
 
-To capture this ingestion in Spark UI, add the observation flags:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
-  --source-dir data/raw_source/offline_transactions \
-  --output-dir data/bronze/raw_transactions \
-  --write-mode overwrite \
-  --spark-ui \
-  --spark-ui-retain-seconds 300
-```
-
-Open the URL printed by the command, normally `http://localhost:4040`. The
-named Bronze jobs show the raw CSV parse and lineage write separately from the
-duplicate, schema-version, and transaction-date profiling actions. Spark UI is
-live; the retention flag keeps it available for screenshots before the session
-stops.
-
-The job reads the source manifest when available:
-
-```text
-data/raw_source/offline_transactions/_manifest.json
-```
-
-Default output:
-
-```text
-data/bronze/raw_transactions/
-`-- _bronze_ingestion_summary.json
-
-Iceberg table iceberg.bronze.raw_transactions (data files under
-s3a://fraudstream/warehouse/bronze/raw_transactions/, managed by Iceberg,
-partitioned by ingest_date, schema_version, transaction_date)
-
-PostgreSQL:
-bronze.raw_transaction_ingest_runs (one row per ingestion run)
-bronze.raw_transactions            (one row per raw source record)
-```
-
-Use `overwrite` for local regeneration and `append` when preserving multiple
-ingestion runs:
-
-```bash
-PYTHONPATH=src python -m fraudstream.jobs.bronze.ingest_transactions \
-  --write-mode append
-```
-
-## Validate Bronze Output
-
-Run the validator after ingestion to compare the raw source files with the
-Bronze Iceberg table:
+Then check it against the source:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.jobs.bronze.validate_transactions \
@@ -195,205 +48,58 @@ PYTHONPATH=src python -m fraudstream.jobs.bronze.validate_transactions \
   --report-path data/bronze/raw_transactions/_bronze_validation_summary.json
 ```
 
-Add `--spark-ui --spark-ui-retain-seconds 300` when you also want to capture
-the Spark-side reconciliation query in the live UI.
+It prints a JSON report and exits non-zero on a failed check.
 
-The validator prints a JSON report and exits with a non-zero status when a
-check fails. It compares:
+## Columns
 
-- source CSV row count against Bronze Iceberg table row count
-- source CSV file count against distinct `_source_file_path` values in Bronze
-- source partition count against Bronze `schema_version` and `transaction_date`
-  coverage
-- raw format issue counts, including padded city values, inconsistent casing,
-  blank source values, and evolved-column null or blank behavior
+The schema is explicit, with no inference. Every business column is a nullable
+`STRING`, because Bronze keeps raw text and Silver casts it.
 
-These checks prove Bronze preserved the raw source. Format cleanup belongs in
-Silver, not Bronze.
-
-## Raw Transaction Fields
-
-All source business columns should be loaded as nullable `STRING` values in
-Bronze. This is deliberate. Bronze preserves raw text exactly; Silver will cast
-amounts, timestamps, booleans, and dates into analytical types.
-
-| Field | Type | Nullable | Source Version | Meaning |
-|---|---|---:|---|---|
-| `transaction_id` | `STRING` | Yes | `v1+` | Source transaction identifier. Duplicates are allowed in Bronze. |
-| `account_id` | `STRING` | Yes | `v1+` | Account identifier tied to the customer. |
-| `customer_id` | `STRING` | Yes | `v1+` | Customer identifier used for joins and feature grouping. |
-| `merchant_id` | `STRING` | Yes | `v1+` | Merchant identifier. May be blank in raw source rows. |
-| `merchant_category` | `STRING` | Yes | `v1+` | Merchant category such as grocery, travel, or online marketplace. |
-| `amount` | `STRING` | Yes | `v1+` | Raw source amount. Silver should cast to decimal. |
-| `currency` | `STRING` | Yes | `v1+` | Raw currency value. May contain inconsistent casing. |
-| `city` | `STRING` | Yes | `v1+` | Raw transaction city. May contain blanks, padding, or casing issues. |
-| `channel` | `STRING` | Yes | `v1+` | Transaction channel such as online, card present, wallet, or ATM. |
-| `transaction_status` | `STRING` | Yes | `v1+` | Raw transaction status. May contain inconsistent casing. |
-| `is_fraud` | `STRING` | Yes | `v1+` | Raw fraud label as source text. Silver should cast to boolean/integer. |
-| `event_timestamp` | `STRING` | Yes | `v1+` | Raw business event time. Silver should parse for event-time logic. |
-| `created_ts` | `STRING` | Yes | `v1+` | Raw source creation or arrival time. Used later for late-arrival analysis. |
-
-## Nullable Evolved Columns
-
-These columns exist in the Bronze table even when reading old `v1` files. For
-`v1` source partitions, populate them as `NULL` because the columns did not
-exist yet. For `v2` partitions, keep the source value exactly as read, including
-blank strings where the source emitted blanks.
-
-The ingestion job reads `v1` and `v2` files by their physical CSV headers. Base
-transaction fields are required, but evolved fields are optional. If an evolved
-field is absent from a source file header, Bronze writes `NULL`; if the field is
-present and the source emitted a blank value, Bronze keeps the blank string.
-
-| Field | Type | Nullable | Source Version | Meaning |
-|---|---|---:|---|---|
-| `device_id` | `STRING` | Yes | `v2` | Device identifier added after the schema change date. |
-| `ip_address` | `STRING` | Yes | `v2` | IP address added for device and fraud-ring analysis. |
-| `authentication_method` | `STRING` | Yes | `v2` | Authentication method such as 3DS, OTP, biometric, none, chip, pin, or tap. |
-| `risk_signal_version` | `STRING` | Yes | `v2` | Source risk signal version. Current generated value is `v2`. |
-
-This schema design makes `v1` and `v2` files unionable while preserving the
-fact that older partitions genuinely did not have the evolved fields.
-
-## Source Metadata Fields
-
-Metadata fields explain how each Bronze row was ingested. They are not business
-facts and should use a leading underscore.
-
-| Field | Type | Nullable | Meaning |
-|---|---|---:|---|
-| `_source_system` | `STRING` | No | Producing system name. Use `fraudstream_generator`. |
-| `_source_dataset` | `STRING` | No | Source dataset name. Use `offline_transactions`. |
-| `_source_file_path` | `STRING` | No | Full path of the CSV file that produced the row. |
-| `_source_file_name` | `STRING` | No | File name, currently `transactions.csv`. |
-| `_source_row_number` | `LONG` | Yes | Row number inside the source file when available. Useful for traceability. |
-| `_source_manifest_path` | `STRING` | Yes | Manifest file used for discovery, usually `_manifest.json`. |
-| `_source_manifest_created_at` | `STRING` | Yes | `created_at` value copied from the manifest. Keep as raw manifest text. |
-| `_ingest_run_id` | `STRING` | No | Unique ID for one Spark ingestion run. |
-| `_ingested_at` | `TIMESTAMP` | No | Timestamp when Spark wrote the Bronze row. |
-| `_raw_record_hash` | `STRING` | No | Stable hash of raw source column values for duplicate and audit checks. |
-| `_corrupt_record` | `STRING` | Yes | Raw malformed line if CSV parsing fails in permissive mode. |
-
-`_raw_record_hash` must not replace source keys. It is only an audit helper.
-Duplicates should still be visible as repeated `transaction_id` values.
-
-## Partition Columns
-
-Bronze should use low-cardinality, source-aligned partitions:
-
-| Partition Column | Type | Source | Meaning |
-|---|---|---|---|
-| `ingest_date` | `STRING` | Spark ingestion run | Date the Bronze job loaded the data, formatted as `YYYY-MM-DD`. |
-| `schema_version` | `STRING` | Source path | Source schema version, currently `v1` or `v2`. |
-| `transaction_date` | `STRING` | Source path | Business transaction date from the raw partition path. |
-
-Recommended layout:
-
-```text
-s3a://fraudstream/warehouse/bronze/raw_transactions/
-`-- ingest_date=YYYY-MM-DD/
-    `-- schema_version=v1/
-        `-- transaction_date=YYYY-MM-DD/
-            `-- part-*.parquet
-```
-
-Partition values should be derived from the source path and ingestion context,
-not from cleaned business logic.
-
-## Spark Table Definition
-
-The first Spark implementation should use an explicit schema and disable schema
-inference. This keeps the Bronze contract stable even when source values are
-messy. The actual table is created via `write_iceberg_table(...)`
-(`createOrReplace()`), which is equivalent to this DDL run against the
-`iceberg` catalog:
-
-```sql
-CREATE TABLE IF NOT EXISTS iceberg.bronze.raw_transactions (
-  transaction_id STRING,
-  account_id STRING,
-  customer_id STRING,
-  merchant_id STRING,
-  merchant_category STRING,
-  amount STRING,
-  currency STRING,
-  city STRING,
-  channel STRING,
-  transaction_status STRING,
-  is_fraud STRING,
-  event_timestamp STRING,
-  created_ts STRING,
-  device_id STRING,
-  ip_address STRING,
-  authentication_method STRING,
-  risk_signal_version STRING,
-  _source_system STRING,
-  _source_dataset STRING,
-  _source_file_path STRING,
-  _source_file_name STRING,
-  _source_row_number BIGINT,
-  _source_manifest_path STRING,
-  _source_manifest_created_at STRING,
-  _ingest_run_id STRING,
-  _ingested_at TIMESTAMP,
-  _raw_record_hash STRING,
-  _corrupt_record STRING,
-  ingest_date STRING,
-  schema_version STRING,
-  transaction_date STRING
-)
-USING iceberg
-PARTITIONED BY (ingest_date, schema_version, transaction_date);
-```
-
-## Ingestion Rules
-
-| Concern | Bronze Rule |
+| Group | Columns |
 |---|---|
-| Deduplication | Do not deduplicate. Preserve repeated rows exactly. |
-| Missing values | Preserve source blanks. Only use `NULL` for columns absent from old schema versions or parser-level missing fields. |
-| Format issues | Do not trim, uppercase, lowercase, or normalize fields. |
-| Type casting | Keep source business columns as `STRING`. Cast in Silver. |
-| Schema evolution | Add evolved columns to the table as nullable fields. Fill rows with `NULL` when an evolved column is absent from the source file header. |
-| File traceability | Capture source file path, row number when available, manifest path, and ingest run ID. |
-| Write mode | Prefer append for ingestion runs. Use controlled overwrite only for local regeneration. |
-| Corrupt records | Keep malformed lines in `_corrupt_record` for inspection instead of silently dropping them. |
+| Raw, `v1` and `v2` | `transaction_id`, `account_id`, `customer_id`, `merchant_id`, `merchant_category`, `amount`, `currency`, `city`, `channel`, `transaction_status`, `is_fraud`, `event_timestamp`, `created_ts` |
+| Evolved, `v2` only | `device_id`, `ip_address`, `authentication_method`, `risk_signal_version` |
+| Ingestion metadata | `_source_system`, `_source_dataset`, `_source_file_path`, `_source_file_name`, `_source_row_number`, `_source_manifest_path`, `_source_manifest_created_at`, `_ingest_run_id`, `_ingested_at`, `_raw_record_hash`, `_corrupt_record` |
+| Partitions | `ingest_date`, `schema_version`, `transaction_date` |
 
-## Bronze To Silver Boundary
+- **Evolved columns** are `NULL` for `v1` files, where they did not exist. In `v2`, a
+  blank stays a blank string. Files are read by their physical headers.
+- **Metadata** columns start with `_`. `_ingested_at` is a `TIMESTAMP` and
+  `_source_row_number` a `LONG`. `_raw_record_hash` is an audit helper only and never
+  replaces the source key. Malformed lines go to `_corrupt_record` instead of being dropped.
+- **Partitions** come from the source path and the run, never from cleaned values:
+  `ingest_date=…/schema_version=…/transaction_date=…/part-*.parquet`.
 
-Silver is responsible for changing business meaning. Bronze only preserves and
-records source behavior.
+## Rules
 
-Silver should later:
-
-- deduplicate by `transaction_id`
-- parse `amount` to decimal
-- parse `event_timestamp` and `created_ts` to timestamp
-- cast `is_fraud` to a typed label
-- trim and standardize `city`, `currency`, and `transaction_status`
-- handle missing `merchant_id`, `device_id`, `ip_address`, and authentication values
-- enforce a clean, stable schema for analytics and ML features
-
-## Validation Expectations
-
-The Bronze ingestion job should prove that it preserved the raw source:
-
-| Check | Expected Result |
+| Concern | Bronze does |
 |---|---|
-| Row count | Bronze row count equals source row count after duplicate injection from `_quality_summary.json`. |
-| Duplicate preservation | Duplicate `transaction_id` count remains greater than zero. |
-| Schema evolution | `v1` partitions have `NULL` evolved columns; `v2` partitions include evolved columns. |
-| Raw formatting | Rows with padded cities, lowercase currency, or uppercase status still exist in Bronze. |
-| Late arrivals | Rows where `created_ts` is more than 60 minutes after `event_timestamp` still exist. |
-| Partition coverage | Distinct `schema_version` and `transaction_date` values match raw source partitions. |
-| Metadata coverage | `_source_file_path`, `_ingest_run_id`, `_ingested_at`, and `_raw_record_hash` are populated. |
+| Duplicates | Keeps them |
+| Missing values | Keeps source blanks; `NULL` only for columns absent from an old schema |
+| Formatting | No trimming or case changes |
+| Types | Everything stays `STRING` |
+| Traceability | Records file path, row number, manifest and run ID |
+| Writes | Append for real runs, overwrite only to regenerate locally |
 
-These checks are the acceptance criteria for the first Bronze Spark job.
+## Handing over to Silver
 
-Run the Spark-backed Bronze ingestion test:
+Silver deduplicates by `transaction_id`, casts amount, timestamps and the fraud label,
+standardises `city`, `currency` and `transaction_status`, handles missing merchant,
+device, IP and authentication values, and enforces a clean schema.
+
+## What "correct" looks like
+
+| Check | Expected |
+|---|---|
+| Row count | Equals the source count after duplicate injection |
+| Duplicates | Repeated `transaction_id`s still exist |
+| Schema evolution | `v1` rows have `NULL` evolved columns, `v2` rows have values |
+| Raw formatting | Padded cities, lowercase currency and uppercase status still exist |
+| Late arrivals | Rows with `created_ts` over 60 minutes after `event_timestamp` still exist |
+| Coverage | Distinct `schema_version` and `transaction_date` match the source partitions |
+| Metadata | `_source_file_path`, `_ingest_run_id`, `_ingested_at`, `_raw_record_hash` are filled |
 
 ```bash
 PYTHONPATH=src python -m unittest \
-  tests.unit.test_bronze_ingest_transactions \
-  tests.unit.test_bronze_validate_transactions
+  tests.unit.test_bronze_ingest_transactions tests.unit.test_bronze_validate_transactions
 ```

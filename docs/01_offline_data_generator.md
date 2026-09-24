@@ -1,225 +1,94 @@
 # Offline Data Generator
 
-This document explains the first FraudStream data generator: a Python tool that
-creates raw offline financial transaction files with intentional data problems.
-The output is designed to behave like data owned by another department, ready for
-a later Bronze ingestion pipeline.
+A Python tool that creates raw transaction files with deliberate problems, so the
+Bronze and Silver pipelines have something real to clean. It behaves like data
+owned by another team: raw, messy and untouched.
 
-## Purpose
+## What it simulates
 
-The generator produces source data that is realistic enough for local
-Spark/Bronze/Silver exercises without making the first cleaning pipeline too
-hard:
+| Problem | How |
+|---|---|
+| Skew | `city` leans toward `skew_city`, `merchant_category` toward `skew_merchant_category` |
+| High cardinality | Many unique transaction, customer, account, merchant and device IDs |
+| Schema change | Files before `schema_change_date` are `v1`, files from that date are `v2` with four more columns |
+| Duplicates | About `duplicate_rate` rows repeated (default: ~10,000 on 500,000) |
+| Bursty and late data | Peak hours, burst days, shuffled files, delayed `created_ts` |
+| Messy fields | Small rates of missing values and odd formats (padded cities, lowercase currency) |
+| Fraud | Rare labels, with higher risk for large, online, cross-border, late-night and fraud-ring activity |
+| Drift | From `drift_start_date`, `amount` ramps linearly up to `drift_amount_multiplier_end` |
 
-- raw transaction records are stored before any cleaning or deduplication
-- skew is visible in business columns such as `city` and `merchant_category`
-- high-cardinality identifiers are present for realistic joins and aggregations
-- schema changes across time are preserved in separate source partitions
-- duplicate records are injected so later pipelines can prove deduplication
-- transaction timestamps follow peak-hour and burst-day traffic patterns
-- some source records arrive late or out of event-time order
-- a small number of fields are missing or formatted inconsistently
-- fraud labels include rare, coordinated fraud-ring behavior through reused
-  devices and IP addresses
-
-## Run The Generator
-
-From the repository root:
+## Run it
 
 ```bash
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions
-```
-
-You can also run the project entry point:
-
-```bash
-PYTHONPATH=src python main.py
-```
-
-To override the local evidence directory or the MinIO raw-data location:
-
-```bash
+# or override where things go
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions \
   --output-dir /tmp/fraudstream_offline_transactions \
   --raw-uri s3a://fraudstream/raw/offline_transactions_dev
 ```
 
-## Configuration
-
-Default configuration lives in:
-
-```text
-configs/generator/offline_transactions.json
-```
-
-Important settings:
+Settings live in `configs/generator/offline_transactions.json`:
 
 | Setting | Meaning |
 |---|---|
-| `n_transactions` | Number of unique base transactions before duplicates are injected. |
-| `n_customers`, `n_accounts`, `n_merchants` | Controls ID cardinality. |
-| `skew_city`, `skew_city_ratio` | Makes one city dominate the generated records. |
-| `skew_merchant_category`, `skew_merchant_category_ratio` | Makes one merchant category dominate the generated records. |
-| `duplicate_rate` | Controls repeated raw transaction rows. Default is `0.02`. |
-| `late_arrival_rate` | Controls records where `created_ts` is much later than `event_timestamp`. |
-| `missing_value_rate` | Controls light missingness in realistic raw fields such as city, merchant, device, IP, and authentication method. |
-| `inconsistent_format_rate` | Controls easy-to-clean formatting issues such as padded city names, lowercase currency, and uppercase status. |
-| `burst_day_count` | Number of dates with unusually heavy transaction volume. |
-| `fraud_ring_count` | Number of reusable suspicious device/IP pairs used by a small fraud-ring scenario. |
-| `schema_change_date` | Splits older `v1` source files from newer `v2` source files. |
-| `output_dir` | Local directory for the manifest and quality-summary evidence files only (small files, not the raw CSVs). |
-| `raw_uri` | MinIO (`s3a://`) URI where the actual partitioned raw CSV files are written. Defaults to `s3a://fraudstream/raw/offline_transactions`. |
-| `drift_start_date` | Date (inside the history window) from which sampled `amount` values start ramping upward. `None`/omitted disables drift entirely. |
-| `drift_amount_multiplier_end` | Amount multiplier reached by the end of the history window when drift is enabled. Ramps linearly from `1.0` at `drift_start_date`. |
-| `labels_uri` | MinIO (`s3a://`) URI where the standalone `(transaction_id, is_fraud, event_timestamp)` training-label table is written. Defaults to `s3a://fraudstream/raw/transaction_labels`. |
+| `n_transactions` | Unique base transactions, before duplicates |
+| `n_customers`, `n_accounts`, `n_merchants` | ID cardinality |
+| `skew_city`, `skew_merchant_category` (and `_ratio`) | Which value dominates, and by how much |
+| `duplicate_rate`, `late_arrival_rate` | Share of repeated rows, and of rows arriving late |
+| `missing_value_rate`, `inconsistent_format_rate` | Share of messy fields |
+| `burst_day_count`, `fraud_ring_count` | Heavy-traffic days, and reusable suspicious device/IP pairs |
+| `schema_change_date` | The `v1` / `v2` split |
+| `drift_start_date`, `drift_amount_multiplier_end` | Drift window and size. Unset `drift_start_date` to turn drift off |
+| `raw_uri` | MinIO location of the CSVs (default `s3a://fraudstream/raw/offline_transactions`) |
+| `labels_uri` | MinIO location of the label table (default `s3a://fraudstream/raw/transaction_labels`) |
+| `output_dir` | Local folder for the small evidence files only |
 
-> **Default config now enables drift.** `configs/generator/offline_transactions.json` ships
-> with `drift_start_date: "2026-05-01"` and `drift_amount_multiplier_end: 1.6`, so a default
-> `fraudstream-generate-offline` run now produces a different dataset than earlier runs of this
-> generator: transaction amounts ramp up to 1.6x over the last ~60 days of the history window,
-> the synthetic fraud rate is slightly higher inside that window (`amount` feeds
-> `_sample_fraud_label`), and a new MinIO prefix (`labels_uri`) is deleted-then-rewritten on
-> every run alongside `raw_uri`. Any evidence numbers captured from earlier default runs (row
-> counts, skew, fraud rate) are stale and should be regenerated before being cited again.
-
-The shipped configuration, with the two drift settings highlighted:
+**Drift is on by default** (`2026-05-01`, up to `1.6x`), so amounts and the fraud rate
+rise over the last ~60 days. Numbers from older default runs are stale.
 
 ![Generator configuration with the drift settings highlighted](../images/generator/drift_configuration.png)
 
-## Implementation Coverage
-
-| Capability | Implementation |
-|---|---|
-| Simulate skew | `city` is skewed toward `skew_city`; `merchant_category` is skewed toward `skew_merchant_category`. |
-| Simulate high cardinality | Generates many unique `transaction_id`, `customer_id`, `account_id`, `merchant_id`, and `device_id` values. |
-| Simulate schema evolution | Partitions before `schema_change_date` are `schema_version=v1`; partitions on or after that date are `schema_version=v2` with added columns. |
-| Simulate another offline data problem | Repeats approximately `duplicate_rate` rows. The default config injects about 10,000 duplicates for 500,000 base transactions. |
-| Simulate bursty and late data | Uses peak-hour traffic, burst dates, shuffled file order, and delayed `created_ts` values. |
-| Simulate raw source messiness | Injects small, controlled rates of missing values and inconsistent formats. |
-| Simulate fraud behavior | Creates rare labels with higher risk for high-value, online, cross-border, high-risk merchant, late-night, and fraud-ring activity. |
-| Simulate data drift | From `drift_start_date` to the end of the history window, sampled `amount` values are scaled by a factor ramping linearly from `1.0` to `drift_amount_multiplier_end`. Off (`1.0` everywhere) when `drift_start_date` is `None`. |
-| Use generator configuration | All core parameters are read from `configs/generator/offline_transactions.json`. |
-| Store data for Bronze ingestion | Writes partitioned raw CSV files to MinIO (`raw_uri`) and `_manifest.json`/quality-summary evidence locally (`output_dir`). The manifest's `files` list contains the MinIO URI of every partition. |
-
-## Output Layout
-
-Raw CSV partitions go to MinIO, under the `raw_uri` prefix (default
-`s3a://fraudstream/raw/offline_transactions`):
+## What it writes
 
 ```text
-s3a://fraudstream/raw/offline_transactions/
-|-- schema_version=v1/
-|   `-- transaction_date=YYYY-MM-DD/
-|       `-- transactions.csv
-`-- schema_version=v2/
-    `-- transaction_date=YYYY-MM-DD/
-        `-- transactions.csv
+s3a://fraudstream/raw/offline_transactions/        # raw CSVs, in MinIO
+  schema_version=v1|v2/transaction_date=YYYY-MM-DD/transactions.csv
+s3a://fraudstream/raw/transaction_labels/          # label table, in MinIO
+  transaction_labels.csv
+data/raw_source/offline_transactions/              # evidence, local
+  _manifest.json  _quality_summary.json  _quality_summary.csv
 ```
 
-Small evidence files (manifest and quality summaries) stay local, under
-`output_dir` (default `data/raw_source/offline_transactions/`):
+`v1` files lack `device_id`, `ip_address`, `authentication_method` and
+`risk_signal_version`; `v2` has them. Both prefixes are deleted and rewritten on
+every run.
 
-```text
-data/raw_source/offline_transactions/
-|-- _manifest.json
-|-- _quality_summary.csv
-`-- _quality_summary.json
-```
-
-`schema_version=v1` files intentionally do not contain these evolved columns:
-
-- `device_id`
-- `ip_address`
-- `authentication_method`
-- `risk_signal_version`
-
-`schema_version=v2` files include those columns. This gives the future Bronze and
-Silver jobs a real schema evolution case to handle.
-
-The standalone training-label table goes to MinIO, under its own `labels_uri` prefix
-(default `s3a://fraudstream/raw/transaction_labels`), separate from `raw_uri`:
-
-```text
-s3a://fraudstream/raw/transaction_labels/
-`-- transaction_labels.csv
-```
-
-It has three columns: `transaction_id`, `is_fraud`, `event_timestamp` -- the same names the
-values carry in the transaction rows, so no mental mapping is needed when joining. It is
-kept separate from the raw transaction partitions -- and from Gold's own `is_fraud` column
--- so that a later Feast feature view can carry features only, with the label joined in at
-training time. Like `raw_uri`, this prefix is deleted and rewritten on every generator run.
-
-Once `gold.transaction_labels` is loaded from that CSV, the label joins back to the feature
-table on `transaction_id`, which is how a training set is assembled -- features from one
-table, label from the other:
+The label table has three columns, `transaction_id`, `is_fraud`, `event_timestamp`.
+It is kept apart from the transactions so a feature view carries features only, and
+the label is joined in at training time:
 
 ![Feature table joined to the transaction label table on transaction_id](../images/generator/transaction_labels_feature_join.png)
 
-## Bronze Ingestion Contract
+## Handing over to Bronze
 
-The generated source files are intentionally raw. The future Bronze ingestion job
-should preserve the records close to source and add ingestion metadata.
+The files are raw on purpose. Bronze reads the URIs in `_manifest.json` (or lists
+`raw_uri`), keeps `schema_version` and `transaction_date` as partitions, reads `v1`
+and `v2` together with missing columns allowed, and does no cleaning or
+deduplication. That is Silver's job. `transaction_id` identifies duplicates.
 
-Recommended Bronze table:
+## Quality evidence
 
-```text
-raw_transactions
-```
-
-Recommended ingestion behavior:
-
-| Concern | Recommendation |
-|---|---|
-| File discovery | Read `_manifest.json` (local) for the list of MinIO source-file URIs, or list `raw_uri` directly in MinIO when no manifest is present. The manifest's top-level `label_file` key holds the URI of the standalone training-label table (see below); it is not one of the `raw_transactions` source files. |
-| Dedup key | Use `transaction_id` to identify duplicate source records. |
-| Partitions | Preserve or derive `schema_version` and `transaction_date`. |
-| Schema evolution | Read `v1` and `v2` files with missing columns allowed. |
-| Raw retention | Do not clean or deduplicate before Bronze; handle that in Silver. |
-
-## Quality Evidence
-
-The generator writes two summary files for project evidence and validation:
-
-```text
-data/raw_source/offline_transactions/_quality_summary.json
-data/raw_source/offline_transactions/_quality_summary.csv
-```
-
-Evidence available in those files:
-
-| Evidence | Example from default config |
-|---|---|
-| Data volume | `500000` base rows and about `510000` rows after duplicate injection. |
-| Duplicate rate | Around `0.0196` after duplicates are included in total row count. |
-| Skew distribution | `New York` and `online_marketplace` dominate their columns. |
-| Burst traffic | A configured set of burst dates receives a larger share of traffic. |
-| Late arrivals | Records where `created_ts` is more than 60 minutes after `event_timestamp`. |
-| Raw quality issues | Counts of missing values and inconsistent formats. |
-| Fraud scenario | Fraud rate, fraud row count, fraud-ring rows, and suspicious device reuse. |
-| Cardinality | Distinct counts for transaction, customer, account, merchant, and device IDs. |
-| Schema evolution | Row counts before and after `schema_change_date`. |
-| Storage details | Data format, file count, and partition columns. |
-| Data drift | The JSON summary's `drift` section reports `{"enabled": false}` when `drift_start_date` is unset, or the drift window, mean amount before/after `drift_start_date`, and the configured multiplier when enabled. The CSV summary carries the two mean-amount rows (`drift.mean_amount_before`, `drift.mean_amount_after`), blank when drift is disabled. |
-| Label table | The JSON summary's `label_table` section reports the label table's MinIO URI, row count, and column names. The CSV summary carries `label_table.row_count`. |
-
-The `drift` section of `_quality_summary.json` after a default run, showing the mean amount
-before and after `drift_start_date`:
+`_quality_summary.json` and `.csv` report volume (about 510,000 rows after
+duplicates), duplicate rate (~0.0196), skew, burst traffic, late arrivals (over 60
+minutes), messy-field counts, fraud and fraud-ring rows, ID cardinality, rows either
+side of the schema change, the label table, and drift. The `drift` section holds the
+mean amount before and after `drift_start_date`:
 
 ![Drift section of the generator quality summary](../images/generator/drift_quality_summary.png)
 
-## Validate Locally
-
-Run the unit test:
+## Test it
 
 ```bash
 PYTHONPATH=src python -m unittest tests.unit.test_offline_transactions
-```
-
-Run a syntax compile check:
-
-```bash
 PYTHONPATH=src python -m compileall -q src tests main.py
 ```
-
-Both commands should complete without errors.

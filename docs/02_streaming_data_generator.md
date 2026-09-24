@@ -1,133 +1,64 @@
 # Streaming Data Generator
 
-This document explains the streaming side of FraudStream. The goal is simple:
+The real-time half of the project. Spark handles the offline CSV-to-Iceberg path;
+this side is Kafka and Flink:
 
 ```text
-generate realistic transaction events -> replay them to Kafka -> process them with Flink
+generate events -> replay them to Kafka -> Flink computes features
 ```
 
-Spark is for the offline CSV-to-Iceberg path. Flink is for the real-time streaming path.
-
-## Core Concept
-
-The streaming generator creates a reproducible Kafka-like event log:
+The generator writes a reproducible event log, one transaction per line in publish
+order. A replay producer publishes that log to Kafka, and Flink deals with late,
+out-of-order, duplicate and bursty events:
 
 ```text
 data/raw_stream/transactions/topic=financial_transactions/events.jsonl
 ```
 
-Each line is one transaction event in publish order. The replay producer reads
-this file and publishes the same records to Kafka. The Flink feature job consumes
-the topic and handles late events, out-of-order events, duplicates, and burst
-traffic.
-
-This design keeps the stream realistic and debuggable:
-
-- `events.jsonl` is the reproducible source log.
-- Kafka is the real streaming transport.
-- Flink is the stateful streaming processor.
-
-## Generate The Stream Log
-
-Run from the repository root:
+## Generate the log
 
 ```bash
 PYTHONPATH=src python -m fraudstream.generators.streaming_transactions
 ```
 
-Default config:
-
-```text
-configs/generator/streaming_transactions.json
-```
-
-Current default profile:
+Settings are in `configs/generator/streaming_transactions.json`. The default profile:
 
 | Metric | Value |
 |---|---:|
-| Base events | 500,000 |
-| Records after duplicate replay | 512,500 |
-| Customers | 220,000 |
-| Merchants | 45,000 |
+| Base events | 500,000 (512,500 with duplicate replay) |
+| Customers / merchants | 220,000 / 45,000 |
 | Simulated partitions | 24 |
 | Event-time span | 7 days |
 | Output size | ~487 MB |
 
-Generated artifacts:
+It also writes `_manifest.json`, `_stream_summary.csv` and `_stream_summary.json`
+next to the log.
 
-```text
-data/raw_stream/transactions/
-|-- _manifest.json
-|-- _stream_summary.csv
-|-- _stream_summary.json
-`-- topic=financial_transactions/
-    `-- events.jsonl
-```
-
-## Replay Events To Kafka
-
-Install the optional Kafka dependency with `uv`:
+## Replay to Kafka
 
 ```bash
 uv sync --extra kafka
-```
-
-Start Kafka locally with Docker:
-
-```bash
-docker compose up -d kafka kafka-topic-init kafka-ui
-```
-
-This starts a single local Kafka broker on `localhost:9092`, creates the `financial_transactions` topic with 24 partitions, and opens Kafka UI at:
-
-```text
-http://localhost:18080
-```
-
-If port `18080` is already in use, choose another host port:
-
-```bash
-KAFKA_UI_PORT=18081 docker compose up -d kafka kafka-topic-init kafka-ui
-```
-
-Check that Kafka is reachable:
-
-```bash
-nc -vz localhost 9092
-```
-
-Then publish generated events to Kafka:
-
-```bash
+docker compose up -d kafka kafka-topic-init kafka-ui   # broker on :9092, Kafka UI on :18080
 PYTHONPATH=src python -m fraudstream.producers.stream_replay \
-  --bootstrap-servers localhost:9092 \
-  --topic financial_transactions \
-  --events-per-second 5000
+  --bootstrap-servers localhost:9092 --topic financial_transactions --events-per-second 5000
 ```
-
-Useful replay options:
 
 | Option | Meaning |
 |---|---|
-| `--max-events 10000` | Replay only a small sample. |
-| `--start-offset 100000` | Skip records before replaying. Useful for resume tests. |
-| `--events-per-second 5000` | Fixed publish rate. Use `0` for no throttling. |
-| `--time-mode produced_at` | Replay using gaps between source `produced_at` timestamps. |
-| `--speed-factor 3600` | Compress source time. One source hour becomes one second. |
+| `--max-events 10000` | Replay a small sample |
+| `--start-offset 100000` | Skip records first, for resume tests |
+| `--events-per-second 5000` | Fixed rate; `0` means no throttling |
+| `--time-mode produced_at` | Replay using the gaps between source `produced_at` times |
+| `--speed-factor 3600` | Compress time: one source hour becomes one second |
 
-If you see `Connection refused` for `localhost:9092`, Kafka is not running or not listening on that address. This is a broker connection problem, not a Flink consumer problem.
+`Connection refused` on `localhost:9092` means the broker isn't running. It is not a
+Flink problem. Set `KAFKA_UI_PORT` if `18080` is taken, and `docker compose down`
+to stop.
 
-Stop the local Kafka stack when finished:
+## Event shape
 
-```bash
-docker compose down
-```
-
-## Event Shape
-
-Each Kafka message value is the full JSON envelope from `events.jsonl`. The Kafka message key is `partition_key`, which is the customer id.
-
-Example event:
+The Kafka message value is the whole JSON envelope; the key is `partition_key` (the
+customer id).
 
 ```json
 {
@@ -159,86 +90,43 @@ Example event:
 }
 ```
 
-Important timestamp fields:
+Two times matter. `value.event_timestamp` is when the transaction happened, and Flink
+windows on it. `produced_at` / `value.created_ts` is when it was published, and
+lateness is measured against it. Here the event arrived about five hours after it
+happened, hence `late`.
 
-| Field | Meaning                                                                              |
-|---|--------------------------------------------------------------------------------------|
-| `value.event_timestamp` | When the transaction actually happened. Flink uses this for event-time windows. |
-| `produced_at` / `value.created_ts` | When the event was published or arrived. Use this for lateness and freshness checks. |
+## Problems it injects
 
-In the example, the event was published at `2026-07-01T00:00:17`, but the transaction happened at `2026-06-30T18:49:58`. That is why it is marked as `late`.
-
-## Simulated Streaming Problems
-
-| Problem | How It Appears | Flink Handling |
+| Problem | How it appears | Flink's answer |
 |---|---|---|
-| Late events | `event_timestamp` is far before `produced_at`. | Use watermarks and late-event policy. |
-| Out-of-order events | Event time moves backward compared with publish order. | Process by event time, not arrival order. |
-| Duplicates | Same `event_id` / `transaction_id` appears again. | Deduplicate by event id. |
-| Burst traffic | Many events land in selected five-minute windows. | Test window pressure and throughput. |
-| Event-time windows | Every event includes expected window boundaries. | Validate Flink window results. |
-
-## Key Config Settings
+| Late events | `event_timestamp` far before `produced_at` | Watermarks and a late-event policy |
+| Out-of-order | Event time steps backward in publish order | Process by event time |
+| Duplicates | Same `event_id` appears again | Deduplicate on `event_id` |
+| Bursts | Many events land in a few five-minute windows | Test window pressure |
+| Windows | Every event carries its expected window | Check Flink's results |
 
 | Setting | Meaning |
 |---|---|
-| `n_events` | Base event count before duplicate replay. |
-| `n_customers`, `n_merchants` | Entity cardinality for realistic keys and joins. |
-| `n_partitions` | Simulated topic partition count in the generated envelope. |
-| `late_event_rate` | Share of events marked late. |
-| `out_of_order_rate` | Share of events intentionally backdated. |
-| `duplicate_rate` | Share of events replayed as duplicates. |
-| `burst_window_count`, `burst_event_ratio` | Controls burst traffic concentration. |
-| `window_minutes` | Event-time window size. |
+| `n_events`, `n_customers`, `n_merchants`, `n_partitions` | Size and cardinality |
+| `late_event_rate`, `out_of_order_rate`, `duplicate_rate` | Share of each problem |
+| `burst_window_count`, `burst_event_ratio` | How concentrated the bursts are |
+| `window_minutes` | Event-time window size |
 
-`late_event_rate + out_of_order_rate` must not exceed `1` because each event chooses one main timing category: late, out-of-order, or normal.
+`late_event_rate + out_of_order_rate` must not exceed `1`: each event picks one
+timing category.
 
-## Downstream Contract
+## What Flink expects
 
-The Flink feature job:
+Flink reads `financial_transactions`, keys by customer, uses `value.event_timestamp`
+as event time, takes its watermark delay from the measured p95 first-arrival latency,
+deduplicates on `value.event_id`, and computes five-minute customer and merchant
+features plus velocity and burst alerts. `headers.problem_flags` is kept as evidence
+only; late-event decisions come from the watermarks. The full contract is in
+[07_flink_streaming_pipeline.md](07_flink_streaming_pipeline.md).
 
-- consumes Kafka topic `financial_transactions`
-- uses Kafka key / `partition_key` for keyed customer processing
-- parses the JSON envelope
-- uses `value.event_timestamp` as event time
-- loads a bounded-delay watermark from the measured p95 first-arrival latency
-  profile rather than a guessed duration
-- deduplicates by `value.event_id`
-- computes customer and merchant five-minute event-time features
-- emits deterministic velocity and burst alerts
-- retains `headers.problem_flags` as generator evidence while making runtime
-  late-event decisions from Flink watermarks
-
-The complete windowing, watermark, late-event, state, and output-table contract
-is defined in [`07_flink_streaming_pipeline.md`](07_flink_streaming_pipeline.md).
-
-## Validate
-
-Run the streaming generator test:
+## Test it
 
 ```bash
-PYTHONPATH=src python -m unittest tests.unit.test_streaming_transactions
-```
-
-Run the Kafka replay producer test:
-
-```bash
-PYTHONPATH=src python -m unittest tests.unit.test_stream_replay
-```
-
-Run all current unit tests:
-
-```bash
-PYTHONPATH=src python -m unittest \
-  tests.unit.test_offline_transactions \
-  tests.unit.test_streaming_transactions \
-  tests.unit.test_stream_replay \
-  tests.unit.test_flink_transactions \
-  tests.unit.test_flink_watermark_calibration
-```
-
-Run a syntax compile check:
-
-```bash
+PYTHONPATH=src python -m unittest tests.unit.test_streaming_transactions tests.unit.test_stream_replay
 PYTHONPATH=src python -m compileall -q src tests main.py
 ```
