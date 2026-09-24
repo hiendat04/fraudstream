@@ -1,0 +1,61 @@
+jenkins:
+  systemMessage: "FraudStream CI/CD"
+  numExecutors: 2
+  securityRealm:
+    local:
+      allowsSignup: false
+      users:
+        - id: "admin"
+          password: "${JENKINS_ADMIN_PASSWORD}"
+  authorizationStrategy:
+    loggedInUsersCanDoAnything:
+      allowAnonymousRead: false
+
+unclassified:
+  location:
+    url: "http://localhost:18086/"
+
+credentials:
+  system:
+    domainCredentials:
+      - credentials:
+          - usernamePassword:
+              scope: GLOBAL
+              id: "postgres"
+              username: "${POSTGRES_USER}"
+              password: "${POSTGRES_PASSWORD}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "minio"
+              username: "${MINIO_ACCESS_KEY}"
+              password: "${MINIO_SECRET_KEY}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "github"
+              username: "${GITHUB_USER}"
+              password: "${GITHUB_TOKEN}"
+
+jobs:
+  - script: |
+      multibranchPipelineJob('fraudstream') {
+        branchSources {
+          git {
+            id('fraudstream')
+            remote('https://github.com/hiendat04/fraudstream.git')
+            credentialsId('github')
+          }
+        }
+        factory {
+          workflowBranchProjectFactory {
+            scriptPath('Jenkinsfile')
+          }
+        }
+        orphanedItemStrategy {
+          discardOldItems {
+            numToKeep(5)
+          }
+        }
+        triggers {
+          cron('H/5 * * * *')
+        }
+      }

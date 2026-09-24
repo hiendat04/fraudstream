@@ -5,12 +5,14 @@ package rather than restating its logic. Imports sit inside the functions
 because Kubeflow ships each function body to the cluster on its own.
 """
 
+import os
 from typing import NamedTuple
 
 from kfp import dsl
 from kfp.dsl import Dataset, Input, Markdown, Metrics, Model, Output
 
-TRAINING_IMAGE = "fraudstream-ml:dev"
+# CI compiles each pipeline version against the image it just built.
+TRAINING_IMAGE = os.environ.get("TRAINING_IMAGE", "fraudstream-ml:dev")
 
 # Where the training workers and the pipeline meet. The workers run as their own
 # pods outside Kubeflow Pipelines, so they cannot read pipeline artifacts --

@@ -31,12 +31,13 @@ x-airflow-common: &airflow-common
     MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-fraudstream}"
     MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
     PYTHONPATH: /opt/airflow/project/src:/opt/airflow/include
+  # AIRFLOW_PROJECT_DIR set: Airflow runs the tree Jenkins deploys, not this checkout.
   volumes:
-    - ./:/opt/airflow/project
-    - ./airflow/dags:/opt/airflow/dags:ro
-    - ./airflow/include:/opt/airflow/include:ro
-    - ./airflow/config:/opt/airflow/config:ro
-    - ./airflow/scripts:/opt/airflow/scripts:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/:/opt/airflow/project
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/dags:/opt/airflow/dags:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/include:/opt/airflow/include:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/config:/opt/airflow/config:ro
+    - ${AIRFLOW_PROJECT_DIR:-.}/airflow/scripts:/opt/airflow/scripts:ro
     - ./airflow/logs:/opt/airflow/logs
   depends_on:
     airflow-db:
@@ -363,10 +364,7 @@ services:
       FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
       FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
       FEAST_SPARK_MASTER: "local[2]"
-      # Each flush is one Iceberg commit, so a small batch produces many tiny
-      # data files and one metadata version per commit. 10k rows keeps files
-      # in a sane size range while draining a backlog; the flush interval is
-      # what bounds online staleness once the stream is caught up.
+
       FEAST_PUSH_BATCH_SIZE: "${FEAST_PUSH_BATCH_SIZE:-10000}"
       FEAST_PUSH_FLUSH_SECONDS: "${FEAST_PUSH_FLUSH_SECONDS:-30}"
       MINIO_ENDPOINT: "http://minio:9000"
@@ -380,7 +378,7 @@ services:
       REDIS_HOST: redis
       REDIS_PORT: "6379"
     volumes:
-      - ./:/opt/fraudstream
+      - ${AIRFLOW_PROJECT_DIR:-.}/:/opt/fraudstream
     profiles: ["feature-store"]
 
   airflow-db:
@@ -453,6 +451,58 @@ services:
       retries: 5
       start_period: 30s
 
+  jenkins:
+    build:
+      context: ci/jenkins
+    container_name: fraudstream-jenkins
+    user: root
+    restart: unless-stopped
+    environment:
+      KUBECONFIG: /var/jenkins_home/.kube/config
+      HOME: /var/jenkins_home
+    secrets:
+      - JENKINS_ADMIN_PASSWORD
+      - POSTGRES_USER
+      - POSTGRES_PASSWORD
+      - MINIO_ACCESS_KEY
+      - MINIO_SECRET_KEY
+      - GITHUB_USER
+      - GITHUB_TOKEN
+    ports:
+      - "${JENKINS_PORT:-18086}:8080"
+    volumes:
+      - jenkins-home:/var/jenkins_home
+      - ./ci/jenkins/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
+      - /var/run/docker.sock:/var/run/docker.sock
+      - ${AIRFLOW_PROJECT_DIR:-.}:/deploy
+    networks:
+      - default
+      - kind
+    profiles: ["ci"]
+
+# Files under /run/secrets, so Jenkins can read them at start-up without every
+# build inheriting them as environment variables.
+secrets:
+  JENKINS_ADMIN_PASSWORD:
+    environment: JENKINS_ADMIN_PASSWORD
+  POSTGRES_USER:
+    environment: POSTGRES_USER
+  POSTGRES_PASSWORD:
+    environment: POSTGRES_PASSWORD
+  MINIO_ACCESS_KEY:
+    environment: MINIO_ACCESS_KEY
+  MINIO_SECRET_KEY:
+    environment: MINIO_SECRET_KEY
+  GITHUB_USER:
+    environment: GITHUB_USER
+  GITHUB_TOKEN:
+    environment: GITHUB_TOKEN
+
+networks:
+  default:
+  kind:
+    external: true
+
 volumes:
   kafka-data:
   postgres-data:
@@ -460,3 +510,4 @@ volumes:
   airflow-db-data:
   redis-data:
   redisinsight-data:
+  jenkins-home:

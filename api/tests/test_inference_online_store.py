@@ -79,7 +79,17 @@ def redis_server(monkeypatch):
 
 @pytest.fixture
 def settings():
-    return Settings(postgres_user="u", postgres_password="p")
+    """Every value is given, so neither the defaults nor the shell's environment matter."""
+
+    return Settings(
+        postgres_host="db.example",
+        postgres_port=5433,
+        postgres_db="registry",
+        postgres_user="u",
+        postgres_password="p",
+        redis_host="cache.example",
+        redis_port=6380,
+    )
 
 
 @pytest.fixture
@@ -91,10 +101,10 @@ def test_the_registry_is_built_from_the_settings(reader, feature_store):
     config = feature_store.call_args.kwargs["config"]
 
     assert config.project == "fraudstream"
-    assert config.registry.path == "postgresql+psycopg://u:p@postgres:5432/fraudstream"
+    assert config.registry.path == "postgresql+psycopg://u:p@db.example:5433/registry"
     assert config.registry.cache_mode == "thread"
     assert config.registry.cache_ttl_seconds == 60
-    assert config.online_store.connection_string == "redis:6379"
+    assert config.online_store.connection_string == "cache.example:6380"
     assert config.provider == "local"
     assert config.registry.registry_type == "sql"
     # Version 3 decides how a key is built, so reads find nothing if it changes.
@@ -112,8 +122,8 @@ def test_the_password_is_read_from_the_secret_value(feature_store, redis_server)
 def test_the_ping_connection_gives_up_after_one_second(reader, redis_server):
     options = redis_server.opened[0]
 
-    assert options["host"] == "redis"
-    assert options["port"] == 6379
+    assert options["host"] == "cache.example"
+    assert options["port"] == 6380
     assert options["socket_timeout"] == 1
     assert options["socket_connect_timeout"] == 1
 
