@@ -123,7 +123,7 @@ features from the full history.
 Kafka sinks are transactional (exactly-once), so consumers should use
 `isolation.level=read_committed`.
 
-Three streams also **upsert** into Iceberg (see [15_lakehouse_iceberg.md](15_lakehouse_iceberg.md)),
+Three streams also **upsert** into Iceberg (see [15_lakehouse_iceberg.md](14_lakehouse_iceberg.md)),
 so a batch job can later join streaming features with labels that arrive weeks after the
 transaction. A correction replaces the row instead of duplicating it.
 
@@ -193,6 +193,6 @@ valid deduplicated window memberships = accepted + too-late memberships
 |---|---|
 | `src/fraudstream/jobs/flink/transactions.py` | Config, validation, feature contracts, CLI |
 | `src/fraudstream/jobs/flink/runtime.py` | PyFlink operators, Kafka topology, Iceberg classpath |
-| `src/fraudstream/jobs/flink/iceberg_sink.py` | Iceberg table DDL and sink wiring (see [doc 15](15_lakehouse_iceberg.md)) |
+| `src/fraudstream/jobs/flink/iceberg_sink.py` | Iceberg table DDL and sink wiring (see [doc 15](14_lakehouse_iceberg.md)) |
 | `src/fraudstream/jobs/flink/watermark_calibration.py` | Measures delay, writes the p95 profile |
 | `configs/flink/streaming_latency_profile.json` | Current local profile |

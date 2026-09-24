@@ -3,7 +3,7 @@
 Bronze is the first lakehouse layer. It answers one question: *what did the source
 send, where did it come from, and when did we ingest it?* It keeps everything as the
 source wrote it and adds ingestion metadata. Iceberg catalog details are in
-[15_lakehouse_iceberg.md](15_lakehouse_iceberg.md).
+[15_lakehouse_iceberg.md](14_lakehouse_iceberg.md).
 
 **Bronze never cleans.** It keeps duplicate `transaction_id`s, late arrivals,
 padded, mixed-case and blank values, `v1` rows without the newer columns, and `v2`

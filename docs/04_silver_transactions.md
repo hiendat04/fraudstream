@@ -20,7 +20,7 @@ which only measures late arrival.
 Both are also written to PostgreSQL as `silver.stg_transactions` and
 `silver.stg_transaction_quality_issues`. Data files sit under
 `s3a://fraudstream/warehouse/silver/`, managed by Iceberg (see
-[15_lakehouse_iceberg.md](15_lakehouse_iceberg.md)).
+[15_lakehouse_iceberg.md](14_lakehouse_iceberg.md)).
 
 ## Run it
 

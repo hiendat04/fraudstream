@@ -158,7 +158,7 @@ uv run --group loadtest locust -f loadtest/locustfile.py --headless -u 50 -r 50 
 Median was 22 ms. The 15 s maximum is the first request waking the model, which
 is why the run is preceded by a warm-up. The two failures are the NGINX
 connection reset already described in
-[docs/22_web_apis.md](22_web_apis.md#things-worth-noticing).
+[docs/22_web_apis.md](21_web_apis.md#things-worth-noticing).
 
 A second run raises the load 10 users a minute up to 120, to find where the
 targets stop holding:

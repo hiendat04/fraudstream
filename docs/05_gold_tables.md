@@ -8,7 +8,7 @@ Silver, never straight from Bronze.
 
 | Store | Holds | For |
 |---|---|---|
-| Iceberg on MinIO (`iceberg.bronze.*`, `.silver.*`, `.gold.*`) | The lakehouse tables (see [15_lakehouse_iceberg.md](15_lakehouse_iceberg.md)) | Spark and Flink processing |
+| Iceberg on MinIO (`iceberg.bronze.*`, `.silver.*`, `.gold.*`) | The lakehouse tables (see [15_lakehouse_iceberg.md](14_lakehouse_iceberg.md)) | Spark and Flink processing |
 | PostgreSQL database `fraudstream` | A relational copy of the curated tables | DBeaver, ER diagrams, DataHub lineage, contracts |
 
 PostgreSQL does not replace the lakehouse. Each Spark job writes its Iceberg table,
