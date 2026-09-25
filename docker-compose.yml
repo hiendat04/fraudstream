@@ -468,6 +468,8 @@ services:
       - MINIO_SECRET_KEY
       - GITHUB_USER
       - GITHUB_TOKEN
+      - GATEWAY_USER
+      - GATEWAY_PASSWORD
     ports:
       - "${JENKINS_PORT:-18086}:8080"
     volumes:
@@ -497,6 +499,10 @@ secrets:
     environment: GITHUB_USER
   GITHUB_TOKEN:
     environment: GITHUB_TOKEN
+  GATEWAY_USER:
+    environment: GATEWAY_USER
+  GATEWAY_PASSWORD:
+    environment: GATEWAY_PASSWORD
 
 networks:
   default:

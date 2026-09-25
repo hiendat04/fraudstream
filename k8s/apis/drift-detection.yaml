@@ -11,7 +11,7 @@ resources:
     cpu: "1"
     memory: 256Mi
 ingress:
-  host: drift-detection.localhost
+  host: drift-detection.fraudstream.localhost
   maxBodySize: 8m
 autoscaling:
   maxReplicas: 2

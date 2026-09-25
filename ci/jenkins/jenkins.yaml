@@ -34,6 +34,11 @@ credentials:
               id: "github"
               username: "${GITHUB_USER}"
               password: "${GITHUB_TOKEN}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "gateway"
+              username: "${GATEWAY_USER}"
+              password: "${GATEWAY_PASSWORD}"
 
 jobs:
   - script: |

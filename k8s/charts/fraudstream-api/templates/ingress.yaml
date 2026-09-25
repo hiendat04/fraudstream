@@ -1,18 +1,39 @@
 {{- if .Values.ingress.host }}
+{{- $ingress := .Values.ingress }}
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
   name: {{ .Release.Name }}
   labels:
     app.kubernetes.io/name: {{ .Release.Name }}
-  {{- with .Values.ingress.maxBodySize }}
   annotations:
+    {{- with $ingress.maxBodySize }}
     nginx.org/client-max-body-size: {{ . | quote }}
-  {{- end }}
+    {{- end }}
+    {{- with $ingress.tlsIssuer }}
+    cert-manager.io/cluster-issuer: {{ . }}
+    nginx.org/http-redirect-code: "308"
+    {{- end }}
+    {{- with $ingress.authSecret }}
+    nginx.org/basic-auth-secret: {{ . }}
+    nginx.org/basic-auth-realm: fraudstream
+    {{- end }}
+    {{- with $ingress.rateLimit }}
+    nginx.org/limit-req-rate: {{ .rate | quote }}
+    nginx.org/limit-req-burst: {{ .burst | quote }}
+    nginx.org/limit-req-no-delay: "true"
+    nginx.org/limit-req-reject-code: "429"
+    {{- end }}
 spec:
   ingressClassName: nginx
+  {{- if $ingress.tlsIssuer }}
+  tls:
+    - hosts:
+        - {{ $ingress.host }}
+      secretName: {{ .Release.Name }}-tls
+  {{- end }}
   rules:
-    - host: {{ .Values.ingress.host }}
+    - host: {{ $ingress.host }}
       http:
         paths:
           - path: /

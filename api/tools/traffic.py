@@ -3,7 +3,8 @@
 Each line shows the answers that came back in that second, grouped by outcome
 and by the app version that gave them. Exits 1 if anything failed.
 
-    cd api && uv run python tools/traffic.py --host inference.localhost \
+    cd api && set -a && . ../.env && set +a
+    uv run python tools/traffic.py --host inference.fraudstream.localhost \
         --body tools/transaction.json --rate 10 --seconds 150
 """
 
@@ -17,13 +18,14 @@ from pathlib import Path
 
 import httpx
 
+from gateway import client_options
+
 
 def arguments() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
         description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter
     )
-    parser.add_argument("--url", default="http://localhost")
-    parser.add_argument("--host", required=True, help="the Host header NGINX routes on")
+    parser.add_argument("--host", required=True, help="the API's host name behind the gateway")
     parser.add_argument("--path", default="/v1/predict")
     parser.add_argument("--body", required=True, help="a JSON file holding one request body")
     parser.add_argument("--rate", type=int, default=10, help="requests per second")
@@ -37,9 +39,7 @@ async def main() -> int:
     this_second: collections.Counter = collections.Counter()
     totals: collections.Counter = collections.Counter()
 
-    async with httpx.AsyncClient(
-        base_url=args.url, headers={"Host": args.host}, timeout=35
-    ) as http:
+    async with httpx.AsyncClient(**client_options(args.host), timeout=35) as http:
 
         async def send() -> None:
             try:

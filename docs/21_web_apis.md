@@ -16,7 +16,7 @@ by one Helm chart.
 flowchart LR
     C["client"]
     subgraph node["kind cluster"]
-        N["NGINX Ingress<br/>:80"]
+        N["NGINX gateway<br/>:443, HTTPS + password"]
         subgraph apis["namespace fraudstream-apis"]
             I["inference-api<br/>1-3 pods"]
             D["drift-detection<br/>1-2 pods"]
@@ -27,8 +27,8 @@ flowchart LR
         R[("Redis<br/>db 0: feature values<br/>db 1: drift window")]
         P[("PostgreSQL<br/>Feast registry:<br/>feature definitions")]
     end
-    C -- "POST /v1/predict<br/>inference.localhost" --> N --> I
-    C -- "GET /v1/drift<br/>drift-detection.localhost" --> N --> D
+    C -- "POST /v1/predict<br/>inference.fraudstream.localhost" --> N --> I
+    C -- "GET /v1/drift<br/>drift-detection.fraudstream.localhost" --> N --> D
     I -. "definitions and TTLs,<br/>at start-up, refreshed every 60 s" .-> P
     I -- "1. read feature values<br/>by customer and merchant id" --> R
     I -- "2. score the 51 inputs" --> M
@@ -50,7 +50,7 @@ and keeps it in memory, so no request goes to PostgreSQL.
 | | Inference API | Drift detection API |
 |---|---|---|
 | Endpoints | `POST /v1/predict` | `POST /v1/observations`, `GET /v1/drift` |
-| Host through NGINX | `inference.localhost` | `drift-detection.localhost` |
+| Host through the [gateway](24_gateway.md) | `inference.fraudstream.localhost` | `drift-detection.fraudstream.localhost` |
 | Image | 972 MB | 335 MB |
 | Memory per pod | 142 Mi | 43 Mi |
 | Pods, scaled by KEDA on CPU | 1 to 3 | 1 to 2 |
@@ -136,9 +136,9 @@ KEDA scales each Deployment when CPU passes 60% of its request. The chart sets
 no replica count, so KEDA alone owns it. Load of 100 requests a second:
 
 ```bash
-cd api
+cd api && set -a && . ../.env && set +a
 uv run python tools/traffic.py \
-  --host inference.localhost \
+  --host inference.fraudstream.localhost \
   --body tools/transaction.json \
   --rate 100 \
   --seconds 300
@@ -312,9 +312,9 @@ kubectl -n fraudstream-apis create secret generic feature-store-registry \
 helm upgrade --install inference-api k8s/charts/fraudstream-api -n fraudstream-apis \
   -f k8s/apis/inference-api.yaml --set-string image.tag=v1 --rollback-on-failure --timeout 2m
 
-# score one payment
-curl -H "Host: inference.localhost" -H "Content-Type: application/json" \
-  -d @api/tools/transaction.json http://localhost/v1/predict
+# score one payment through the gateway (local-ca.crt: see docs/24_gateway.md)
+curl --cacert local-ca.crt -u "$GATEWAY_USER:$GATEWAY_PASSWORD" -H "Content-Type: application/json" \
+  -d @api/tools/transaction.json https://inference.fraudstream.localhost/v1/predict
 
 # the API must return the model's own answer
 cd api && POSTGRES_HOST=localhost REDIS_HOST=localhost PYTHONPATH=src:../ml/src \
