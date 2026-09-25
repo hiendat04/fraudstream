@@ -1,6 +1,7 @@
 """The same load, raised by 10 users a minute up to 120, to find where the SLA breaks.
 
-    cd api && uv run --group loadtest locust -f loadtest/capacity.py --headless \
+    cd api && set -a && . ../.env && set +a
+    uv run --group loadtest locust -f loadtest/capacity.py --headless \
         --html ../reports/load_test_inference_api_capacity.html
 """
 

@@ -4,7 +4,8 @@ answer against the same sums worked out offline.
 Both sides call the same compare(), so a difference means the window in Redis
 does not hold what was sent.
 
-    cd api && PYTHONPATH=src:../ml/src uv run --group reference \\
+    cd api && set -a && . ../.env && set +a
+    PYTHONPATH=src:../ml/src uv run --group reference \\
         python tools/replay.py --start 2026-06-15 --end 2026-07-01
 """
 
@@ -14,6 +15,8 @@ from pathlib import Path
 
 import httpx
 import numpy as np
+
+from gateway import client_options
 
 from fraudstream_api.drift_detection.psi import bin_counts
 from fraudstream_api.drift_detection.reference import Reference, compare
@@ -29,8 +32,7 @@ def arguments() -> argparse.Namespace:
     parser.add_argument("--start", required=True)
     parser.add_argument("--end", required=True)
     parser.add_argument("--reference", default="reference/fraud-detection-v2.json")
-    parser.add_argument("--url", default="http://localhost")
-    parser.add_argument("--host", default="drift-detection.localhost")
+    parser.add_argument("--host", default="drift-detection.fraudstream.localhost")
     parser.add_argument("--batch", type=int, default=1000)
     return parser.parse_args()
 
@@ -41,7 +43,7 @@ def main() -> int:
     frame, names = prepared_rows(reference.data_snapshot_id, args.start, args.end)
     values = frame[names].to_numpy()
 
-    with httpx.Client(base_url=args.url, headers={"Host": args.host}, timeout=60) as http:
+    with httpx.Client(**client_options(args.host), timeout=60) as http:
         for first in range(0, len(values), args.batch):
             observations = [
                 {name: None if np.isnan(value) else float(value) for name, value in zip(names, row)}
