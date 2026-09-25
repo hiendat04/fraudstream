@@ -141,7 +141,7 @@ failures ≤ 1%, at 50 requests a second. The locustfile checks all three when
 the run ends and exits 1 if any is missed, so the HTML report is the record.
 
 ```bash
-cd api
+cd api && set -a && . ../.env && set +a
 uv run --group loadtest locust -f loadtest/locustfile.py --headless -u 50 -r 5 -t 2m
 uv run --group loadtest locust -f loadtest/locustfile.py --headless -u 50 -r 50 -t 5m \
   --html ../reports/load_test_inference_api.html
@@ -158,13 +158,17 @@ uv run --group loadtest locust -f loadtest/locustfile.py --headless -u 50 -r 50 
 Median was 22 ms. The 15 s maximum is the first request waking the model, which
 is why the run is preceded by a warm-up. The two failures are the NGINX
 connection reset already described in
-[docs/22_web_apis.md](21_web_apis.md#things-worth-noticing).
+[docs/21_web_apis.md](21_web_apis.md#things-worth-noticing).
+
+These runs were over plain HTTP. Since the gateway, the same test runs over HTTPS
+with the password and still meets the SLA: see [docs/24_gateway.md](24_gateway.md#proof).
 
 A second run raises the load 10 users a minute up to 120, to find where the
 targets stop holding:
 
 ```bash
-cd api && uv run --group loadtest locust -f loadtest/capacity.py --headless \
+cd api && set -a && . ../.env && set +a
+uv run --group loadtest locust -f loadtest/capacity.py --headless \
   --html ../reports/load_test_inference_api_capacity.html
 ```
 
@@ -180,7 +184,9 @@ cd api && uv run --group loadtest locust -f loadtest/capacity.py --headless \
 The median never moved, so nothing was saturating: one inference pod handles
 roughly 15 requests a second and KEDA adds pods as CPU rises. Under load the
 single model pod uses about as much CPU as all three inference pods together,
-so it is the first thing that would need scaling.
+so it is the first thing that would need scaling. Since the gateway, one client above
+60 requests a second is refused with 429, so this step-up test now measures that limit
+past 60 users.
 
 Both reports are in [reports/](../reports).
 

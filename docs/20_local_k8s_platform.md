@@ -84,15 +84,16 @@ Which app answers is decided by the `Host` header, not the port:
 |---|---|---|
 | `echo.localhost` | 80 / 443 | smoke-test echo app |
 | `protected.localhost` | 80 | same app, behind basic auth and a rate limit |
+| `inference.fraudstream.localhost`, `drift-detection.fraudstream.localhost` | 443 | the web APIs, behind the [gateway](24_gateway.md) |
 | `<name>-<namespace>.knative.localhost` | 8081 | a Knative service |
 | `fraud-detection-predictor.kserve-models.knative.localhost` | 8081 | the fraud model |
 
 ## Why two front doors
 
 NGINX could sit in front of Kourier to give one entry point. That needs a
-wildcard rule, two proxies in a row, and a changed Knative domain setting. The
-things will put behind NGINX are Grafana, Kibana, Jaeger and the pull API.
-None of them run on Knative.
+wildcard rule, two proxies in a row, and a changed Knative domain setting. What
+sits behind NGINX is the web APIs now, and Grafana, Kibana and Jaeger later
+(see [the gateway](24_gateway.md)). None of them run on Knative.
 
 So ordinary apps use 80/443 and anything Knative runs uses 8081. Each door can
 be tested and debugged on its own.

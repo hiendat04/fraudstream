@@ -24,7 +24,10 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **Reproducible ML.** Distributed XGBoost on Kubeflow. Every model in MLflow is linked to
   the Iceberg snapshot of the exact rows it trained on.
 - **Production-style serving.** KServe (scale-to-zero), an inference API and a drift API on
-  Kubernetes, with HTTPS ingress, KEDA autoscaling, and automatic Helm rollback.
+  Kubernetes, with KEDA autoscaling and automatic Helm rollback.
+- **A real front door.** Every API sits behind an NGINX gateway with its own domain,
+  HTTPS from a local CA, basic auth and a per-client rate limit. CI checks all four after
+  each deploy and rolls back an API left open.
 - **Tested with numbers.** 100% line and branch coverage on both APIs, 86% mutation score,
   property-based tests, and a load test judged against an SLA fixed in advance.
 - **CI/CD.** Jenkins tests every branch and deploys the deploy branch. Every image is
@@ -90,6 +93,7 @@ flowchart LR
 | Web APIs | Inference and drift detection, with Helm rollout and rollback | [21_web_apis.md](docs/21_web_apis.md)                                                                                                                                                     |
 | Testing | Coverage, mutation, property-based and load testing | [22_validation_and_verification.md](docs/22_validation_and_verification.md)                                                                                                               |
 | CI/CD | Jenkins pipeline with a before and after of a real deploy | [23_ci_cd.md](docs/23_ci_cd.md)                                                                                                                                                           |
+| Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/24_gateway.md)                                                                                                                                                       |
 | Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md)                |
 
 ## Quick start
@@ -135,6 +139,8 @@ job, or `--flink-ui` to the Flink job, to watch it run. Stop the services with
 | Flink UI | `http://localhost:8081` |
 | MinIO console | `http://localhost:19001` |
 | DataHub | `http://localhost:9002` |
+| Inference API | `https://inference.fraudstream.localhost` (gateway password) |
+| Drift detection API | `https://drift-detection.fraudstream.localhost` (gateway password) |
 | PostgreSQL | `localhost:5432`, database `fraudstream` |
 
 Credentials are local-development defaults (`fraudstream` / `fraudstream_local_password`).

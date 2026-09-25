@@ -20,7 +20,7 @@ flowchart LR
             GATE{"deploy branch<br/>and files<br/>changed?"}
             STOP(["tested only"])
             CD["<b>CD · deploy branch</b><br/>build image<br/>tag = commit"]
-            CRED[["credentials<br/>postgres · minio · github"]]
+            CRED[["credentials<br/>postgres · minio · github · gateway"]]
             CI --> GATE
             GATE -- no --> STOP
             GATE -- yes --> CD
@@ -57,8 +57,8 @@ the host's Docker through a mounted socket, so images never leave the machine.
 
 | Deploys | When these change | Check after deploy |
 |---|---|---|
-| Inference API | `api/src`, `ml/src`, its Dockerfile, the chart | answers with `x-app-version` = commit |
-| Drift detection API | `api/src`, `api/reference`, its Dockerfile, the chart | answers with `x-app-version` = commit |
+| Inference API | `api/src`, `ml/src`, its Dockerfile, the chart, the gateway scripts | answers with `x-app-version` = commit, then passes the [gateway check](24_gateway.md#proof), or is rolled back |
+| Drift detection API | `api/src`, `api/reference`, its Dockerfile, the chart, the gateway scripts | answers with `x-app-version` = commit, then passes the gateway check, or is rolled back |
 | KServe model server | `serving/src`, its Dockerfile, `k8s/models` | a real payment scores through the API |
 | Training pipeline | `ml/src`, `pipelines/src`, `k8s/Dockerfile.ml` | a version named after the commit exists |
 | Airflow pipelines | `airflow`, `src`, `configs`, feature store code | four DAGs listed, no import errors |
