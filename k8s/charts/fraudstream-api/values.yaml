@@ -3,7 +3,7 @@ image:
   tag: ""
   pullPolicy: IfNotPresent
 port: 8080
-env: {}
+env: { }
 secretName: ""
 resources:
   requests:
@@ -43,6 +43,11 @@ rollout:
 ingress:
   host: ""
   maxBodySize: ""
+  tlsIssuer: local-ca
+  authSecret: gateway-htpasswd
+  rateLimit:
+    rate: 60r/s
+    burst: 60
 autoscaling:
   minReplicas: 1
   maxReplicas: 3

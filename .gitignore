@@ -8,3 +8,4 @@ docs/superpowers/
 .env
 data/
 .idea
+local-ca.crt

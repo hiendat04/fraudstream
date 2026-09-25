@@ -9,4 +9,4 @@ env:
   REDIS_PORT: "6379"
   DRIFT_URL: http://drift-detection.fraudstream-apis.svc.cluster.local/v1/observations
 ingress:
-  host: inference.localhost
+  host: inference.fraudstream.localhost
