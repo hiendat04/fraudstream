@@ -37,7 +37,7 @@ pipeline {
     }
 
     stage('Inference API') {
-      when { expression { deploying('api/src ml/src/fraudstream_ml k8s/Dockerfile.inference k8s/apis/inference-api.yaml k8s/charts') } }
+      when { expression { deploying('api/src ml/src/fraudstream_ml k8s/Dockerfile.inference k8s/apis/inference-api.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.inference -t "fraudstream-inference:$TAG" .
@@ -54,40 +54,61 @@ pipeline {
               --dry-run=client -o yaml | kubectl apply -f -
           '''
         }
-        sh '''
-          helm upgrade --install inference-api k8s/charts/fraudstream-api \
-            -n fraudstream-apis -f k8s/apis/inference-api.yaml \
-            --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
-          ./ci/wait_for_version.sh inference.localhost "$TAG"
-        '''
+        withCredentials([usernamePassword(credentialsId: 'gateway',
+                                          usernameVariable: 'GATEWAY_USER',
+                                          passwordVariable: 'GATEWAY_PASSWORD')]) {
+          sh '''
+            ./k8s/gateway/credentials.sh fraudstream-apis
+            helm upgrade --install inference-api k8s/charts/fraudstream-api \
+              -n fraudstream-apis -f k8s/apis/inference-api.yaml \
+              --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
+            ./ci/wait_for_version.sh inference.fraudstream.localhost "$TAG"
+            ./ci/check_gateway.sh inference.fraudstream.localhost \
+              || { helm rollback inference-api -n fraudstream-apis --wait; exit 1; }
+          '''
+        }
       }
     }
 
     stage('Drift detection API') {
-      when { expression { deploying('api/src api/reference k8s/Dockerfile.drift-detection k8s/apis/drift-detection.yaml k8s/charts') } }
+      when { expression { deploying('api/src api/reference k8s/Dockerfile.drift-detection k8s/apis/drift-detection.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.drift-detection -t "fraudstream-drift-detection:$TAG" .
           kind load docker-image "fraudstream-drift-detection:$TAG" --name fraudstream
-          kubectl create namespace fraudstream-apis --dry-run=client -o yaml | kubectl apply -f -
-          helm upgrade --install drift-detection k8s/charts/fraudstream-api \
-            -n fraudstream-apis -f k8s/apis/drift-detection.yaml \
-            --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
-          ./ci/wait_for_version.sh drift-detection.localhost "$TAG"
         '''
+        withCredentials([usernamePassword(credentialsId: 'gateway',
+                                          usernameVariable: 'GATEWAY_USER',
+                                          passwordVariable: 'GATEWAY_PASSWORD')]) {
+          sh '''
+            ./k8s/gateway/credentials.sh fraudstream-apis
+            helm upgrade --install drift-detection k8s/charts/fraudstream-api \
+              -n fraudstream-apis -f k8s/apis/drift-detection.yaml \
+              --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
+            ./ci/wait_for_version.sh drift-detection.fraudstream.localhost "$TAG"
+            ./ci/check_gateway.sh drift-detection.fraudstream.localhost \
+              || { helm rollback drift-detection -n fraudstream-apis --wait; exit 1; }
+          '''
+        }
       }
     }
     stage('Model server') {
       when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models') } }
       steps {
-        sh '''
-          docker build -f k8s/Dockerfile.serving -t "dev.local/fraudstream-serving:$TAG" .
-          kind load docker-image "dev.local/fraudstream-serving:$TAG" --name fraudstream
-          sed "s#fraudstream-serving:dev#fraudstream-serving:$TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
-          kubectl -n kserve-models wait --for=condition=Ready inferenceservice/fraud-detection --timeout=5m
-          curl -sf --max-time 30 -H 'Host: inference.localhost' -H 'Content-Type: application/json' \
-            -d @api/tools/transaction.json http://fraudstream-control-plane/v1/predict
-        '''
+        withCredentials([usernamePassword(credentialsId: 'gateway',
+                                          usernameVariable: 'GATEWAY_USER',
+                                          passwordVariable: 'GATEWAY_PASSWORD')]) {
+          sh '''
+            docker build -f k8s/Dockerfile.serving -t "dev.local/fraudstream-serving:$TAG" .
+            kind load docker-image "dev.local/fraudstream-serving:$TAG" --name fraudstream
+            sed "s#fraudstream-serving:dev#fraudstream-serving:$TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
+            kubectl -n kserve-models wait --for=condition=Ready inferenceservice/fraud-detection --timeout=5m
+            . ci/gateway.sh
+            gateway_curl -sf --max-time 30 -u "$GATEWAY_USER:$GATEWAY_PASSWORD" \
+              -H 'Content-Type: application/json' -d @api/tools/transaction.json \
+              https://inference.fraudstream.localhost/v1/predict
+          '''
+        }
       }
     }
 
