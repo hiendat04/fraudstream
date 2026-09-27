@@ -32,6 +32,7 @@ def main() -> None:
             "ansible_host": out["external_ip"],
             "ansible_user": "fraudstream",
             "stores_internal_dns": out["internal_dns"],
+            "models_bucket": out["models_bucket"],
         }}},
     }))
 

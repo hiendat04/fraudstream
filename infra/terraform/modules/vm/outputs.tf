@@ -17,3 +17,7 @@ output "internal_ip" {
 output "internal_dns" {
   value = "${google_compute_instance.this.name}.${google_compute_instance.this.zone}.c.${var.project_id}.internal"
 }
+
+output "service_account_email" {
+  value = google_service_account.vm.email
+}

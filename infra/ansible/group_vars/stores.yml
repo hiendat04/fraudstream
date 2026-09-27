@@ -3,6 +3,3 @@ docker_network: fraudstream
 postgres_user: fraudstream
 postgres_db: fraudstream
 postgres_password: "{{ lookup('env', 'CLOUD_POSTGRES_PASSWORD') }}"
-minio_user: fraudstream
-minio_password: "{{ lookup('env', 'CLOUD_MINIO_SECRET_KEY') }}"
-minio_bucket: fraudstream

@@ -7,7 +7,6 @@
       ansible.builtin.assert:
         that:
           - postgres_password | length > 0
-          - minio_password | length > 0
         fail_msg: Load .env first (set -a && . ../../.env && set +a)
     - name: Wait for the VM to accept SSH
       ansible.builtin.wait_for_connection:
@@ -17,3 +16,6 @@
   roles:
     - common
     - docker
+    - postgres
+    - redis
+    - mlflow

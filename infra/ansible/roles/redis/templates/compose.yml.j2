@@ -1,0 +1,21 @@
+services:
+  redis:
+    image: {{ redis_image }}
+    container_name: fraudstream-redis
+    restart: unless-stopped
+    command: ["redis-server", "--save", "60", "1", "--loglevel", "warning"]
+    ports:
+      - "6379:6379"
+    volumes:
+      - ./data:/data
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [fraudstream]
+
+networks:
+  fraudstream:
+    external: true
+    name: {{ docker_network }}

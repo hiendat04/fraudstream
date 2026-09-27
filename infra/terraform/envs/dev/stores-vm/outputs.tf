@@ -17,3 +17,7 @@ output "internal_ip" {
 output "internal_dns" {
   value = module.stores.internal_dns
 }
+
+output "models_bucket" {
+  value = google_storage_bucket.models.name
+}

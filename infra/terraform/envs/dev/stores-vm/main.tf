@@ -22,3 +22,17 @@ module "stores" {
   ]
   service_ports = ["5432", "6379", "5000"]
 }
+
+resource "google_storage_bucket" "models" {
+  name                        = "${var.project_id}-models"
+  location                    = var.region
+  uniform_bucket_level_access = true
+  public_access_prevention    = "enforced"
+  force_destroy               = true
+}
+
+resource "google_storage_bucket_iam_member" "stores" {
+  bucket = google_storage_bucket.models.name
+  role   = "roles/storage.objectAdmin"
+  member = "serviceAccount:${module.stores.service_account_email}"
+}

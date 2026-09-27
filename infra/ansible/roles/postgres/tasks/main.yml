@@ -1,0 +1,26 @@
+- name: Create the Postgres directories
+  ansible.builtin.file:
+    path: "{{ item }}"
+    state: directory
+    mode: "0755"
+  loop:
+    - "{{ postgres_dir }}"
+    - "{{ postgres_dir }}/initdb"
+
+- name: Create the MLflow database on first start
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../postgres/init/002_create_mlflow_database.sql"
+    dest: "{{ postgres_dir }}/initdb/002_create_mlflow_database.sql"
+    mode: "0644"
+
+- name: Write the Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ postgres_dir }}/compose.yml"
+    mode: "0600"
+
+- name: Start Postgres
+  community.docker.docker_compose_v2:
+    project_src: "{{ postgres_dir }}"
+    state: present
+    wait: true
