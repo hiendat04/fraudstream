@@ -13,17 +13,9 @@
 set -euo pipefail
 
 CLUSTER_NAME=fraudstream
-PIPELINE_VERSION=2.17.0
-TRAINER_VERSION=v2.2.0
-NGINX_INGRESS_CHART=2.7.3
-CERT_MANAGER_VERSION=v1.21.2
-METRICS_SERVER_CHART=3.14.0
-KEDA_VERSION=v2.20.2
-KNATIVE_SERVING_VERSION=knative-v1.20.3
-KOURIER_VERSION=knative-v1.20.1
-KSERVE_VERSION=v0.20.0
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
+. "$HERE/versions.sh"
 
 
 echo "==> Checking the tools are installed and runnable"
