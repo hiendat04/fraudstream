@@ -1,0 +1,19 @@
+- name: Dump the Feast registry from the local stack
+  ansible.builtin.shell: >-
+    docker exec fraudstream-postgres pg_dump -U {{ seed_local_postgres_user }} -d fraudstream
+    -n public -T 'iceberg_*' --no-owner --no-privileges -Fc > {{ seed_local_dir }}/feast_registry.dump
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+- name: Copy the registry dump to the VM
+  ansible.builtin.copy:
+    src: "{{ seed_local_dir }}/feast_registry.dump"
+    dest: "{{ seed_remote_dir }}/feast_registry.dump"
+    mode: "0600"
+
+- name: Restore the Feast registry
+  ansible.builtin.shell: >-
+    docker exec -i fraudstream-postgres pg_restore -U {{ postgres_user }} -d {{ postgres_db }}
+    --no-owner --no-privileges --clean --if-exists < {{ seed_remote_dir }}/feast_registry.dump
+  changed_when: true

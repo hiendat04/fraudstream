@@ -1,0 +1,24 @@
+- name: Snapshot the local online store
+  ansible.builtin.shell: >-
+    docker exec fraudstream-redis redis-cli SAVE
+    && docker cp fraudstream-redis:/data/dump.rdb {{ seed_local_dir }}/redis.rdb
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+- name: Stop Redis so it doesn't overwrite the snapshot
+  community.docker.docker_compose_v2:
+    project_src: "{{ fraudstream_dir }}/redis"
+    state: stopped
+
+- name: Put the snapshot where Redis loads from
+  ansible.builtin.copy:
+    src: "{{ seed_local_dir }}/redis.rdb"
+    dest: "{{ fraudstream_dir }}/redis/data/dump.rdb"
+    mode: "0644"
+
+- name: Start Redis on the snapshot
+  community.docker.docker_compose_v2:
+    project_src: "{{ fraudstream_dir }}/redis"
+    state: present
+    wait: true

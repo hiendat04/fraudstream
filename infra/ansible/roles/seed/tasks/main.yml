@@ -1,0 +1,70 @@
+- name: Create the local export directory
+  ansible.builtin.file:
+    path: "{{ seed_local_dir }}"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+- name: Create the seed directory on the VM
+  ansible.builtin.file:
+    path: "{{ seed_remote_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Is the Feast registry loaded
+  ansible.builtin.command: >-
+    docker exec fraudstream-postgres psql -U {{ postgres_user }} -d {{ postgres_db }} -Atc
+    "select to_regclass('public.feast_metadata') is not null"
+  register: seed_registry_state
+  changed_when: false
+
+- name: Is the model registered
+  ansible.builtin.command: >-
+    docker exec fraudstream-postgres psql -U {{ postgres_user }} -d mlflow -Atc
+    "select count(*) from model_versions where name = 'fraud-detection' and version = 2"
+  register: seed_mlflow_state
+  changed_when: false
+  failed_when: false
+
+- name: How many online features are in Redis
+  ansible.builtin.command: docker exec fraudstream-redis redis-cli -n 0 dbsize
+  register: seed_redis_state
+  changed_when: false
+
+- name: How many model files are in the bucket
+  ansible.builtin.shell: set -o pipefail && gcloud storage ls "gs://{{ models_bucket }}/mlflow/**" 2>/dev/null | wc -l
+  args:
+    executable: /bin/bash
+  delegate_to: localhost
+  become: false
+  register: seed_artifacts_state
+  changed_when: false
+  failed_when: false
+
+- name: Make sure the local stack is running, to export from
+  ansible.builtin.shell: >-
+    docker exec fraudstream-postgres true && docker exec fraudstream-redis true
+    && docker exec fraudstream-minio true
+  delegate_to: localhost
+  become: false
+  changed_when: false
+  when: >-
+    seed_registry_state.stdout != 't' or seed_mlflow_state.stdout != '1'
+    or seed_redis_state.stdout | int == 0 or seed_artifacts_state.stdout | int == 0
+
+- name: Load the Feast registry
+  ansible.builtin.include_tasks: registry.yml
+  when: seed_registry_state.stdout != 't'
+
+- name: Load the MLflow database
+  ansible.builtin.include_tasks: mlflow.yml
+  when: seed_mlflow_state.stdout != '1'
+
+- name: Load the online features
+  ansible.builtin.include_tasks: redis.yml
+  when: seed_redis_state.stdout | int == 0
+
+- name: Load the model files
+  ansible.builtin.include_tasks: artifacts.yml
+  when: seed_artifacts_state.stdout | int == 0
