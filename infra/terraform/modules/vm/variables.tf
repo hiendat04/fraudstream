@@ -40,5 +40,5 @@ variable "client_cidrs" {
 }
 
 variable "service_ports" {
-  type = list(string)client_cidrs
+  type = list(string)
 }
