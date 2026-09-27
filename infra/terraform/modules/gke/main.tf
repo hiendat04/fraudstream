@@ -45,6 +45,10 @@ resource "google_container_cluster" "this" {
   monitoring_config {
     enable_components = ["SYSTEM_COMPONENTS"]
   }
+
+  lifecycle {
+    ignore_changes = [node_config]
+  }
 }
 
 resource "google_container_node_pool" "default" {
