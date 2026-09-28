@@ -8,7 +8,7 @@ A fraud model is only as good as the pipelines feeding it. Real transaction data
 late records, duplicates, schema changes, spikes and skew, so this project generates
 those problems on purpose and builds the whole MLOps loop around handling them.
 
-![FraudStream architecture](images/architecture/architecture.png)
+![FraudStream architecture](images/architecture/architecture.svg)
 
 ## Highlights
 
