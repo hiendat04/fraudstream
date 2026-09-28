@@ -1,0 +1,37 @@
+- name: Add Docker's apt repository
+  ansible.builtin.deb822_repository:
+    name: docker
+    types: deb
+    uris: https://download.docker.com/linux/debian
+    suites: "{{ ansible_facts['distribution_release'] }}"
+    components: stable
+    architectures: "{{ docker_arch }}"
+    signed_by: https://download.docker.com/linux/debian/gpg
+
+- name: Install Docker Engine and Compose
+  ansible.builtin.apt:
+    name:
+      - docker-ce
+      - docker-ce-cli
+      - containerd.io
+      - docker-buildx-plugin
+      - docker-compose-plugin
+    update_cache: true
+
+- name: Start Docker now and on boot
+  ansible.builtin.service:
+    name: docker
+    state: started
+    enabled: true
+
+- name: Let the admin user run Docker
+  ansible.builtin.user:
+    name: "{{ ansible_user }}"
+    groups: docker
+    append: true
+
+- name: Create the network the stores share
+  ansible.builtin.command: docker network create {{ docker_network }}
+  register: docker_network_created
+  changed_when: docker_network_created.rc == 0
+  failed_when: docker_network_created.rc != 0 and 'already exists' not in docker_network_created.stderr

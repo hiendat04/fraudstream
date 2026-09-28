@@ -9,3 +9,8 @@ docs/superpowers/
 data/
 .idea
 local-ca.crt
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfplan
+infra/ansible/.seed/

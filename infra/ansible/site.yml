@@ -1,0 +1,22 @@
+- name: Configure the stores VM
+  hosts: stores
+  become: true
+  gather_facts: false
+  pre_tasks:
+    - name: Refuse to run without the cloud passwords
+      ansible.builtin.assert:
+        that:
+          - postgres_password | length > 0
+        fail_msg: Load .env first (set -a && . ../../.env && set +a)
+    - name: Wait for the VM to accept SSH
+      ansible.builtin.wait_for_connection:
+        timeout: 300
+    - name: Gather facts
+      ansible.builtin.setup:
+  roles:
+    - common
+    - docker
+    - postgres
+    - redis
+    - seed
+    - mlflow

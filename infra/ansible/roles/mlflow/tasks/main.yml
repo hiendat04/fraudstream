@@ -1,0 +1,26 @@
+- name: Create the MLflow build directory
+  ansible.builtin.file:
+    path: "{{ mlflow_dir }}/build"
+    state: directory
+    mode: "0755"
+
+- name: Copy the MLflow image recipe
+  ansible.builtin.copy:
+    src: Dockerfile
+    dest: "{{ mlflow_dir }}/build/Dockerfile"
+    mode: "0644"
+  register: mlflow_recipe
+
+- name: Write the Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ mlflow_dir }}/compose.yml"
+    mode: "0600"
+
+- name: Build and start MLflow
+  community.docker.docker_compose_v2:
+    project_src: "{{ mlflow_dir }}"
+    state: present
+    build: "{{ 'always' if mlflow_recipe.changed else 'policy' }}"
+    wait: true
+    wait_timeout: 300

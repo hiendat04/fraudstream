@@ -1,0 +1,8 @@
+controller:
+  ingressClass:
+    name: nginx
+    create: true
+    setAsDefaultIngress: true
+  service:
+    type: LoadBalancer
+    externalTrafficPolicy: Local

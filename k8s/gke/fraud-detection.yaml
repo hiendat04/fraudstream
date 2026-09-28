@@ -1,0 +1,63 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: fraud-detection
+  namespace: fraudstream-apis
+  labels:
+    app.kubernetes.io/name: fraud-detection
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: fraud-detection
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: fraud-detection
+    spec:
+      containers:
+        - name: predictor
+          image: SERVING_IMAGE
+          ports:
+            - name: http
+              containerPort: 8080
+          env:
+            - name: MODEL_URI
+              value: models:/fraud-detection/2
+            - name: MLFLOW_TRACKING_URI
+              value: http://mlflow:5000
+          startupProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 5
+            failureThreshold: 60
+          livenessProbe:
+            httpGet:
+              path: /
+              port: http
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /v1/models/fraud-detection
+              port: http
+            periodSeconds: 5
+          resources:
+            requests:
+              cpu: 100m
+              memory: 512Mi
+            limits:
+              memory: 2Gi
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: fraud-detection
+  namespace: fraudstream-apis
+spec:
+  selector:
+    app.kubernetes.io/name: fraud-detection
+  ports:
+    - name: http
+      port: 80
+      targetPort: http

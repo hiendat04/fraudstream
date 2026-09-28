@@ -1,0 +1,25 @@
+services:
+  postgres:
+    image: {{ postgres_image }}
+    container_name: fraudstream-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: {{ postgres_db }}
+      POSTGRES_USER: {{ postgres_user }}
+      POSTGRES_PASSWORD: "{{ postgres_password }}"
+    ports:
+      - "5432:5432"
+    volumes:
+      - ./data:/var/lib/postgresql/data
+      - ./initdb:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U {{ postgres_user }} -d {{ postgres_db }}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+    networks: [fraudstream]
+
+networks:
+  fraudstream:
+    external: true
+    name: {{ docker_network }}

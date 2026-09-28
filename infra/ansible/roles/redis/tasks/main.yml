@@ -1,0 +1,17 @@
+- name: Create the Redis directory
+  ansible.builtin.file:
+    path: "{{ redis_dir }}"
+    state: directory
+    mode: "0755"
+
+- name: Write the Compose file
+  ansible.builtin.template:
+    src: compose.yml.j2
+    dest: "{{ redis_dir }}/compose.yml"
+    mode: "0644"
+
+- name: Start Redis
+  community.docker.docker_compose_v2:
+    project_src: "{{ redis_dir }}"
+    state: present
+    wait: true

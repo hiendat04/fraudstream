@@ -28,6 +28,9 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **A real front door.** Every API sits behind an NGINX gateway with its own domain,
   HTTPS from a local CA, basic auth and a per-client rate limit. CI checks all four after
   each deploy and rolls back an API left open.
+- **Cloud in one command.** Terraform and Ansible bring the serving path up on GKE and
+  take it down again, with a budget and a leftover check so a forgotten session can't
+  run up a bill. A payment scored in the cloud matches the laptop to the last decimal.
 - **Tested with numbers.** 100% line and branch coverage on both APIs, 86% mutation score,
   property-based tests, and a load test judged against an SLA fixed in advance.
 - **CI/CD.** Jenkins tests every branch and deploys the deploy branch. Every image is
@@ -94,6 +97,7 @@ flowchart LR
 | Testing | Coverage, mutation, property-based and load testing | [22_validation_and_verification.md](docs/22_validation_and_verification.md)                                                                                                               |
 | CI/CD | Jenkins pipeline with a before and after of a real deploy | [23_ci_cd.md](docs/23_ci_cd.md)                                                                                                                                                           |
 | Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/24_gateway.md)                                                                                                                                                       |
+| Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/25_infrastructure_as_code.md)                                                                                                                         |
 | Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md)                |
 
 ## Quick start
@@ -169,9 +173,14 @@ fraudstream/
 ├── feature_store/            # Isolated Python 3.12 Feast runtime, feature repo, and push job
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
-├── infra/postgres/           # PostgreSQL schema initialization SQL
+├── infra/
+│   ├── ansible/              # Playbook and roles that set up and seed the stores VM on GCP
+│   ├── postgres/             # PostgreSQL schema initialization SQL
+│   ├── terraform/            # Terraform modules and one stack per piece of the GCP setup
+│   └── session.sh            # Start, end and check a cloud session
 ├── k8s/                      # kind cluster bootstrap, service images, pipeline RBAC
 │   ├── apis/                 # Helm values for the inference and drift detection releases
+│   ├── gke/                  # Platform, deploy scripts and manifests for GKE
 │   ├── charts/               # One Helm chart shared by both web APIs
 │   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
 │   ├── models/               # KServe InferenceService for the fraud model

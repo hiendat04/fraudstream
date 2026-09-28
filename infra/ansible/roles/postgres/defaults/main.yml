@@ -1,0 +1,2 @@
+postgres_image: postgres:16-alpine
+postgres_dir: "{{ fraudstream_dir }}/postgres"

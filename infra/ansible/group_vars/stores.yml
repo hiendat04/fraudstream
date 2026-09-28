@@ -1,0 +1,5 @@
+fraudstream_dir: /opt/fraudstream
+docker_network: fraudstream
+postgres_user: fraudstream
+postgres_db: fraudstream
+postgres_password: "{{ lookup('env', 'CLOUD_POSTGRES_PASSWORD') }}"
