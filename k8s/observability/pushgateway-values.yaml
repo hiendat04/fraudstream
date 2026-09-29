@@ -1,0 +1,13 @@
+fullnameOverride: pushgateway
+serviceMonitor:
+  enabled: true
+  namespace: observability
+  honorLabels: true
+persistentVolume:
+  enabled: false
+resources:
+  requests:
+    cpu: 10m
+    memory: 32Mi
+  limits:
+    memory: 64Mi
