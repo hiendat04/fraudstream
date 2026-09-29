@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir \
         "uvicorn==0.53.0" \
         "pydantic-settings==2.15.0" \
         "redis==7.4.1" \
-        "numpy==2.5.3"
+        "numpy==2.5.3" \
+        "prometheus-client==0.24.1"
 
 COPY api/src /app/api/src
 COPY api/reference /app/reference

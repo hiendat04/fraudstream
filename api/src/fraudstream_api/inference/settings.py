@@ -24,3 +24,5 @@ class Settings(BaseSettings):
     drift_url: str | None = None
     drift_timeout_seconds: float = 2.0
     app_version: str = "dev"
+    # Unset means no metrics endpoint: tests and one-off runs need none.
+    metrics_port: int | None = None

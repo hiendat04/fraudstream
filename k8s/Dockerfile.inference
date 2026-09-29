@@ -10,7 +10,8 @@ RUN pip install --no-cache-dir \
         "uvicorn==0.53.0" \
         "httpx==0.28.1" \
         "pydantic-settings==2.15.0" \
-        "pandas==2.3.3"
+        "pandas==2.3.3" \
+        "prometheus-client==0.24.1"
 
 # The training code that builds the model's inputs, used as is.
 COPY ml/src/fraudstream_ml /app/ml/src/fraudstream_ml

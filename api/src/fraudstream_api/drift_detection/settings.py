@@ -11,3 +11,4 @@ class Settings(BaseSettings):
     # Below this, a PSI says more about chance than about drift.
     min_observations: int = 1000
     app_version: str = "dev"
+    metrics_port: int | None = None

@@ -466,6 +466,7 @@ source = { virtual = "." }
 drift = [
     { name = "fastapi" },
     { name = "numpy" },
+    { name = "prometheus-client" },
     { name = "pydantic-settings" },
     { name = "redis" },
     { name = "uvicorn" },
@@ -475,6 +476,7 @@ inference = [
     { name = "feast", extra = ["postgres", "redis"] },
     { name = "httpx" },
     { name = "pandas" },
+    { name = "prometheus-client" },
     { name = "pydantic-settings" },
     { name = "uvicorn" },
 ]
@@ -505,6 +507,8 @@ requires-dist = [
     { name = "httpx", marker = "extra == 'inference'", specifier = "==0.28.1" },
     { name = "numpy", marker = "extra == 'drift'", specifier = ">=2,<3" },
     { name = "pandas", marker = "extra == 'inference'", specifier = ">=2.2,<3" },
+    { name = "prometheus-client", marker = "extra == 'drift'", specifier = "==0.24.1" },
+    { name = "prometheus-client", marker = "extra == 'inference'", specifier = "==0.24.1" },
     { name = "pydantic-settings", marker = "extra == 'drift'", specifier = "==2.15.0" },
     { name = "pydantic-settings", marker = "extra == 'inference'", specifier = "==2.15.0" },
     { name = "redis", marker = "extra == 'drift'", specifier = "==7.4.1" },

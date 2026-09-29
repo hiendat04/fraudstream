@@ -12,7 +12,9 @@ from redis.exceptions import RedisError
 
 from fraudstream_api.drift_detection.reference import Reference, compare
 from fraudstream_api.drift_detection.settings import Settings
+from fraudstream_api.drift_detection.telemetry import ACCEPTED, REJECTED
 from fraudstream_api.drift_detection.window import DriftWindow
+from fraudstream_api.metrics import RequestMetrics, serve_metrics
 from fraudstream_api.versioning import VersionHeader
 
 SEVERITY = {"stable": 0, "warning": 1, "drift": 2}
@@ -55,13 +57,20 @@ def create_app(settings: Settings | None = None, *, redis: Redis | None = None) 
 
     @asynccontextmanager
     async def lifespan(app: FastAPI):
+        app.state.metrics_server = (
+            serve_metrics(config.metrics_port) if config.metrics_port is not None else None
+        )
         # Fail the start-up, not the first request, when Redis is unreachable.
         await client.ping()
         yield
         await client.aclose()
+        if app.state.metrics_server is not None:
+            app.state.metrics_server.shutdown()
+            app.state.metrics_server.server_close()
 
     app = FastAPI(title="FraudStream drift detection API", lifespan=lifespan)
     app.add_middleware(VersionHeader, version=config.app_version)
+    app.add_middleware(RequestMetrics)
 
     @app.post("/v1/observations")
     async def observe(body: Observations) -> dict[str, int]:
@@ -69,6 +78,7 @@ def create_app(settings: Settings | None = None, *, redis: Redis | None = None) 
             missing = expected - row.keys()
             unknown = row.keys() - expected
             if missing or unknown:
+                REJECTED.inc()
                 raise HTTPException(
                     422,
                     {
@@ -77,7 +87,9 @@ def create_app(settings: Settings | None = None, *, redis: Redis | None = None) 
                         "unknown": sorted(unknown),
                     },
                 )
-        return {"accepted": await window.add(body.observations)}
+        accepted = await window.add(body.observations)
+        ACCEPTED.inc(accepted)
+        return {"accepted": accepted}
 
     @app.get("/v1/drift", response_model=DriftReport)
     async def drift() -> DriftReport:

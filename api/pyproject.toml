@@ -13,6 +13,7 @@ inference = [
     "httpx==0.28.1",
     "pydantic-settings==2.15.0",
     "pandas>=2.2,<3",
+    "prometheus-client==0.24.1",
 ]
 drift = [
     "fastapi==0.141.1",
@@ -20,6 +21,7 @@ drift = [
     "pydantic-settings==2.15.0",
     "redis==7.4.1",
     "numpy>=2,<3",
+    "prometheus-client==0.24.1",
 ]
 
 [dependency-groups]
