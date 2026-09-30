@@ -23,6 +23,7 @@ from fraudstream_api.inference.telemetry import (
     scored,
 )
 from fraudstream_api.metrics import RequestMetrics, serve_metrics
+from fraudstream_api.tracing import enable_tracing
 from fraudstream_api.versioning import VersionHeader
 
 
@@ -59,10 +60,18 @@ def create_app(
         if app.state.metrics_server is not None:
             app.state.metrics_server.shutdown()
             app.state.metrics_server.server_close()
+        if tracer is not None:
+            tracer.shutdown()
 
     app = FastAPI(title="FraudStream inference API", lifespan=lifespan)
     app.add_middleware(VersionHeader, version=config.app_version)
     app.add_middleware(RequestMetrics)
+    tracer = enable_tracing(
+        app,
+        service="inference-api",
+        version=config.app_version,
+        endpoint=config.otel_exporter_otlp_endpoint,
+    )
 
     @app.post("/v1/predict", response_model=Prediction)
     async def predict(transaction: Transaction, background: BackgroundTasks) -> Prediction:

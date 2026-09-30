@@ -26,3 +26,5 @@ class Settings(BaseSettings):
     app_version: str = "dev"
     # Unset means no metrics endpoint: tests and one-off runs need none.
     metrics_port: int | None = None
+    # Where to send traces, for example http://jaeger.observability:4318. Unset means no traces.
+    otel_exporter_otlp_endpoint: str | None = None

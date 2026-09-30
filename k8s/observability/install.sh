@@ -26,6 +26,10 @@ helm upgrade --install pushgateway oci://ghcr.io/prometheus-community/charts/pro
   --version "$PUSHGATEWAY_CHART" --namespace "$NS" \
   --values k8s/observability/pushgateway-values.yaml --wait --timeout 5m
 
+echo "==> Jaeger"
+sed "s/JAEGER_VERSION/$JAEGER_VERSION/" k8s/observability/jaeger.yaml | kubectl apply -f -
+kubectl -n "$NS" rollout status deploy/jaeger --timeout=5m
+
 echo "==> What Prometheus scrapes beyond the charts, and the dashboards"
 kubectl apply -f k8s/observability/servicemonitors.yaml
 kubectl apply -f k8s/observability/dashboards/

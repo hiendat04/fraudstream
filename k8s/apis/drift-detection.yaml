@@ -1,6 +1,7 @@
 image:
   repository: fraudstream-drift-detection
 env:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318
   REDIS_URL: redis://redis:6379/1
   REFERENCE_PATH: /app/reference/fraud-detection-v2.json
 resources:

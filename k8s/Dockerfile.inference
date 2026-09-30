@@ -11,7 +11,13 @@ RUN pip install --no-cache-dir \
         "httpx==0.28.1" \
         "pydantic-settings==2.15.0" \
         "pandas==2.3.3" \
-        "prometheus-client==0.24.1"
+        "prometheus-client==0.24.1" \
+        "opentelemetry-api==1.45.0" \
+        "opentelemetry-sdk==1.45.0" \
+        "opentelemetry-exporter-otlp-proto-http==1.45.0" \
+        "opentelemetry-instrumentation-fastapi==0.66b0" \
+        "opentelemetry-instrumentation-httpx==0.66b0" \
+        "opentelemetry-instrumentation-redis==0.66b0"
 
 # The training code that builds the model's inputs, used as is.
 COPY ml/src/fraudstream_ml /app/ml/src/fraudstream_ml

@@ -2,6 +2,7 @@ image:
   repository: fraudstream-inference
 secretName: feature-store-registry
 env:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318
   POSTGRES_HOST: postgres
   POSTGRES_PORT: "5432"
   POSTGRES_DB: fraudstream

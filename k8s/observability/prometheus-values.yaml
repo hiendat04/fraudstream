@@ -44,6 +44,11 @@ grafana:
       label: grafana_dashboard
       labelValue: "1"
       searchNamespace: observability
+  additionalDataSources:
+    - name: Jaeger
+      uid: jaeger
+      type: jaeger
+      url: http://jaeger.observability.svc.cluster.local:16686
   resources:
     requests:
       cpu: 50m

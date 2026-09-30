@@ -14,6 +14,12 @@ inference = [
     "pydantic-settings==2.15.0",
     "pandas>=2.2,<3",
     "prometheus-client==0.24.1",
+    "opentelemetry-api==1.45.0",
+    "opentelemetry-sdk==1.45.0",
+    "opentelemetry-exporter-otlp-proto-http==1.45.0",
+    "opentelemetry-instrumentation-fastapi==0.66b0",
+    "opentelemetry-instrumentation-httpx==0.66b0",
+    "opentelemetry-instrumentation-redis==0.66b0",
 ]
 drift = [
     "fastapi==0.141.1",
@@ -22,6 +28,12 @@ drift = [
     "redis==7.4.1",
     "numpy>=2,<3",
     "prometheus-client==0.24.1",
+    "opentelemetry-api==1.45.0",
+    "opentelemetry-sdk==1.45.0",
+    "opentelemetry-exporter-otlp-proto-http==1.45.0",
+    "opentelemetry-instrumentation-fastapi==0.66b0",
+    "opentelemetry-instrumentation-httpx==0.66b0",
+    "opentelemetry-instrumentation-redis==0.66b0",
 ]
 
 [dependency-groups]

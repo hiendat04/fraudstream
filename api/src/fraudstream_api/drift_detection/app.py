@@ -15,6 +15,7 @@ from fraudstream_api.drift_detection.settings import Settings
 from fraudstream_api.drift_detection.telemetry import ACCEPTED, REJECTED
 from fraudstream_api.drift_detection.window import DriftWindow
 from fraudstream_api.metrics import RequestMetrics, serve_metrics
+from fraudstream_api.tracing import enable_tracing
 from fraudstream_api.versioning import VersionHeader
 
 SEVERITY = {"stable": 0, "warning": 1, "drift": 2}
@@ -67,10 +68,18 @@ def create_app(settings: Settings | None = None, *, redis: Redis | None = None) 
         if app.state.metrics_server is not None:
             app.state.metrics_server.shutdown()
             app.state.metrics_server.server_close()
+        if tracer is not None:
+            tracer.shutdown()
 
     app = FastAPI(title="FraudStream drift detection API", lifespan=lifespan)
     app.add_middleware(VersionHeader, version=config.app_version)
     app.add_middleware(RequestMetrics)
+    tracer = enable_tracing(
+        app,
+        service="drift-detection",
+        version=config.app_version,
+        endpoint=config.otel_exporter_otlp_endpoint,
+    )
 
     @app.post("/v1/observations")
     async def observe(body: Observations) -> dict[str, int]:
