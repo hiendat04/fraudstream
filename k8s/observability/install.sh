@@ -26,6 +26,10 @@ helm upgrade --install pushgateway oci://ghcr.io/prometheus-community/charts/pro
   --version "$PUSHGATEWAY_CHART" --namespace "$NS" \
   --values k8s/observability/pushgateway-values.yaml --wait --timeout 5m
 
+echo "==> What Prometheus scrapes beyond the charts, and the dashboards"
+kubectl apply -f k8s/observability/servicemonitors.yaml
+kubectl apply -f k8s/observability/dashboards/
+
 echo "==> Routes through the gateway"
 kubectl apply -f k8s/observability/ingress.yaml
 

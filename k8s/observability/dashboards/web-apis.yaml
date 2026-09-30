@@ -1,0 +1,82 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-web-apis
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  web-apis.json: |
+    {
+      "uid": "fraudstream-web-apis",
+      "title": "FraudStream · Web APIs",
+      "tags": ["fraudstream"],
+      "schemaVersion": 39,
+      "refresh": "10s",
+      "time": {"from": "now-30m", "to": "now"},
+      "panels": [
+        {"id": 1, "type": "timeseries", "title": "Requests per second", "gridPos": {"x": 0, "y": 0, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (service) (rate(http_requests_total[1m]))", "legendFormat": "{{service}}"}]},
+        {"id": 2, "type": "stat", "title": "Requests in the last hour", "gridPos": {"x": 8, "y": 0, "w": 4, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "sum by (service) (increase(http_requests_total[1h]))", "legendFormat": "{{service}}"}]},
+        {"id": 3, "type": "timeseries", "title": "Failures per second (5xx)", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (service, status) (rate(http_requests_total{status=~\"5..\"}[1m]))", "legendFormat": "{{service}} {{status}}"}]},
+        {"id": 4, "type": "stat", "title": "Error ratio (5xx, 5 min)", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 2,
+           "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.005}, {"color": "red", "value": 0.01}]}}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (service) (rate(http_requests_total{status=~\"5..\"}[5m])) / sum by (service) (rate(http_requests_total[5m]))", "legendFormat": "{{service}}"}]},
+        {"id": 5, "type": "timeseries", "title": "Answer time of /v1/predict", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"inference-api\",route=\"/v1/predict\"}[5m])))", "legendFormat": "p50"},
+           {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"inference-api\",route=\"/v1/predict\"}[5m])))", "legendFormat": "p95 (SLA 0.5 s)"},
+           {"refId": "C", "expr": "histogram_quantile(0.99, sum by (le) (rate(http_request_duration_seconds_bucket{service=\"inference-api\",route=\"/v1/predict\"}[5m])))", "legendFormat": "p99 (SLA 1 s)"}]},
+        {"id": 6, "type": "timeseries", "title": "Refused by the APIs (4xx)", "gridPos": {"x": 12, "y": 8, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (service, route, status) (rate(http_requests_total{status=~\"4..\"}[1m]))", "legendFormat": "{{service}} {{route}} {{status}}"}]},
+        {"id": 7, "type": "timeseries", "title": "Requests in progress", "gridPos": {"x": 18, "y": 8, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (service) (http_requests_in_progress)", "legendFormat": "{{service}}"}]},
+        {"id": 8, "type": "timeseries", "title": "Model answer time", "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "s"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "histogram_quantile(0.50, sum by (le) (rate(fraud_model_request_duration_seconds_bucket[5m])))", "legendFormat": "p50"},
+           {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le) (rate(fraud_model_request_duration_seconds_bucket[5m])))", "legendFormat": "p95"}]},
+        {"id": 9, "type": "timeseries", "title": "Model and online store failures", "gridPos": {"x": 8, "y": 16, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "reqps"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "sum by (reason) (rate(fraud_model_failures_total[5m]))", "legendFormat": "model {{reason}}"},
+           {"refId": "B", "expr": "sum(rate(fraud_online_store_failures_total[5m]))", "legendFormat": "online store"}]},
+        {"id": 10, "type": "timeseries", "title": "Gateway", "gridPos": {"x": 16, "y": 16, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "sum(rate(nginx_ingress_nginx_http_requests_total[1m]))", "legendFormat": "requests per second"},
+           {"refId": "B", "expr": "sum(nginx_ingress_nginx_connections_active)", "legendFormat": "open connections"}]},
+        {"id": 11, "type": "timeseries", "title": "Replicas (KEDA)", "gridPos": {"x": 0, "y": 24, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "kube_horizontalpodautoscaler_status_current_replicas{namespace=\"fraudstream-apis\"}", "legendFormat": "{{horizontalpodautoscaler}}"}]},
+        {"id": 12, "type": "timeseries", "title": "API pod CPU", "gridPos": {"x": 8, "y": 24, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (pod) (rate(container_cpu_usage_seconds_total{namespace=\"fraudstream-apis\",container!=\"\"}[2m]))", "legendFormat": "{{pod}}"}]},
+        {"id": 13, "type": "timeseries", "title": "API pod memory", "gridPos": {"x": 16, "y": 24, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (pod) (container_memory_working_set_bytes{namespace=\"fraudstream-apis\",container!=\"\"})", "legendFormat": "{{pod}}"}]}
+      ]
+    }

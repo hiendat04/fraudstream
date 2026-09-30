@@ -1,0 +1,62 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-compute
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  compute.json: |
+    {
+      "uid": "fraudstream-compute",
+      "title": "FraudStream · Compute",
+      "tags": ["fraudstream"],
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "time": {"from": "now-1h", "to": "now"},
+      "panels": [
+        {"id": 1, "type": "timeseries", "title": "CPU used", "gridPos": {"x": 0, "y": 0, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "1 - avg(rate(node_cpu_seconds_total{mode=\"idle\"}[2m]))", "legendFormat": "node"}]},
+        {"id": 2, "type": "timeseries", "title": "Memory", "gridPos": {"x": 6, "y": 0, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "sum(node_memory_MemTotal_bytes - node_memory_MemAvailable_bytes)", "legendFormat": "used"},
+           {"refId": "B", "expr": "sum(node_memory_MemTotal_bytes)", "legendFormat": "total"}]},
+        {"id": 3, "type": "gauge", "title": "Disk used", "gridPos": {"x": 12, "y": 0, "w": 4, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1,
+           "thresholds": {"mode": "absolute", "steps": [{"color": "green", "value": null}, {"color": "orange", "value": 0.8}, {"color": "red", "value": 0.9}]}}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "max(1 - node_filesystem_avail_bytes{mountpoint=\"/\"} / node_filesystem_size_bytes{mountpoint=\"/\"})", "legendFormat": "/"}]},
+        {"id": 4, "type": "timeseries", "title": "Disk read and write", "gridPos": {"x": 16, "y": 0, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "sum(rate(node_disk_read_bytes_total[2m]))", "legendFormat": "read"},
+           {"refId": "B", "expr": "sum(rate(node_disk_written_bytes_total[2m]))", "legendFormat": "written"}]},
+        {"id": 5, "type": "timeseries", "title": "Network", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "sum(rate(node_network_receive_bytes_total{device!~\"lo|veth.*\"}[2m]))", "legendFormat": "received"},
+           {"refId": "B", "expr": "sum(rate(node_network_transmit_bytes_total{device!~\"lo|veth.*\"}[2m]))", "legendFormat": "sent"}]},
+        {"id": 6, "type": "timeseries", "title": "Pod restarts (1 h)", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (namespace, pod) (increase(kube_pod_container_status_restarts_total[1h])) > 0", "legendFormat": "{{namespace}}/{{pod}}"}]},
+        {"id": 7, "type": "timeseries", "title": "CPU by namespace", "gridPos": {"x": 0, "y": 16, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (namespace) (rate(container_cpu_usage_seconds_total{container!=\"\"}[2m]))", "legendFormat": "{{namespace}}"}]},
+        {"id": 8, "type": "timeseries", "title": "Memory by namespace", "gridPos": {"x": 8, "y": 16, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "bytes"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (namespace) (container_memory_working_set_bytes{container!=\"\"})", "legendFormat": "{{namespace}}"}]},
+        {"id": 9, "type": "timeseries", "title": "Network by namespace", "gridPos": {"x": 16, "y": 16, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "Bps"}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (namespace) (rate(container_network_receive_bytes_total[2m]) + rate(container_network_transmit_bytes_total[2m]))", "legendFormat": "{{namespace}}"}]}
+      ]
+    }
