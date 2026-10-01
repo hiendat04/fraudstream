@@ -49,9 +49,29 @@ grafana:
       uid: jaeger
       type: jaeger
       url: http://jaeger.observability.svc.cluster.local:16686
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: logs
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          customQuery: true
+          query: 'trace_id:"$${__trace.traceId}"'
+    - name: Logs
+      uid: logs
+      type: elasticsearch
+      url: http://elasticsearch.observability.svc.cluster.local:9200
+      jsonData:
+        index: fraudstream-logs-*
+        timeField: "@timestamp"
+        logMessageField: message
+        logLevelField: level
+        dataLinks:
+          - field: trace_id
+            datasourceUid: jaeger
+            url: "$${__value.raw}"
   resources:
     requests:
-      cpu: 50m
-      memory: 256Mi
-    limits:
+      cpu: 200m
       memory: 512Mi
+    limits:
+      memory: 1Gi

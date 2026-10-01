@@ -30,6 +30,19 @@ echo "==> Jaeger"
 sed "s/JAEGER_VERSION/$JAEGER_VERSION/" k8s/observability/jaeger.yaml | kubectl apply -f -
 kubectl -n "$NS" rollout status deploy/jaeger --timeout=5m
 
+echo "==> Elasticsearch and Kibana"
+sed "s/ELASTIC_VERSION/$ELASTIC_VERSION/" k8s/observability/logging.yaml | kubectl apply -f -
+kubectl -n "$NS" rollout status statefulset/elasticsearch --timeout=10m
+kubectl -n "$NS" rollout status deploy/kibana --timeout=10m
+kubectl -n "$NS" delete job logging-setup --ignore-not-found
+kubectl apply -f k8s/observability/logging-setup.yaml
+kubectl -n "$NS" wait --for=condition=complete job/logging-setup --timeout=10m
+
+echo "==> Fluent Bit"
+helm upgrade --install fluent-bit oci://ghcr.io/fluent/helm-charts/fluent-bit \
+  --version "$FLUENT_BIT_CHART" --namespace "$NS" \
+  --values k8s/observability/fluent-bit-values.yaml --wait --timeout 5m
+
 echo "==> What Prometheus scrapes beyond the charts, and the dashboards"
 kubectl apply -f k8s/observability/servicemonitors.yaml
 kubectl apply -f k8s/observability/dashboards/
