@@ -53,14 +53,20 @@ def _timestamp_literal(value: str | datetime) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def entity_dataframe_sql(start: str | datetime, end: str | datetime) -> str:
-    """Return the entity-dataframe SQL joining each transaction to its label."""
+def entity_dataframe_sql(start: str | datetime, end: str | datetime, *, labels: bool = True) -> str:
+    """Return the entity-dataframe SQL for every transaction in the window.
+
+    Training joins each transaction to its label. The drift check passes
+    labels=False: nobody knows yet which recent payments were fraud.
+    """
 
     start_literal = _timestamp_literal(start)
     end_literal = _timestamp_literal(end)
     if end_literal <= start_literal:
         raise ValueError(f"end ({end_literal}) must be after start ({start_literal})")
 
+    label_column = ",\n            l.is_fraud" if labels else ""
+    label_join = f"JOIN {LABEL_TABLE} l ON l.transaction_id = f.transaction_id" if labels else ""
     return f"""
         SELECT
             f.transaction_id,
@@ -69,10 +75,9 @@ def entity_dataframe_sql(start: str | datetime, end: str | datetime) -> str:
             f.event_time AS event_timestamp,
             CAST(f.amount AS DOUBLE) AS amount,
             f.channel,
-            f.city,
-            l.is_fraud
+            f.city{label_column}
         FROM {FACT_TABLE} f
-        JOIN {LABEL_TABLE} l ON l.transaction_id = f.transaction_id
+        {label_join}
         WHERE f.event_time >= TIMESTAMP '{start_literal}'
           AND f.event_time < TIMESTAMP '{end_literal}'
     """
@@ -84,14 +89,15 @@ def load_training_frame(
     end: str | datetime,
     *,
     feature_refs: tuple[str, ...] = BATCH_FEATURE_REFS,
+    labels: bool = True,
 ) -> Any:
-    """Retrieve point-in-time-correct features for every labeled transaction in the window."""
+    """Retrieve point-in-time-correct features for every transaction in the window."""
 
     from feast import FeatureStore
 
     store = FeatureStore(repo_path=repo_path)
     retrieval = store.get_historical_features(
-        entity_df=entity_dataframe_sql(start, end),
+        entity_df=entity_dataframe_sql(start, end, labels=labels),
         features=list(feature_refs),
     )
     return retrieval.to_df()

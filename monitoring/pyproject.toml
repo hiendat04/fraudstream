@@ -1,0 +1,33 @@
+[project]
+name = "fraudstream-monitoring"
+version = "0.1.0"
+description = "The drift check and retrain trigger behind the Airflow monitoring pipeline"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "numpy>=2,<3",
+    "pandas>=2.2,<3",
+    "httpx==0.28.1",
+    "prometheus-client==0.24.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "../api/src", "../ml/src", "."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/fraudstream_monitoring"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["def main\\(", "if __name__ == .__main__.:"]
+fail_under = 90

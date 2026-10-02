@@ -90,6 +90,21 @@ class EntityDataframeSqlTest(unittest.TestCase):
         with self.assertRaises(ValueError):
             entity_dataframe_sql("not-a-date", END)
 
+    def test_without_labels_never_touches_the_label_table(self):
+        """The drift check has no ground truth, so it must not even read the labels."""
+
+        sql = entity_dataframe_sql(START, END, labels=False)
+
+        self.assertNotIn("transaction_labels", sql)
+        self.assertNotIn("is_fraud", sql)
+
+    def test_without_labels_keeps_the_same_rows_and_window(self):
+        sql = entity_dataframe_sql("2026-06-23", "2026-06-30", labels=False)
+
+        self.assertIn("f.merchant_dim_id AS merchant_id", sql)
+        self.assertIn("f.event_time >= TIMESTAMP '2026-06-23 00:00:00'", sql)
+        self.assertIn("f.event_time < TIMESTAMP '2026-06-30 00:00:00'", sql)
+
 
 class BatchFeatureRefsTest(unittest.TestCase):
     def test_refs_exclude_the_streaming_views(self):

@@ -33,6 +33,7 @@ pipeline {
         stage('datahub')       { steps { sh './ci/test.sh datahub' } }
         stage('api')           { steps { sh './ci/test.sh api' } }
         stage('serving')       { steps { sh './ci/test.sh serving' } }
+        stage('monitoring')    { steps { sh './ci/test.sh monitoring' } }
       }
     }
 
