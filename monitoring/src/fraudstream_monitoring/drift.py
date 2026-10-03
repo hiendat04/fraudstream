@@ -35,6 +35,14 @@ def resolve_window(newest: date, window_end: str | None, days: int) -> tuple[dat
     return end - timedelta(days=days), end
 
 
+def empty_window(reference: Reference):
+    """Every model input and no rows. Feast raises on an empty window instead of returning one."""
+
+    import pandas as pd
+
+    return pd.DataFrame({name: pd.Series(dtype=float) for name in reference.features})
+
+
 def summarize(
     frame,
     reference: Reference,
@@ -90,6 +98,7 @@ def main() -> None:
 
     import pandas as pd
     from feast import FeatureStore
+    from feast.errors import EntitySQLEmptyResults
     from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
         get_spark_session_or_start_new_with_repoconfig,
     )
@@ -103,10 +112,15 @@ def main() -> None:
     newest = spark.sql(f"SELECT max(event_time) FROM {FACT_TABLE}").first()[0].date()
     start, end = resolve_window(newest, arguments.window_end, arguments.window_days)
 
-    frame = load_training_frame(arguments.repo_path, start.isoformat(), end.isoformat(), labels=False)
-    frame["event_timestamp"] = pd.to_datetime(frame["event_timestamp"], utc=True)
-    prepared, names = prepare_features(frame)
-    summary = summarize(prepared[names].astype(float), reference, window_start=start, window_end=end)
+    try:
+        frame = load_training_frame(arguments.repo_path, start.isoformat(), end.isoformat(), labels=False)
+    except EntitySQLEmptyResults:
+        inputs = empty_window(reference)
+    else:
+        frame["event_timestamp"] = pd.to_datetime(frame["event_timestamp"], utc=True)
+        prepared, names = prepare_features(frame)
+        inputs = prepared[names].astype(float)
+    summary = summarize(inputs, reference, window_start=start, window_end=end)
 
     out = Path(arguments.out)
     out.parent.mkdir(parents=True, exist_ok=True)

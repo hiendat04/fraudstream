@@ -131,7 +131,7 @@ pipeline {
     }
 
     stage('Airflow pipelines') {
-      when { expression { deploying('airflow src configs feature_store/src feature_store/feature_repo') } }
+      when { expression { deploying('airflow src configs feature_store/src feature_store/feature_repo monitoring api/src/fraudstream_api/drift_detection api/reference ml/src') } }
       steps {
         script {
           if (sh(script: 'test -d /deploy/.git', returnStatus: true) == 0) {
@@ -151,7 +151,7 @@ pipeline {
             errors=$(docker exec fraudstream-airflow-scheduler airflow dags list-import-errors)
             echo "$errors" | grep -q "No data found" || { echo "$errors"; exit 1; }
             dags=$(docker exec fraudstream-airflow-scheduler airflow dags list)
-            for dag in fraudstream_raw_to_bronze fraudstream_bronze_to_silver_gold fraudstream_offline_features fraudstream_feature_store_materialize; do
+            for dag in fraudstream_raw_to_bronze fraudstream_bronze_to_silver_gold fraudstream_offline_features fraudstream_feature_store_materialize fraudstream_drift_monitoring; do
               echo "$dags" | grep -qw "$dag" || { echo "$dag is missing"; exit 1; }
             done
           '''

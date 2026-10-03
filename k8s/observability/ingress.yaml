@@ -93,3 +93,35 @@ spec:
                 name: kibana
                 port:
                   number: 5601
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: pushgateway
+  namespace: observability
+  annotations:
+    cert-manager.io/cluster-issuer: local-ca
+    nginx.org/http-redirect-code: "308"
+    nginx.org/basic-auth-secret: gateway-htpasswd
+    nginx.org/basic-auth-realm: fraudstream
+    nginx.org/limit-req-rate: "60r/s"
+    nginx.org/limit-req-burst: "60"
+    nginx.org/limit-req-no-delay: "true"
+    nginx.org/limit-req-reject-code: "429"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - pushgateway.fraudstream.localhost
+      secretName: pushgateway-tls
+  rules:
+    - host: pushgateway.fraudstream.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: pushgateway
+                port:
+                  number: 9091

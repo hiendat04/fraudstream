@@ -50,5 +50,9 @@ kubectl apply -f k8s/observability/dashboards/
 echo "==> Routes through the gateway"
 kubectl apply -f k8s/observability/ingress.yaml
 
+echo "==> Kubeflow Pipelines behind the gateway for the drift pipeline"
+./k8s/gateway/credentials.sh kubeflow
+kubectl apply -f k8s/gateway/pipelines.yaml
+
 echo
 echo "Grafana: https://grafana.fraudstream.localhost"

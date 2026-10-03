@@ -30,7 +30,12 @@ x-airflow-common: &airflow-common
     MINIO_ENDPOINT: "http://minio:9000"
     MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-fraudstream}"
     MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
-    PYTHONPATH: /opt/airflow/project/src:/opt/airflow/include
+    GATEWAY_USER: "${GATEWAY_USER:-fraudstream}"
+    GATEWAY_PASSWORD: "${GATEWAY_PASSWORD:-change-me}"
+    GATEWAY_CA: /opt/airflow/project/local-ca.crt
+    PUSHGATEWAY_URL: https://pushgateway.fraudstream.localhost
+    PIPELINES_URL: https://pipelines.fraudstream.localhost
+    PYTHONPATH: /opt/airflow/project/src:/opt/airflow/project/monitoring/src:/opt/airflow/include
   # AIRFLOW_PROJECT_DIR set: Airflow runs the tree Jenkins deploys, not this checkout.
   volumes:
     - ${AIRFLOW_PROJECT_DIR:-.}/:/opt/airflow/project
@@ -39,6 +44,9 @@ x-airflow-common: &airflow-common
     - ${AIRFLOW_PROJECT_DIR:-.}/airflow/config:/opt/airflow/config:ro
     - ${AIRFLOW_PROJECT_DIR:-.}/airflow/scripts:/opt/airflow/scripts:ro
     - ./airflow/logs:/opt/airflow/logs
+  extra_hosts:
+    - "pushgateway.fraudstream.localhost:host-gateway"
+    - "pipelines.fraudstream.localhost:host-gateway"
   depends_on:
     airflow-db:
       condition: service_healthy

@@ -5,7 +5,7 @@ import pandas as pd
 import pytest
 
 from fraudstream_api.drift_detection.reference import build_reference
-from fraudstream_monitoring.drift import resolve_window, summarize
+from fraudstream_monitoring.drift import empty_window, resolve_window, summarize
 
 FLAGS = ("customer_features_available", "customer_orders_90d_available", "merchant_features_available")
 START, END = date(2026, 6, 23), date(2026, 6, 30)
@@ -68,6 +68,15 @@ def test_the_floor_itself_is_judged():
 def test_an_empty_window_reports_zero_rows():
     result = check(window(0))
     assert (result.status, result.rows) == ("not_enough_data", 0)
+    assert result.available == {flag: 0.0 for flag in FLAGS}
+
+
+def test_a_window_feast_finds_empty_is_not_judged():
+    """Feast refuses an empty window, so the check builds the empty frame itself."""
+    frame = empty_window(REFERENCE)
+    assert list(frame.columns) == list(REFERENCE.features)
+    result = check(frame)
+    assert (result.status, result.rows, result.features) == ("not_enough_data", 0, [])
     assert result.available == {flag: 0.0 for flag in FLAGS}
 
 

@@ -12,4 +12,5 @@ USER airflow
 RUN pip install --no-cache-dir \
     "apache-airflow==3.3.0" \
     "pyspark==4.1.2" \
-    "feast[spark,postgres,redis]==0.66.0"
+    "feast[spark,postgres,redis]==0.66.0" \
+    "prometheus-client==0.24.1"
