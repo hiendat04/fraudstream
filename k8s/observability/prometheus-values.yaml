@@ -1,0 +1,77 @@
+fullnameOverride: kps
+alertmanager:
+  enabled: false
+kubeControllerManager:
+  enabled: false
+kubeScheduler:
+  enabled: false
+kubeEtcd:
+  enabled: false
+kubeProxy:
+  enabled: false
+prometheus:
+  prometheusSpec:
+    scrapeInterval: 15s
+    retention: 3d
+    retentionSize: 2GB
+    serviceMonitorSelectorNilUsesHelmValues: false
+    podMonitorSelectorNilUsesHelmValues: false
+    ruleSelectorNilUsesHelmValues: false
+    resources:
+      requests:
+        cpu: 100m
+        memory: 400Mi
+      limits:
+        memory: 1Gi
+prometheus-node-exporter:
+  hostRootFsMount:
+    enabled: false
+grafana:
+  fullnameOverride: grafana
+  admin:
+    existingSecret: grafana-admin
+    userKey: admin-user
+    passwordKey: admin-password
+  grafana.ini:
+    server:
+      root_url: https://grafana.fraudstream.localhost
+    auth.anonymous:
+      enabled: true
+      org_role: Viewer
+  sidecar:
+    dashboards:
+      enabled: true
+      label: grafana_dashboard
+      labelValue: "1"
+      searchNamespace: observability
+  additionalDataSources:
+    - name: Jaeger
+      uid: jaeger
+      type: jaeger
+      url: http://jaeger.observability.svc.cluster.local:16686
+      jsonData:
+        tracesToLogsV2:
+          datasourceUid: logs
+          spanStartTimeShift: "-5m"
+          spanEndTimeShift: "5m"
+          customQuery: true
+          query: 'trace_id:"$${__trace.traceId}"'
+    - name: Logs
+      uid: logs
+      type: elasticsearch
+      url: http://elasticsearch.observability.svc.cluster.local:9200
+      jsonData:
+        index: fraudstream-logs-*
+        timeField: "@timestamp"
+        logMessageField: message
+        logLevelField: level
+        dataLinks:
+          - field: trace_id
+            datasourceUid: jaeger
+            url: "$${__value.raw}"
+  resources:
+    requests:
+      cpu: 200m
+      memory: 512Mi
+    limits:
+      memory: 1Gi

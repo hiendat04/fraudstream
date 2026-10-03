@@ -9,3 +9,7 @@ controller:
     setAsDefaultIngress: true
   service:
     type: ClusterIP
+prometheus:
+  create: true
+  service:
+    create: true

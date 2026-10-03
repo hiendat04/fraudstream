@@ -10,7 +10,9 @@ cd "$(dirname "$0")/.."
 # --delete would erase a checkout's uncommitted work.
 [ ! -d "$target/.git" ] || { echo "$target is a git checkout, not a deploy folder" >&2; exit 1; }
 
-for dir in airflow/dags airflow/include airflow/config airflow/scripts src configs feature_store/src feature_store/feature_repo; do
+for dir in airflow/dags airflow/include airflow/config airflow/scripts src configs feature_store/src feature_store/feature_repo \
+  monitoring/src api/src api/reference ml/src; do
   mkdir -p "$target/$dir"
   rsync -a --delete --exclude __pycache__ "$dir/" "$target/$dir/"
 done
+[ ! -f local-ca.crt ] || cp local-ca.crt "$target/local-ca.crt"

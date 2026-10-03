@@ -1,0 +1,15 @@
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: nginx-gateway
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - nginx-ingress
+  selector:
+    matchLabels:
+      service: nginx-ingress-prometheus-service
+  endpoints:
+    - port: prometheus
+      interval: 15s

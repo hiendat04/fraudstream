@@ -3,8 +3,8 @@
 Every service people open goes through one door: NGINX on port 443. Each service gets
 its own name under `fraudstream.localhost`. NGINX speaks HTTPS with a certificate from
 the local CA, asks for a username and password, and limits how fast one client can call.
-Today that covers the two web APIs. The monitoring UIs (Grafana, Kibana and Jaeger) will
-run in the same cluster and come in through the same door.
+That covers the two web APIs, the monitoring UIs (Grafana, Kibana, Jaeger and the
+Pushgateway) and the Kubeflow Pipelines UI.
 
 ## Who goes through the gateway
 
@@ -15,6 +15,7 @@ flowchart LR
         B(["browser"])
         T(["tools · Locust"])
         J(["Jenkins deploy stages"])
+        A(["Airflow drift DAG"])
     end
 
     subgraph NODE["kind cluster"]
@@ -27,24 +28,27 @@ flowchart LR
             DRIFT["drift-detection"]
         end
 
-        subgraph LATER["Monitoring UIs · planned"]
+        subgraph MON["namespace observability"]
             direction TB
-            GR["grafana"]:::later
-            KI["kibana"]:::later
-            JA["jaeger"]:::later
+            GR["grafana"]
+            KI["kibana"]
+            JA["jaeger"]
+            PG["pushgateway"]
         end
+
+        KFP["Kubeflow Pipelines UI<br/>namespace kubeflow"]
 
         MODEL["KServe fraud model"]
     end
 
-    B & T & J -- "HTTPS + password" --> GW
+    B & T & J & A -- "HTTPS + password" --> GW
     GW -- "inference.fraudstream.localhost" --> INF
     GW -- "drift-detection.fraudstream.localhost" --> DRIFT
-    GW -.-> GR & KI & JA
+    GW -- "grafana · kibana · jaeger<br/>pushgateway .fraudstream.localhost" --> MON
+    GW -- "pipelines.fraudstream.localhost" --> KFP
     INF -- "inside the cluster,<br/>no gateway" --> DRIFT
     INF -- "inside the cluster" --> MODEL
 
-    classDef later stroke-dasharray: 5 5,color:#888
     classDef gateway fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
     class GW gateway
 ```
@@ -57,9 +61,11 @@ Service names, with no password.
 |---|---|---|
 | `inference.fraudstream.localhost` | inference API | behind the gateway |
 | `drift-detection.fraudstream.localhost` | drift detection API | behind the gateway |
-| `grafana.fraudstream.localhost` | Grafana | planned |
-| `kibana.fraudstream.localhost` | Kibana | planned |
-| `jaeger.fraudstream.localhost` | Jaeger | planned |
+| `grafana.fraudstream.localhost` | Grafana | behind the gateway |
+| `kibana.fraudstream.localhost` | Kibana | behind the gateway |
+| `jaeger.fraudstream.localhost` | Jaeger | behind the gateway |
+| `pushgateway.fraudstream.localhost` | Pushgateway, pushed to by Airflow | behind the gateway |
+| `pipelines.fraudstream.localhost` | Kubeflow Pipelines, called by Airflow | behind the gateway |
 
 `*.localhost` always points at your own machine, so these names work with no DNS server
 and no hosts file.
@@ -240,7 +246,7 @@ through the gateway against 16 ms direct.
 
 ## Putting another service behind it
 
-The recipe the monitoring UIs will use:
+The recipe the monitoring UIs used:
 
 1. `./k8s/gateway/credentials.sh <namespace>` for the service's namespace.
 2. Give the service an Ingress on `<name>.fraudstream.localhost` with the same annotations
@@ -248,6 +254,9 @@ The recipe the monitoring UIs will use:
    `ingress.annotations`.
 3. `GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh <name>.fraudstream.localhost`, if the
    service answers 200 on `/livez`. Otherwise, point it at a path that does.
+
+A UI uses `ci/check_ui.sh` instead, which leaves out the burst test: one page of a UI
+fires dozens of requests at once.
 
 ## Things worth knowing
 

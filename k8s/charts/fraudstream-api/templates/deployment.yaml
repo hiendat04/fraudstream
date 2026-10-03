@@ -35,9 +35,17 @@ spec:
           ports:
             - name: http
               containerPort: {{ .Values.port }}
+            {{- with .Values.metrics.port }}
+            - name: metrics
+              containerPort: {{ . }}
+            {{- end }}
           env:
             - name: APP_VERSION
               value: {{ .Values.image.tag | quote }}
+            {{- with .Values.metrics.port }}
+            - name: METRICS_PORT
+              value: {{ . | quote }}
+            {{- end }}
             {{- range $name, $value := .Values.env }}
             - name: {{ $name }}
               value: {{ $value | quote }}

@@ -1,0 +1,34 @@
+config:
+  inputs: |
+    [INPUT]
+        Name              tail
+        Path              /var/log/containers/*_fraudstream-apis_*.log,/var/log/containers/*_kserve-models_*.log,/var/log/containers/*_nginx-ingress_*.log,/var/log/containers/*_kubeflow_*.log
+        multiline.parser  cri
+        Tag               kube.*
+        Mem_Buf_Limit     5MB
+        Skip_Long_Lines   On
+  filters: |
+    [FILTER]
+        Name                kubernetes
+        Match               kube.*
+        Merge_Log           On
+        Keep_Log            Off
+        K8S-Logging.Parser  On
+        K8S-Logging.Exclude On
+  outputs: |
+    [OUTPUT]
+        Name               es
+        Match              kube.*
+        Host               elasticsearch.observability.svc.cluster.local
+        Port               9200
+        Logstash_Format    On
+        Logstash_Prefix    fraudstream-logs
+        Suppress_Type_Name On
+        Replace_Dots       On
+        Retry_Limit        5
+resources:
+  requests:
+    cpu: 20m
+    memory: 32Mi
+  limits:
+    memory: 128Mi

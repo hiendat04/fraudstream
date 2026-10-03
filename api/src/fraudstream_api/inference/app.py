@@ -16,6 +16,14 @@ from fraudstream_api.inference.model import (
 )
 from fraudstream_api.inference.schemas import Prediction, Transaction
 from fraudstream_api.inference.settings import Settings
+from fraudstream_api.inference.telemetry import (
+    MODEL_DURATION,
+    ONLINE_STORE_FAILURES,
+    model_failed,
+    scored,
+)
+from fraudstream_api.metrics import RequestMetrics, serve_metrics
+from fraudstream_api.tracing import enable_tracing
 from fraudstream_api.versioning import VersionHeader
 
 
@@ -29,6 +37,10 @@ def create_app(
     @asynccontextmanager
     async def lifespan(app: FastAPI):
         from fraudstream_api.inference.online_store import FeastReader
+
+        app.state.metrics_server = (
+            serve_metrics(config.metrics_port) if config.metrics_port is not None else None
+        )
 
         app.state.reader = reader or FeastReader(config)
         app.state.model = model or ModelClient(config.model_url, config.model_timeout_seconds)
@@ -45,28 +57,48 @@ def create_app(
             await app.state.drift.close()
         await app.state.model.close()
         await app.state.reader.close()
+        if app.state.metrics_server is not None:
+            app.state.metrics_server.shutdown()
+            app.state.metrics_server.server_close()
+        if tracer is not None:
+            tracer.shutdown()
 
     app = FastAPI(title="FraudStream inference API", lifespan=lifespan)
     app.add_middleware(VersionHeader, version=config.app_version)
+    app.add_middleware(RequestMetrics)
+    tracer = enable_tracing(
+        app,
+        service="inference-api",
+        version=config.app_version,
+        endpoint=config.otel_exporter_otlp_endpoint,
+    )
 
     @app.post("/v1/predict", response_model=Prediction)
     async def predict(transaction: Transaction, background: BackgroundTasks) -> Prediction:
         try:
             online = await app.state.reader.read(transaction.customer_id, transaction.merchant_id)
         except RedisError as error:
+            ONLINE_STORE_FAILURES.inc()
             raise HTTPException(503, "the online store cannot be reached") from error
 
         features = usable_features(online, transaction.event_timestamp, app.state.reader.ttls())
         inputs = model_inputs(transaction, features)
 
         try:
-            probability = await app.state.model.score(inputs)
+            with MODEL_DURATION.time():
+                probability = await app.state.model.score(inputs)
         except ModelTimeout as error:
+            model_failed("timeout", error)
             raise HTTPException(504, "the model did not answer in time") from error
         except ModelUnavailable as error:
+            model_failed("unavailable", error)
             raise HTTPException(503, "the model cannot be reached") from error
         except ModelRejected as error:
+            model_failed("rejected", error)
             raise HTTPException(502, f"the model refused the request: {error}") from error
+
+        found = history_found(inputs)
+        scored(probability, found)
 
         if app.state.drift is not None:
             # Runs after the answer is sent. A slow drift detector never delays a prediction,
@@ -76,7 +108,7 @@ def create_app(
         return Prediction(
             transaction_id=transaction.transaction_id,
             fraud_probability=probability,
-            history_found=history_found(inputs),
+            history_found=found,
         )
 
     @app.get("/livez")

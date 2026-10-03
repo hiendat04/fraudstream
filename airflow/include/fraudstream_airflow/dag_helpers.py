@@ -31,3 +31,20 @@ def project_python_command(module: str, arguments: str) -> str:
         python -m {module} {normalized_arguments}
         """
     )
+
+
+def monitoring_command(module: str, arguments: str) -> str:
+    """Like project_python_command, with the drift check and the code it reuses on the path."""
+
+    normalized_arguments = " ".join(
+        line.strip() for line in arguments.splitlines() if line.strip()
+    )
+    root = "{{ var.value.fraudstream_project_root }}"
+    return dedent(
+        f"""\
+        set -euo pipefail
+        cd "{root}"
+        export PYTHONPATH="{root}/monitoring/src:{root}/api/src:{root}/ml/src:{root}/src"
+        python -m {module} {normalized_arguments}
+        """
+    )

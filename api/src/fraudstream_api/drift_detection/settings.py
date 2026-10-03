@@ -11,3 +11,6 @@ class Settings(BaseSettings):
     # Below this, a PSI says more about chance than about drift.
     min_observations: int = 1000
     app_version: str = "dev"
+    metrics_port: int | None = None
+    # Where to send traces, for example http://jaeger.observability:4318. Unset means no traces.
+    otel_exporter_otlp_endpoint: str | None = None

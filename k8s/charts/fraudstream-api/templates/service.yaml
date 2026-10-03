@@ -11,3 +11,8 @@ spec:
     - name: http
       port: 80
       targetPort: http
+    {{- with .Values.metrics.port }}
+    - name: metrics
+      port: {{ . }}
+      targetPort: metrics
+    {{- end }}

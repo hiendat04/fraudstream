@@ -31,6 +31,9 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **Cloud in one command.** Terraform and Ansible bring the serving path up on GKE and
   take it down again, with a budget and a leftover check so a forgotten session can't
   run up a bill. A payment scored in the cloud matches the laptop to the last decimal.
+- **Watched, not guessed.** Every payment leaves a trace, a log line and a count. A daily
+  pipeline checks the model's inputs against its training data without waiting for
+  labels, and starts retraining when they move.
 - **Tested with numbers.** 100% line and branch coverage on both APIs, 86% mutation score,
   property-based tests, and a load test judged against an SLA fixed in advance.
 - **CI/CD.** Jenkins tests every branch and deploys the deploy branch. Every image is
@@ -98,6 +101,7 @@ flowchart LR
 | CI/CD | Jenkins pipeline with a before and after of a real deploy | [23_ci_cd.md](docs/23_ci_cd.md)                                                                                                                                                           |
 | Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/24_gateway.md)                                                                                                                                                       |
 | Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/25_infrastructure_as_code.md)                                                                                                                         |
+| Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/26_observability.md) |
 | Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md)                |
 
 ## Quick start
@@ -184,8 +188,10 @@ fraudstream/
 │   ├── charts/               # One Helm chart shared by both web APIs
 │   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
 │   ├── models/               # KServe InferenceService for the fraud model
+│   ├── observability/        # Prometheus, Grafana, Jaeger, ELK, dashboards, and their routes
 │   └── smoke/                # Checks for ingress, HTTPS, KEDA, and Knative
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
+├── monitoring/               # Isolated Python 3.12 drift check, Pushgateway publisher, and retrain trigger
 ├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
 ├── reports/                  # Generated human-readable reports and load test results
 ├── serving/                  # Isolated Python 3.12 predictor that serves the fraud model on KServe

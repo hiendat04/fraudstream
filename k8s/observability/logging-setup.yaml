@@ -1,0 +1,28 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: logging-setup
+  namespace: observability
+spec:
+  backoffLimit: 20
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: setup
+          image: curlimages/curl:8.21.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              es=http://elasticsearch:9200
+              kibana=http://kibana:5601
+              until curl -sf "$es/_cluster/health?wait_for_status=yellow&timeout=5s" >/dev/null; do sleep 5; done
+              curl -sf -X PUT "$es/_ilm/policy/fraudstream-logs" -H 'Content-Type: application/json' \
+                -d '{"policy":{"phases":{"hot":{"actions":{}},"delete":{"min_age":"3d","actions":{"delete":{}}}}}}'
+              curl -sf -X PUT "$es/_index_template/fraudstream-logs" -H 'Content-Type: application/json' \
+                -d '{"index_patterns":["fraudstream-logs-*"],"template":{"settings":{"number_of_replicas":0,"index.lifecycle.name":"fraudstream-logs"},"mappings":{"properties":{"trace_id":{"type":"keyword"},"span_id":{"type":"keyword"},"level":{"type":"keyword"},"path":{"type":"keyword"},"status":{"type":"integer"}}}}}'
+              until curl -sf "$kibana/api/status" >/dev/null; do sleep 5; done
+              curl -sf -X POST "$kibana/api/data_views/data_view" -H 'kbn-xsrf: true' -H 'Content-Type: application/json' \
+                -d '{"override":true,"data_view":{"id":"fraudstream-logs","name":"FraudStream logs","title":"fraudstream-logs-*","timeFieldName":"@timestamp"}}'
+              echo logging is set up
