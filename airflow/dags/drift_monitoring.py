@@ -32,7 +32,7 @@ with DAG(
     default_args=DEFAULT_ARGS,
     params={
         "window_days": Param(7, type="integer", minimum=1, maximum=90, description="How many days to check."),
-        "window_end": Param(None, type=["null", "string"], format="date", description="YYYY-MM-DD, not included. Empty: the day after the newest payment."),
+        "window_end": Param(None, type=["null", "string"], format="date", description="mm/dd/yyyy, not included. Empty: the day after the newest payment."),
         "force_retrain": Param(False, type="boolean", description="Start the training pipeline even without drift."),
     },
     tags=["fraudstream", "monitoring", "ml"],

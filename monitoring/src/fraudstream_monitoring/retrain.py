@@ -6,6 +6,7 @@ Deciding to serve it stays with a person.
 
     python -m fraudstream_monitoring.retrain --summary /tmp/drift.json [--force]
 Needs PIPELINES_URL, PUSHGATEWAY_URL, GATEWAY_USER, GATEWAY_PASSWORD and GATEWAY_CA.
+
 Exits 99 when there is nothing to do or a retrain must wait. Airflow shows that as skipped.
 """
 
