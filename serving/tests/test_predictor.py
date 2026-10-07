@@ -14,12 +14,12 @@ from tempfile import TemporaryDirectory
 import numpy as np
 import pandas as pd
 
-from fraudstream_serving.predictor import FraudPredictor
+from fraudstream_serving.predictor import FraudPredictor, registry_reference
 
 COLUMNS = ["amount", "customer_txn_count_30d", "event_hour"]
 
 
-def _register_model(tracking_uri: str) -> str:
+def _register_model(tracking_uri: str, threshold: float | None = 0.7) -> str:
     """Save a small model to MLflow and return a URI the predictor can load."""
 
     import mlflow
@@ -35,6 +35,8 @@ def _register_model(tracking_uri: str) -> str:
     mlflow.set_tracking_uri(tracking_uri)
     mlflow.set_experiment("serving-test")
     with mlflow.start_run():
+        if threshold is not None:
+            mlflow.log_metric("threshold", threshold)
         mlflow.xgboost.log_model(model, name="model", registered_model_name="test-fraud")
     return "models:/test-fraud/1"
 
@@ -126,6 +128,76 @@ class PredictorTest(unittest.TestCase):
         np.testing.assert_allclose(
             self.scores(with_extra), self.scores(self.rows.to_dict("records")), rtol=1e-9
         )
+
+
+
+class RegistryReferenceTest(unittest.TestCase):
+    def test_a_numbered_version(self):
+        self.assertEqual(("fraud-detection", "4"), registry_reference("models:/fraud-detection/4"))
+
+    def test_an_alias(self):
+        self.assertEqual(
+            ("fraud-detection", "@champion"), registry_reference("models:/fraud-detection@champion")
+        )
+
+    def test_anything_else_has_no_registry_version(self):
+        self.assertIsNone(registry_reference("runs:/abc123/model"))
+        self.assertIsNone(registry_reference("s3://bucket/model"))
+
+    def test_a_logged_model_id_has_no_registry_version(self):
+        """MLflow 3 also writes models:/m-<id> for a logged model, with no version in it."""
+
+        self.assertIsNone(registry_reference("models:/m-1a2b3c"))
+
+
+class VersionAndThresholdTest(unittest.TestCase):
+    """Each answer names the version and threshold, so a traffic split can be told apart."""
+
+    def setUp(self):
+        self.tmp = TemporaryDirectory()
+        self.tracking_uri = f"sqlite:///{Path(self.tmp.name) / 'mlflow.db'}"
+
+    def tearDown(self):
+        self.tmp.cleanup()
+
+    def loaded(self, model_uri: str) -> FraudPredictor:
+        predictor = FraudPredictor("fraud-detection", model_uri, self.tracking_uri)
+        predictor.load()
+        return predictor
+
+    def test_it_knows_its_version_and_threshold(self):
+        predictor = self.loaded(_register_model(self.tracking_uri, threshold=0.7))
+        self.assertEqual("1", predictor.version)
+        self.assertEqual(0.7, predictor.threshold)
+
+    def test_every_answer_names_the_version_and_threshold(self):
+        predictor = self.loaded(_register_model(self.tracking_uri, threshold=0.7))
+        row = {"amount": 0.9, "customer_txn_count_30d": 0.1, "event_hour": 0.5}
+        answer = predictor.predict({"instances": [row]})
+        self.assertEqual("1", answer["model_version"])
+        self.assertEqual(0.7, answer["threshold"])
+        self.assertEqual(1, len(answer["predictions"]))
+
+    def test_an_alias_is_resolved_to_its_number(self):
+        import mlflow
+
+        _register_model(self.tracking_uri)
+        mlflow.MlflowClient(self.tracking_uri).set_registered_model_alias("test-fraud", "champion", "1")
+        predictor = self.loaded("models:/test-fraud@champion")
+        self.assertEqual("1", predictor.version)
+
+    def test_a_model_outside_the_registry_is_unknown(self):
+        import mlflow
+
+        _register_model(self.tracking_uri)
+        run_id = mlflow.MlflowClient(self.tracking_uri).get_model_version("test-fraud", "1").run_id
+        predictor = self.loaded(f"runs:/{run_id}/model")
+        self.assertEqual("unknown", predictor.version)
+        self.assertIsNone(predictor.threshold)
+
+    def test_a_run_without_a_threshold_answers_none(self):
+        predictor = self.loaded(_register_model(self.tracking_uri, threshold=None))
+        self.assertIsNone(predictor.threshold)
 
 
 if __name__ == "__main__":
