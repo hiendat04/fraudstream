@@ -1,6 +1,18 @@
-"""Asks the KServe fraud model for a score."""
+"""Asks the KServe fraud model for a score, and which model version gave it."""
+
+from dataclasses import dataclass
 
 import httpx
+
+# A failed call has no answer, and an older model server sends no version.
+UNKNOWN_VERSION = "unknown"
+
+
+@dataclass(frozen=True)
+class ModelAnswer:
+    probability: float
+    version: str
+    threshold: float | None
 
 
 class ModelTimeout(Exception):
@@ -27,7 +39,7 @@ class ModelClient:
         self._url = url
         self._http = httpx.AsyncClient(timeout=timeout_seconds, transport=transport)
 
-    async def score(self, inputs: dict[str, float | bool | None]) -> float:
+    async def score(self, inputs: dict[str, float | bool | None]) -> ModelAnswer:
         try:
             response = await self._http.post(self._url, json={"instances": [inputs]})
         # A timeout is also a transport error, so it is caught first.
@@ -37,7 +49,13 @@ class ModelClient:
             raise ModelUnavailable(str(error)) from error
         if response.status_code != 200:
             raise ModelRejected(f"{response.status_code}: {response.text[:200]}")
-        return float(response.json()["predictions"][0])
+        body = response.json()
+        threshold = body.get("threshold")
+        return ModelAnswer(
+            probability=float(body["predictions"][0]),
+            version=str(body.get("model_version") or UNKNOWN_VERSION),
+            threshold=None if threshold is None else float(threshold),
+        )
 
     async def close(self) -> None:
         await self._http.aclose()

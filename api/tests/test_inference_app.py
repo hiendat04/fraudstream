@@ -13,7 +13,12 @@ from redis.exceptions import ConnectionError as RedisConnectionError
 from fraudstream_api.inference.app import create_app
 from fraudstream_api.inference.drift_feed import DriftFeed
 from fraudstream_api.inference.features import OnlineFeatures
-from fraudstream_api.inference.model import ModelRejected, ModelTimeout, ModelUnavailable
+from fraudstream_api.inference.model import (
+    ModelAnswer,
+    ModelRejected,
+    ModelTimeout,
+    ModelUnavailable,
+)
 from fraudstream_api.inference.settings import Settings
 
 from tests.test_inference_features import FEATURE_NAMES, WITH_HISTORY, training_inputs
@@ -77,8 +82,8 @@ class FakeReader:
 class FakeModel:
     """Stands in for KServe. Records every row it is asked to score."""
 
-    def __init__(self, probability=0.42, error=None):
-        self.probability = probability
+    def __init__(self, probability=0.42, error=None, version="2", threshold=0.5):
+        self.answer = ModelAnswer(probability, version, threshold)
         self.error = error
         self.calls = []
 
@@ -86,7 +91,7 @@ class FakeModel:
         self.calls.append(inputs)
         if self.error:
             raise self.error
-        return self.probability
+        return self.answer
 
     async def close(self):
         pass
@@ -121,6 +126,7 @@ class InferenceAppTest(unittest.TestCase):
         body = answer.json()
         self.assertEqual("demo-000001", body["transaction_id"])
         self.assertEqual(0.42, body["fraud_probability"])
+        self.assertEqual("2", body["model_version"])
         self.assertTrue(body["history_found"]["customer_features_available"])
 
     def test_the_model_receives_exactly_the_51_training_inputs(self):
