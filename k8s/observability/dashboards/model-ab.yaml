@@ -1,0 +1,64 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-model-ab
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  model-ab.json: |
+    {
+      "uid": "fraudstream-model-ab",
+      "title": "FraudStream · Model A/B",
+      "tags": ["fraudstream", "ml"],
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "time": {"from": "now-1h", "to": "now"},
+      "panels": [
+        {"id": 1, "type": "timeseries", "title": "Share of answers by version", "gridPos": {"x": 0, "y": 0, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (model_version) (rate(fraud_score_count[5m])) / ignoring(model_version) group_left sum(rate(fraud_score_count[5m]))", "legendFormat": "version {{model_version}}"}]},
+        {"id": 2, "type": "stat", "title": "Payments answered (time range)", "gridPos": {"x": 12, "y": 0, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "sum by (model_version) (increase(fraud_score_count[$__range]))", "legendFormat": "version {{model_version}}", "instant": true}]},
+        {"id": 3, "type": "stat", "title": "Decision threshold", "gridPos": {"x": 18, "y": 0, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"decimals": 3}, "overrides": []},
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "max by (model_version) (fraud_model_threshold)", "legendFormat": "version {{model_version}}", "instant": true}]},
+        {"id": 4, "type": "timeseries", "title": "Score quantiles by version", "gridPos": {"x": 0, "y": 8, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"min": 0, "max": 1}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "histogram_quantile(0.5, sum by (le, model_version) (rate(fraud_score_bucket[10m])))", "legendFormat": "p50 · version {{model_version}}"},
+           {"refId": "B", "expr": "histogram_quantile(0.9, sum by (le, model_version) (rate(fraud_score_bucket[10m])))", "legendFormat": "p90 · version {{model_version}}"},
+           {"refId": "C", "expr": "histogram_quantile(0.99, sum by (le, model_version) (rate(fraud_score_bucket[10m])))", "legendFormat": "p99 · version {{model_version}}"}]},
+        {"id": 5, "type": "bargauge", "title": "Share of payments scoring at least…", "gridPos": {"x": 12, "y": 8, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1, "decimals": 1}, "overrides": []},
+         "options": {"orientation": "horizontal", "displayMode": "basic", "reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [
+           {"refId": "A", "expr": "1 - sum by (model_version) (increase(fraud_score_bucket{le=\"0.25\"}[$__range])) / sum by (model_version) (increase(fraud_score_count[$__range]))", "legendFormat": "≥ 0.25 · version {{model_version}}", "instant": true},
+           {"refId": "B", "expr": "1 - sum by (model_version) (increase(fraud_score_bucket{le=\"0.5\"}[$__range])) / sum by (model_version) (increase(fraud_score_count[$__range]))", "legendFormat": "≥ 0.5 · version {{model_version}}", "instant": true},
+           {"refId": "C", "expr": "1 - sum by (model_version) (increase(fraud_score_bucket{le=\"0.75\"}[$__range])) / sum by (model_version) (increase(fraud_score_count[$__range]))", "legendFormat": "≥ 0.75 · version {{model_version}}", "instant": true}]},
+        {"id": 6, "type": "timeseries", "title": "Flag rate at each version's own threshold", "gridPos": {"x": 0, "y": 16, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (model_version) (rate(fraud_flagged_total[10m])) / sum by (model_version) (rate(fraud_score_count[10m]))", "legendFormat": "version {{model_version}}"}]},
+        {"id": 7, "type": "timeseries", "title": "Model answer time by version", "gridPos": {"x": 12, "y": 16, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "histogram_quantile(0.5, sum by (le, model_version) (rate(fraud_model_request_duration_seconds_bucket{model_version!=\"unknown\"}[5m])))", "legendFormat": "p50 · version {{model_version}}"},
+           {"refId": "B", "expr": "histogram_quantile(0.95, sum by (le, model_version) (rate(fraud_model_request_duration_seconds_bucket{model_version!=\"unknown\"}[5m])))", "legendFormat": "p95 · version {{model_version}}"}]},
+        {"id": 8, "type": "timeseries", "title": "Failures (no version: a failed call has no answer)", "gridPos": {"x": 0, "y": 24, "w": 24, "h": 7},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "reqps", "min": 0}, "overrides": []},
+         "targets": [
+           {"refId": "A", "expr": "sum by (reason) (rate(fraud_model_failures_total[5m]))", "legendFormat": "model {{reason}}"},
+           {"refId": "B", "expr": "sum(rate(http_requests_total{service=\"inference-api\",route=\"/v1/predict\",status=~\"5..\"}[5m]))", "legendFormat": "inference API 5xx"}]}
+      ]
+    }

@@ -5,6 +5,8 @@ import unittest
 import httpx
 
 from fraudstream_api.inference.model import (
+    UNKNOWN_VERSION,
+    ModelAnswer,
     ModelClient,
     ModelRejected,
     ModelTimeout,
@@ -34,9 +36,37 @@ class ModelClientTest(unittest.IsolatedAsyncioTestCase):
         finally:
             await model.close()
 
-        self.assertEqual(0.42, score)
+        self.assertEqual(0.42, score.probability)
         self.assertEqual(URL, sent["url"])
         self.assertIn(b'"instances"', sent["body"])
+
+    async def test_it_returns_the_answering_version_and_threshold(self):
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(
+                200, json={"predictions": [0.42], "model_version": "4", "threshold": 0.71}
+            )
+
+        model = client_answering(handler)
+        try:
+            answer = await model.score(INPUTS)
+        finally:
+            await model.close()
+
+        self.assertEqual(ModelAnswer(0.42, "4", 0.71), answer)
+
+    async def test_an_answer_without_a_version_is_unknown(self):
+        """An older model server sends no version. Its answers still count, as unknown."""
+
+        def handler(request: httpx.Request) -> httpx.Response:
+            return httpx.Response(200, json={"predictions": [0.42]})
+
+        model = client_answering(handler)
+        try:
+            answer = await model.score(INPUTS)
+        finally:
+            await model.close()
+
+        self.assertEqual(ModelAnswer(0.42, UNKNOWN_VERSION, None), answer)
 
     async def test_it_waits_no_longer_than_its_timeout(self):
         model = ModelClient(URL, timeout_seconds=7.5)

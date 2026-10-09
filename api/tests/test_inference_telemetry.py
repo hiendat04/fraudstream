@@ -8,8 +8,19 @@ from fastapi.testclient import TestClient
 from prometheus_client import REGISTRY
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from opentelemetry.sdk.trace import TracerProvider
+from opentelemetry.sdk.trace.export import SimpleSpanProcessor
+from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
+
 from fraudstream_api.inference.app import create_app
-from fraudstream_api.inference.model import ModelRejected, ModelTimeout, ModelUnavailable
+from fraudstream_api.inference.model import (
+    UNKNOWN_VERSION,
+    ModelAnswer,
+    ModelRejected,
+    ModelTimeout,
+    ModelUnavailable,
+)
+from fraudstream_api.inference.telemetry import scored
 from fraudstream_api.inference.settings import Settings
 
 from tests.test_inference_app import PAYMENT, FakeModel, FakeReader, build, online
@@ -45,10 +56,16 @@ def test_a_failed_model_call_is_logged(caplog):
 
 
 def test_every_model_call_is_timed_failures_included():
-    before = sample("fraud_model_request_duration_seconds_count")
+    answered = {"model_version": "2"}
+    failed = {"model_version": UNKNOWN_VERSION}
+    before = (
+        sample("fraud_model_request_duration_seconds_count", answered),
+        sample("fraud_model_request_duration_seconds_count", failed),
+    )
     predict(build())
     predict(build(model=FakeModel(error=ModelTimeout("30 s"))))
-    assert sample("fraud_model_request_duration_seconds_count") == before + 2
+    assert sample("fraud_model_request_duration_seconds_count", answered) == before[0] + 1
+    assert sample("fraud_model_request_duration_seconds_count", failed) == before[1] + 1
 
 
 def test_an_unreachable_online_store_is_counted():
@@ -57,18 +74,48 @@ def test_an_unreachable_online_store_is_counted():
     assert sample("fraud_online_store_failures_total") == before + 1
 
 
-def test_the_score_lands_in_its_bucket():
-    below = sample("fraud_score_bucket", {"le": "0.4"})
-    above = sample("fraud_score_bucket", {"le": "0.45"})
-    predict(build(model=FakeModel(probability=0.42)))
-    assert sample("fraud_score_bucket", {"le": "0.4"}) == below
-    assert sample("fraud_score_bucket", {"le": "0.45"}) == above + 1
+def test_the_score_lands_in_its_bucket_under_its_version():
+    below = sample("fraud_score_bucket", {"le": "0.4", "model_version": "4"})
+    above = sample("fraud_score_bucket", {"le": "0.45", "model_version": "4"})
+    predict(build(model=FakeModel(probability=0.42, version="4")))
+    assert sample("fraud_score_bucket", {"le": "0.4", "model_version": "4"}) == below
+    assert sample("fraud_score_bucket", {"le": "0.45", "model_version": "4"}) == above + 1
 
 
 def test_a_failed_prediction_gives_no_score():
-    before = sample("fraud_score_count")
+    before = sample("fraud_score_count", {"model_version": UNKNOWN_VERSION})
     predict(build(model=FakeModel(error=ModelUnavailable("down"))))
-    assert sample("fraud_score_count") == before
+    assert sample("fraud_score_count", {"model_version": UNKNOWN_VERSION}) == before
+
+
+@pytest.mark.parametrize("probability, flagged", [(0.71, 1), (0.7099, 0), (0.9, 1)])
+def test_the_flag_rule_at_the_threshold(probability, flagged):
+    labels = {"model_version": "7"}
+    before = sample("fraud_flagged_total", labels)
+    predict(build(model=FakeModel(probability=probability, version="7", threshold=0.71)))
+    assert sample("fraud_flagged_total", labels) == before + flagged
+
+
+def test_no_threshold_flags_nothing():
+    labels = {"model_version": "8"}
+    before = sample("fraud_flagged_total", labels)
+    predict(build(model=FakeModel(probability=0.99, version="8", threshold=None)))
+    assert sample("fraud_flagged_total", labels) == before
+    assert REGISTRY.get_sample_value("fraud_model_threshold", labels) is None
+
+
+def test_the_threshold_of_each_version_is_published():
+    predict(build(model=FakeModel(version="9", threshold=0.33)))
+    assert sample("fraud_model_threshold", {"model_version": "9"}) == 0.33
+
+
+def test_the_answering_version_is_put_on_the_current_span():
+    spans = InMemorySpanExporter()
+    provider = TracerProvider()
+    provider.add_span_processor(SimpleSpanProcessor(spans))
+    with provider.get_tracer("test").start_as_current_span("request"):
+        scored(ModelAnswer(0.3, "4", 0.5), 0.01, {})
+    assert spans.get_finished_spans()[0].attributes["model.version"] == "4"
 
 
 def test_missing_history_is_counted_per_flag():

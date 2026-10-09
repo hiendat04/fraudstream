@@ -14,3 +14,6 @@ local-ca.crt
 *.tfstate.*
 *.tfplan
 infra/ansible/.seed/
+graphify-out
+CLAUDE.md
+.claude

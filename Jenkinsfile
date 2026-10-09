@@ -94,20 +94,22 @@ pipeline {
       }
     }
     stage('Model server') {
-      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models') } }
+      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models ci/check_model_split.sh api/tools/model_split.py') } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
-            docker build -f k8s/Dockerfile.serving -t "dev.local/fraudstream-serving:$TAG" .
-            kind load docker-image "dev.local/fraudstream-serving:$TAG" --name fraudstream
-            sed "s#fraudstream-serving:dev#fraudstream-serving:$TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
+            # A manifest-only commit must not change the image, or every step of a
+            # rollout would add a revision. The tag follows the serving code alone.
+            SERVING_TAG=$(git log -1 --format=%h -- serving/src k8s/Dockerfile.serving)
+            docker build -f k8s/Dockerfile.serving -t "dev.local/fraudstream-serving:$SERVING_TAG" .
+            kind load docker-image "dev.local/fraudstream-serving:$SERVING_TAG" --name fraudstream
+            sed "s#fraudstream-serving:dev#fraudstream-serving:$SERVING_TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
             kubectl -n kserve-models wait --for=condition=Ready inferenceservice/fraud-detection --timeout=5m
-            . ci/gateway.sh
-            gateway_curl -sf --max-time 30 -u "$GATEWAY_USER:$GATEWAY_PASSWORD" \
-              -H 'Content-Type: application/json' -d @api/tools/transaction.json \
-              https://inference.fraudstream.localhost/v1/predict
+            kubectl -n kserve-models get inferenceservice fraud-detection \
+              -o jsonpath='{range .status.components.predictor.traffic[*]}{.revisionName} {.percent}% {.tag}{"\\n"}{end}'
+            ./ci/check_model_split.sh
           '''
         }
       }

@@ -49,4 +49,5 @@ class Transaction(BaseModel):
 class Prediction(BaseModel):
     transaction_id: str
     fraud_probability: float
+    model_version: str
     history_found: dict[str, bool]

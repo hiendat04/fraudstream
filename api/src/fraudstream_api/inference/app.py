@@ -1,5 +1,6 @@
 """The inference API: fetch a payment's history, ask the model, answer."""
 
+import time
 from contextlib import asynccontextmanager
 
 from fastapi import BackgroundTasks, FastAPI, HTTPException
@@ -17,7 +18,6 @@ from fraudstream_api.inference.model import (
 from fraudstream_api.inference.schemas import Prediction, Transaction
 from fraudstream_api.inference.settings import Settings
 from fraudstream_api.inference.telemetry import (
-    MODEL_DURATION,
     ONLINE_STORE_FAILURES,
     model_failed,
     scored,
@@ -84,21 +84,21 @@ def create_app(
         features = usable_features(online, transaction.event_timestamp, app.state.reader.ttls())
         inputs = model_inputs(transaction, features)
 
+        started = time.perf_counter()
         try:
-            with MODEL_DURATION.time():
-                probability = await app.state.model.score(inputs)
+            answer = await app.state.model.score(inputs)
         except ModelTimeout as error:
-            model_failed("timeout", error)
+            model_failed("timeout", error, time.perf_counter() - started)
             raise HTTPException(504, "the model did not answer in time") from error
         except ModelUnavailable as error:
-            model_failed("unavailable", error)
+            model_failed("unavailable", error, time.perf_counter() - started)
             raise HTTPException(503, "the model cannot be reached") from error
         except ModelRejected as error:
-            model_failed("rejected", error)
+            model_failed("rejected", error, time.perf_counter() - started)
             raise HTTPException(502, f"the model refused the request: {error}") from error
 
         found = history_found(inputs)
-        scored(probability, found)
+        scored(answer, time.perf_counter() - started, found)
 
         if app.state.drift is not None:
             # Runs after the answer is sent. A slow drift detector never delays a prediction,
@@ -107,7 +107,8 @@ def create_app(
 
         return Prediction(
             transaction_id=transaction.transaction_id,
-            fraud_probability=probability,
+            fraud_probability=answer.probability,
+            model_version=answer.version,
             history_found=found,
         )
 
