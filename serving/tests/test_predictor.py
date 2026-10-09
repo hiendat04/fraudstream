@@ -122,6 +122,19 @@ class PredictorTest(unittest.TestCase):
         self.assertTrue(predictor.load())
         self.assertEqual(COLUMNS, predictor.feature_names)
 
+    def test_a_missing_value_is_scored_as_missing(self):
+        """A payment without history sends nulls. The model knows missing values; pandas
+        turns a column of only nulls into text, which the model refuses."""
+
+        import mlflow
+
+        row = {**self.rows.to_dict("records")[0], "customer_txn_count_30d": None}
+        mlflow.set_tracking_uri(self.tracking_uri)
+        model = mlflow.xgboost.load_model(self.model_uri)
+        expected = model.predict_proba(pd.DataFrame([row], columns=COLUMNS).astype(float))[:, 1]
+
+        np.testing.assert_allclose(self.scores([row]), expected, rtol=1e-6)
+
     def test_an_extra_field_is_ignored(self):
         with_extra = [{**row, "not_a_feature": 99.0} for row in self.rows.to_dict("records")]
 

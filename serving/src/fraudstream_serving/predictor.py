@@ -92,7 +92,9 @@ class FraudPredictor(Model):
             # tells the caller the server broke rather than the request.
             raise InvalidInput(f"these fields are missing from the request: {', '.join(missing)}")
 
-        ordered = frame[self.feature_names]
+        # A payment without history sends nulls. pandas makes a column of only
+        # nulls into text, which the model refuses; as numbers they are missing values.
+        ordered = frame[self.feature_names].apply(pd.to_numeric)
         scores = self.model.predict_proba(ordered)[:, 1]
         return {
             "predictions": [float(score) for score in scores],
