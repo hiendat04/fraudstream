@@ -10,7 +10,8 @@ metadata:
   namespace: kserve-models
 spec:
   predictor:
-    minReplicas: 0
+    minReplicas: 1
+    canaryTrafficPercent: 20
     containers:
       - name: kserve-container
         image: dev.local/fraudstream-serving:dev
@@ -20,7 +21,7 @@ spec:
             protocol: TCP
         env:
           - name: MODEL_URI
-            value: models:/fraud-detection/2
+            value: models:/fraud-detection/4
           - name: MLFLOW_TRACKING_URI
             value: http://mlflow:5000
         resources:
