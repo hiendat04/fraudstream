@@ -37,11 +37,16 @@ pipeline {
                 --policy ../k8s/models/rollout.yaml --manifest ../k8s/models/fraud-detection.yaml \
                 --prometheus-url http://localhost:19090
             ''')
-            if (status == 10) { error('the canary was unhealthy and was rolled back') }
-            if (status == 11) { unstable('the rollout stopped without changing the split: no canary, or someone else changed it') }
-            if (status == 12) { unstable('the canary behaves differently; a person decides') }
-            // Anything else is a crash: the split stays wherever the last step left it.
-            if (status != 0) { error("the rollout crashed (exit ${status}); check the split by hand") }
+            if (status == 10) {
+              error('the canary was unhealthy and was rolled back')
+            } else if (status == 11) {
+              unstable('the rollout stopped without changing the split: no canary, or someone else changed it')
+            } else if (status == 12) {
+              unstable('the canary behaves differently; a person decides')
+            } else if (status != 0) {
+              // A crash: the split stays wherever the last step left it.
+              error("the rollout crashed (exit ${status}); check the split by hand")
+            }
           }
         }
       }

@@ -99,11 +99,18 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
-          sh '''
-            ./ci/apply_model.sh
-            ./ci/check_model_split.sh
-          '''
           script {
+            // The rollout job commits every step. A build of an older commit must not
+            // apply its older split over a newer one; the newer commit's build applies it.
+            sh 'git fetch -q origin "$DEPLOY_BRANCH"'
+            if (sh(returnStatus: true, script: 'git diff --quiet HEAD "origin/$DEPLOY_BRANCH" -- k8s/models/fraud-detection.yaml') != 0) {
+              echo 'A newer commit changes the model manifest, so its build applies it.'
+              return
+            }
+            sh '''
+              ./ci/apply_model.sh
+              ./ci/check_model_split.sh
+            '''
             // Only a push that changed the model manifest starts a rollout, so an
             // unrelated commit never resumes a rollout a person has to decide on.
             def start = deploying('k8s/models/fraud-detection.yaml') && sh(returnStatus: true, script: '''
