@@ -15,6 +15,19 @@ if ! docker exec fraudstream-control-plane crictl inspecti "$image" >/dev/null 2
   kind load docker-image "$image" --name fraudstream
 fi
 sed "s#fraudstream-serving:dev#fraudstream-serving:$SERVING_TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
-kubectl -n kserve-models wait --for=condition=Ready inferenceservice/fraud-detection --timeout=5m
+# Wait until KServe routes the manifest's share to the latest revision, then for Ready.
+# Not --for=condition=Ready: that also needs KServe to record the new generation,
+# which it skips when a change leaves its status as it was, so the wait never ends.
+want=$(sed -n 's/^ *canaryTrafficPercent: *\([0-9]*\).*/\1/p' k8s/models/fraud-detection.yaml)
+want=${want:-100}
+for i in $(seq 60); do
+  got=$(kubectl -n kserve-models get inferenceservice fraud-detection \
+    -o jsonpath='{.status.components.predictor.traffic[?(@.latestRevision==true)].percent}')
+  [ "$got" = "$want" ] && break
+  [ "$i" = 60 ] && { echo "the latest revision has ${got:-no}% of traffic after 5 minutes, the manifest says $want%" >&2; exit 1; }
+  sleep 5
+done
+kubectl -n kserve-models wait --for=jsonpath='{.status.conditions[?(@.type=="Ready")].status}'=True \
+  inferenceservice/fraud-detection --timeout=5m
 kubectl -n kserve-models get inferenceservice fraud-detection \
   -o jsonpath='{range .status.components.predictor.traffic[*]}{.revisionName} {.percent}% {.tag}{"\n"}{end}'
