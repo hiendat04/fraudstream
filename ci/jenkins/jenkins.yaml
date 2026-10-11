@@ -64,3 +64,21 @@ jobs:
           cron('H/5 * * * *')
         }
       }
+  - script: |
+      pipelineJob('fraudstream-model-rollout') {
+        description('Steps a model canary through k8s/models/rollout.yaml, judged by Prometheus.')
+        definition {
+          cpsScm {
+            scm {
+              git {
+                remote {
+                  url('https://github.com/hiendat04/fraudstream.git')
+                  credentials('github')
+                }
+                branch('feature/e2e-fraudstream-platform')
+              }
+            }
+            scriptPath('ci/jenkins/model-rollout.Jenkinsfile')
+          }
+        }
+      }

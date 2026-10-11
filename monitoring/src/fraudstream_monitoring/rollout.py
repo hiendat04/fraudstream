@@ -8,7 +8,8 @@ Every change is a commit, so Git always says what the cluster does.
     cd monitoring && PYTHONPATH=src uv run python -m fraudstream_monitoring.rollout \\
         --policy ../k8s/models/rollout.yaml --manifest ../k8s/models/fraud-detection.yaml \\
         --prometheus-url http://localhost:19090
-Exits 0 promoted, 1 rolled back, 2 stopped by someone else's change, 3 held.
+Exits 0 promoted, 10 rolled back, 11 stopped without changing the split, 12 held.
+Python itself exits 1 on a crash and 2 on bad arguments, so those mean neither.
 """
 
 import argparse
@@ -32,7 +33,7 @@ from fraudstream_monitoring.rollout_manifest import (
 )
 
 PROMOTED, ROLLED_BACK, HELD, STOPPED = "promoted", "rolled back", "held", "stopped"
-EXIT = {PROMOTED: 0, ROLLED_BACK: 1, STOPPED: 2, HELD: 3}
+EXIT = {PROMOTED: 0, ROLLED_BACK: 10, STOPPED: 11, HELD: 12}
 # Health looks at the last two minutes: long enough for Prometheus' 15 s scrapes.
 HEALTH_WINDOW_SECONDS = 120
 
@@ -106,8 +107,10 @@ def _watch(policy: Policy, act: Actions) -> str | None:
 
 def run(policy: Policy, current: int, act: Actions) -> str:
     try:
-        for percent in remaining(policy.steps, current):
-            act.set_percent(percent)
+        # The share a person started is judged too, before the first step up.
+        for percent in [current, *remaining(policy.steps, current)]:
+            if percent != current:
+                act.set_percent(percent)
             act.log(f"canary at {percent}%")
             outcome = _watch(policy, act)
             if outcome is not None:

@@ -94,23 +94,27 @@ pipeline {
       }
     }
     stage('Model server') {
-      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models ci/check_model_split.sh api/tools/model_split.py') } }
+      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models ci/apply_model.sh ci/check_model_split.sh api/tools/model_split.py') } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
-            # A manifest-only commit must not change the image, or every step of a
-            # rollout would add a revision. The tag follows the serving code alone.
-            SERVING_TAG=$(git log -1 --format=%h -- serving/src k8s/Dockerfile.serving)
-            docker build -f k8s/Dockerfile.serving -t "dev.local/fraudstream-serving:$SERVING_TAG" .
-            kind load docker-image "dev.local/fraudstream-serving:$SERVING_TAG" --name fraudstream
-            sed "s#fraudstream-serving:dev#fraudstream-serving:$SERVING_TAG#" k8s/models/fraud-detection.yaml | kubectl apply -f -
-            kubectl -n kserve-models wait --for=condition=Ready inferenceservice/fraud-detection --timeout=5m
-            kubectl -n kserve-models get inferenceservice fraud-detection \
-              -o jsonpath='{range .status.components.predictor.traffic[*]}{.revisionName} {.percent}% {.tag}{"\\n"}{end}'
+            ./ci/apply_model.sh
             ./ci/check_model_split.sh
           '''
+          script {
+            // Only a push that changed the model manifest starts a rollout, so an
+            // unrelated commit never resumes a rollout a person has to decide on.
+            def start = deploying('k8s/models/fraud-detection.yaml') && sh(returnStatus: true, script: '''
+              cd monitoring && PYTHONPATH=src uv run python -m fraudstream_monitoring.rollout --should-start \
+                --policy ../k8s/models/rollout.yaml --manifest ../k8s/models/fraud-detection.yaml \
+                --subject "$(git log -1 --format=%s)"
+            ''') == 0
+            if (start) {
+              build job: 'fraudstream-model-rollout', wait: false
+            }
+          }
         }
       }
     }

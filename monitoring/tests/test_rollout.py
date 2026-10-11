@@ -51,7 +51,7 @@ def test_a_healthy_canary_walks_every_step_then_is_promoted():
 
 def test_a_failure_mid_step_rolls_back_at_once():
     failing = WindowMetrics(VersionStats(50, 0.010, 0.30, 0.05), VersionStats(200, 0.010, 0.30, 0.05), 50)
-    script = Script([healthy(), healthy(), failing])
+    script = Script([healthy()] * 11 + [healthy(), failing])
     assert run(POLICY, 20, script.actions()) == "rolled back"
     assert script.done == [40, "roll back"]
 
@@ -65,14 +65,21 @@ def test_a_step_slow_overall_rolls_back_even_when_each_minute_looked_fine():
     actions = script.actions()
     actions = Actions(**{**actions.__dict__, "measure": lambda seconds: thin if seconds == HEALTH_WINDOW_SECONDS else slow})
     assert run(POLICY, 20, actions) == "rolled back"
-    assert script.done == [40, "roll back"]
+    assert script.done == ["roll back"]
 
 
 def test_a_difference_in_behaviour_holds_and_does_not_roll_back():
     different = WindowMetrics(VersionStats(1000, 0.010, 0.30, 0.15), VersionStats(4000, 0.010, 0.30, 0.05), 0)
     script = Script([different])
     assert run(POLICY, 20, script.actions()) == "held"
-    assert script.done == [40]
+    assert script.done == []
+
+
+def test_the_share_a_person_started_is_judged_before_the_first_step_up():
+    unhealthy = WindowMetrics(VersionStats(50, 0.010, 0.30, 0.05), VersionStats(200, 0.010, 0.30, 0.05), 50)
+    script = Script([unhealthy])
+    assert run(POLICY, 20, script.actions()) == "rolled back"
+    assert script.done == ["roll back"]
 
 
 def test_silence_never_promotes():
