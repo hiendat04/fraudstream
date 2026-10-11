@@ -1,0 +1,11 @@
+mode: manual
+steps: [20, 40, 60, 80]
+step_minutes: 10
+check_minutes: 1
+thresholds:
+  min_answers: 100
+  max_failure_ratio: 0.01
+  latency_ratio: 1.2
+  latency_slack_seconds: 0.05
+  max_flag_rate_gap: 0.02
+  max_median_shift: 0.10
