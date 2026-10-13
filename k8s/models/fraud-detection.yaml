@@ -20,7 +20,7 @@ spec:
             protocol: TCP
         env:
           - name: MODEL_URI
-            value: models:/fraud-detection/2
+            value: models:/fraud-detection/4
           - name: MLFLOW_TRACKING_URI
             value: http://mlflow:5000
         resources:
