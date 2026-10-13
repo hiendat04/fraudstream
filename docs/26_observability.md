@@ -160,9 +160,10 @@ instead, because they change first. It never reads the label table.
 | `http_requests_total{route,status}` | How many requests, and how many failed? |
 | `http_request_duration_seconds` | How long do answers take, against the SLA? |
 | `http_requests_in_progress` | How busy is each pod right now? |
-| `fraud_model_request_duration_seconds` | How much of that time is the model? |
+| `fraud_model_request_duration_seconds{model_version}` | How much of that time is the model, for each model version? |
 | `fraud_model_failures_total{reason}` | Did the model time out, refuse, or not answer? |
-| `fraud_score` | What scores does the model give? A shift is a warning sign. |
+| `fraud_score{model_version}` | What scores does each model version give? A shift is a warning sign. |
+| `fraud_flagged_total{model_version}`, `fraud_model_threshold{model_version}` | How many payments would each version flag, at its own threshold? |
 | `fraud_history_missing_total{flag}` | How many payments were scored without history? |
 | `fraud_drift_status`, `fraud_drift_rows` | Did this window drift, and how many payments did it hold? |
 | `fraud_drift_feature_psi{feature}` | Which inputs moved, and by how much? |

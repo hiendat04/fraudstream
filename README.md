@@ -34,6 +34,9 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **Watched, not guessed.** Every payment leaves a trace, a log line and a count. A daily
   pipeline checks the model's inputs against its training data without waiting for
   labels, and starts retraining when they move.
+- **Never swapped blind.** A new model version takes a share of real traffic next to the
+  served one. A Jenkins job steps it up, rolls it back when it is unhealthy, and stops
+  for a person when it behaves differently. Every step is a commit.
 - **Tested with numbers.** 100% line and branch coverage on both APIs, 86% mutation score,
   property-based tests, and a load test judged against an SLA fixed in advance.
 - **CI/CD.** Jenkins tests every branch and deploys the deploy branch. Every image is
@@ -102,6 +105,7 @@ flowchart LR
 | Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/24_gateway.md)                                                                                                                                                       |
 | Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/25_infrastructure_as_code.md)                                                                                                                         |
 | Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/26_observability.md) |
+| A/B testing | A new model runs as a KServe canary next to the served one, compared on real traffic without labels, and stepped up, promoted or rolled back by commits, by hand or by a Jenkins job | [27_ab_testing.md](docs/27_ab_testing.md) |
 | Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md)                |
 
 ## Quick start
