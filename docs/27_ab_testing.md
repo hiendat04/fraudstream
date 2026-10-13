@@ -105,7 +105,8 @@ sequenceDiagram
         R->>K: apply, check who answers
     end
     Note over R,K: after 80%, the next share is "all": the promotion
-    R-->>P: unhealthy: commit 0% and stop. Different: hold, and a person decides
+    R-->>P: unhealthy: commit 0% and stop. Different: pause and ask
+    P->>R: Continue, or Roll back
 ```
 
 - **A person starts it with one commit.** The deploy pipeline applies the manifest, sends
@@ -145,9 +146,11 @@ flowchart TD
     JUDGE -- "pass" --> LAST{"last step?"}
     LAST -- "no · commit<br/>the next share" --> WATCH
     LAST -- "yes" --> PROMO
+    HOLD -- "Continue: stop judging<br/>behaviour, health still counts" --> LAST
+    HOLD -- "Roll back" --> RB
 
     RB(["<b>roll back</b><br/>commit 0% · version 2 gets all"])
-    HOLD(["<b>hold</b><br/>share stays · a person decides"])
+    HOLD{{"<b>hold</b> · Jenkins asks<br/>a person to decide"}}
     PROMO(["<b>promote</b><br/>commit · version 4 gets all"])
 
     classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
@@ -326,9 +329,7 @@ twice:
    from version 4.
 
 These holds were handled by changing a threshold in a commit and re-running the job. The
-job now waits on a hold instead: open the paused build of `fraudstream-model-rollout`,
-press **Input requested**, and choose **Continue: accept the difference** or **Roll back**.
-Nobody answering within 4 hours leaves the share where it is.
+job now asks on a hold instead, as the next section shows.
 
 ![The rollout job judges 80% and promotes version 4](../images/ab_testing/08-jenkins-rollout-promoted.png)
 
@@ -348,6 +349,53 @@ git pull --rebase && git log --oneline -8
 ```
 
 ![The rollout's commits](../images/ab_testing/10-git-rollout-commits.png)
+
+### Deciding on a hold
+
+The job pauses on a hold and asks. To try both answers, the behaviour limits were set to
+0, so any difference holds, and version 2 was started as a canary next to version 4.
+
+```bash
+replay 2400                                            # in a second terminal
+sed -i '' -e 's/max_flag_rate_gap: .*/max_flag_rate_gap: 0.0/' -e 's/max_median_shift: .*/max_median_shift: 0.0/' k8s/models/rollout.yaml
+perl -pi -e 's/^(\s*)minReplicas: 0$/$1minReplicas: 1\n$1canaryTrafficPercent: 20/; s#fraud-detection/4#fraud-detection/2#' k8s/models/fraud-detection.yaml
+git commit -am "test(models): force a hold to try the decision buttons" && git push
+```
+
+**The question.** After the first step, the build pauses. Open `fraudstream-model-rollout`,
+then the paused stage (or **Paused for Input** on the build), pick an answer and press
+**Decide**. Nobody answering within 4 hours leaves the share where it is.
+
+![The paused rollout asks for a decision](../images/ab_testing/14-jenkins-hold-decision.png)
+
+**Roll back.** The job commits 0% with the reason in the message,
+`rollout(models): roll version 2 back to 0%, by a person's decision`. All 30 payments of
+the check went to version 4. The build ends yellow, with who decided.
+
+![A person's rollback](../images/ab_testing/15-jenkins-hold-rolled-back.png)
+
+**Continue.** Started again from 0% → 20%, and answered Continue. From then on, every step
+still prints its verdict, here a hold on flag rate (9.72% against 7.06% at 40%), followed
+by `accepted by a person, so the rollout goes on`. Health was still checked every minute.
+The job promoted version 2 at 10:58. KServe started revision 00011 for it, and all 30
+answers came from version 2.
+
+```bash
+git pull --rebase
+sed -i '' 's/canaryTrafficPercent: 0/canaryTrafficPercent: 20/' k8s/models/fraud-detection.yaml
+git commit -am "test(models): hold again, then continue" && git push
+```
+
+![Continue: every hold accepted, then the promotion](../images/ab_testing/16-jenkins-hold-accepted-promoted.png)
+
+Put version 4 and the limits back afterwards:
+
+```bash
+git pull --rebase
+perl -pi -e 's#fraud-detection/2#fraud-detection/4#; $_ = "" if /canaryTrafficPercent/; s/minReplicas: 1/minReplicas: 0/' k8s/models/fraud-detection.yaml
+sed -i '' -e 's/max_flag_rate_gap: .*/max_flag_rate_gap: 0.03/' -e 's/max_median_shift: .*/max_median_shift: 0.10/' k8s/models/rollout.yaml
+git commit -am "chore(models): serve version 4 alone again" && git push
+```
 
 ### When a step goes wrong
 
