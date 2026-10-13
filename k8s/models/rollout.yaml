@@ -7,5 +7,5 @@ thresholds:
   max_failure_ratio: 0.01
   latency_ratio: 1.2
   latency_slack_seconds: 0.05
-  max_flag_rate_gap: 0.03
-  max_median_shift: 0.10
+  max_flag_rate_gap: 0.0
+  max_median_shift: 0.0
