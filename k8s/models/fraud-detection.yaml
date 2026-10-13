@@ -11,7 +11,7 @@ metadata:
 spec:
   predictor:
     minReplicas: 1
-    canaryTrafficPercent: 0
+    canaryTrafficPercent: 20
     containers:
       - name: kserve-container
         image: dev.local/fraudstream-serving:dev
