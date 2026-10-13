@@ -102,15 +102,25 @@ pipeline {
           script {
             // The rollout job commits every step. A build of an older commit must not
             // apply its older split over a newer one; the newer commit's build applies it.
-            sh 'git fetch -q origin "$DEPLOY_BRANCH"'
-            if (sh(returnStatus: true, script: 'git diff --quiet HEAD "origin/$DEPLOY_BRANCH" -- k8s/models/fraud-detection.yaml') != 0) {
+            // The lock is the one the rollout job holds while it changes the split, so the
+            // check and the apply happen with nobody else moving the split in between.
+            // shortcut: a file lock works because both jobs run on the one built-in node;
+            // with build agents, use a Lockable Resources lock instead.
+            def applied = sh(returnStatus: true, script: '''
+              exec 9>"$JENKINS_HOME/model-split.lock"
+              flock 9
+              git fetch -q origin "$DEPLOY_BRANCH"
+              git diff --quiet HEAD "origin/$DEPLOY_BRANCH" -- k8s/models/fraud-detection.yaml || exit 99
+              ./ci/apply_model.sh
+            ''')
+            if (applied == 99) {
               echo 'A newer commit changes the model manifest, so its build applies it.'
               return
             }
-            sh '''
-              ./ci/apply_model.sh
-              ./ci/check_model_split.sh
-            '''
+            if (applied != 0) {
+              error("applying the model failed (exit ${applied})")
+            }
+            sh './ci/check_model_split.sh'
             // Only a push that changed the model manifest starts a rollout, so an
             // unrelated commit never resumes a rollout a person has to decide on.
             def start = deploying('k8s/models/fraud-detection.yaml') && sh(returnStatus: true, script: '''

@@ -118,7 +118,15 @@ sequenceDiagram
   cluster does, and the history shows who moved the traffic. The job's commits start with
   `rollout(models):` and never start another rollout.
 - **Someone else's change wins.** Before each change, the job compares the live share with
-  the one it left. If they differ, it stops and touches nothing.
+  the one it left. If they differ, it stops and touches nothing. It also refuses to start
+  while the cluster doesn't serve the share Git names yet.
+- **One writer at a time.** The deploy pipeline and the rollout job take the same lock
+  before they change the split. A deploy build of an older commit sees the newer one and
+  leaves the model alone.
+- **A hold waits for a person.** The job pauses with two buttons: **Continue: accept the
+  difference** and **Roll back**. Continue goes on from the live share and stops judging
+  behaviour for the rest of this rollout. Health still rolls back, and too few answers
+  still hold. Jenkins records who pressed which button.
 
 ## How one step is judged
 
@@ -317,9 +325,10 @@ twice:
    version 4. KServe started revision 00009 for it, and the check saw all 30 answers come
    from version 4.
 
-To continue after a hold, change the setting that held it, commit, push, and press
-**Build Now** on `fraudstream-model-rollout`. It carries on from the live share. To stop
-instead, commit `canaryTrafficPercent: 0`.
+These holds were handled by changing a threshold in a commit and re-running the job. The
+job now waits on a hold instead: open the paused build of `fraudstream-model-rollout`,
+press **Input requested**, and choose **Continue: accept the difference** or **Roll back**.
+Nobody answering within 4 hours leaves the share where it is.
 
 ![The rollout job judges 80% and promotes version 4](../images/ab_testing/08-jenkins-rollout-promoted.png)
 
@@ -381,9 +390,10 @@ revision's settings, so KServe starts revision 00009 for version 4.
 **A rollback keeps the policy.** The job only ever changes the traffic share.
 `rollout.yaml` stays as it was, so the next canary is stepped the same way.
 
-**Re-running after a hold judges the same way.** The job looks at the live share again
-with the same thresholds. To go on, change the threshold that held it, in a commit, or
-promote by hand.
+**Re-running after a hold judges the same way.** A plain re-run looks at the live share
+again with the same thresholds, so it holds again. Use the **Continue** button, which tells
+the job a person accepted the difference. A paused build keeps one of Jenkins' two
+executors until someone answers.
 
 **Short steps are noisy at the edges.** At 20% and at 80%, one version sees a fifth of the
 traffic. In a 3-minute step, that is a few hundred payments, and a flag rate from a few
@@ -396,8 +406,10 @@ on top.
 **A deploy build of an older commit leaves the model alone.** Every push starts a deploy
 build, and its tests take a few minutes. During the demo, the build of the policy commit
 applied its 40% after the job had moved to 60%, and the job stopped. The `Model server`
-stage now fetches the branch and skips the model when a newer commit has changed the
-manifest.
+stage now takes the split lock, fetches the branch, and skips the model when a newer
+commit has changed the manifest. The rollout job holds the same lock from checking the
+live share to applying its commit, so nothing moves the split in between. The lock is a
+file in Jenkins' home, which works because both jobs run on Jenkins' one node.
 
 **Waiting for Ready waits on the share.** `kubectl wait --for=condition=Ready` also needs
 KServe to record that it saw the newest spec. KServe skips that when a change leaves its

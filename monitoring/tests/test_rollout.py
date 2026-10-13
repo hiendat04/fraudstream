@@ -112,3 +112,23 @@ def test_the_policy_reads_minutes_and_thresholds():
     policy = Policy.from_yaml("mode: progressive\nsteps: [40, 20]\nstep_minutes: 2\ncheck_minutes: 0.5\nthresholds:\n  min_answers: 5\n")
     assert (policy.steps, policy.step_seconds, policy.check_seconds) == ([20, 40], 120, 30)
     assert policy.thresholds.min_answers == 5
+
+
+def test_a_person_who_accepted_the_difference_lets_the_rollout_go_on():
+    different = WindowMetrics(VersionStats(1000, 0.010, 0.30, 0.15), VersionStats(4000, 0.010, 0.30, 0.05), 0)
+    script = Script([different])
+    assert run(POLICY, 20, script.actions(), accept_behaviour=True) == "promoted"
+    assert script.done == [40, 60, 80, "promote"]
+
+
+def test_accepting_the_difference_never_accepts_silence():
+    script = Script([healthy(answers=0)])
+    assert run(POLICY, 20, script.actions(), accept_behaviour=True) == "held"
+    assert script.done == []
+
+
+def test_accepting_the_difference_never_accepts_failures():
+    failing = WindowMetrics(VersionStats(1000, 0.010, 0.30, 0.15), VersionStats(4000, 0.010, 0.30, 0.05), 100)
+    script = Script([failing])
+    assert run(POLICY, 20, script.actions(), accept_behaviour=True) == "rolled back"
+    assert script.done == ["roll back"]

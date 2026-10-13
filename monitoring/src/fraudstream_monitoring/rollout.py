@@ -3,16 +3,21 @@
 Health is checked every check interval and rolls back at once. At the end of a
 step the whole step is judged: pass moves on, fail rolls back, hold stops for a
 person, and too little traffic gets one more step-long look before holding.
-Every change is a commit, so Git always says what the cluster does.
+Every change is a commit, so Git always says what the cluster does. A person who
+looked at a hold can accept the difference (--accept-behavior): behavior no longer
+holds, but health still rolls back and too little traffic still holds.
 
     cd monitoring && PYTHONPATH=src uv run python -m fraudstream_monitoring.rollout \\
         --policy ../k8s/models/rollout.yaml --manifest ../k8s/models/fraud-detection.yaml \\
         --prometheus-url http://localhost:19090
+--roll-back sets the canary to 0% at once, for a person who decided against it.
 Exits 0 promoted, 10 rolled back, 11 stopped without changing the split, 12 held.
 Python itself exits 1 on a crash and 2 on bad arguments, so those mean neither.
 """
 
 import argparse
+import contextlib
+import fcntl
 import subprocess
 import sys
 import time
@@ -80,7 +85,7 @@ def remaining(steps: list[int], current: int) -> list[int]:
     return [step for step in steps if step > current]
 
 
-def _watch(policy: Policy, act: Actions) -> str | None:
+def _watch(policy: Policy, act: Actions, accept_behaviour: bool) -> str | None:
     """Watch one step. None means it passed."""
 
     for _look in range(2):
@@ -101,18 +106,21 @@ def _watch(policy: Policy, act: Actions) -> str | None:
             act.roll_back()
             return ROLLED_BACK
         if step.verdict is Verdict.HOLD:
-            return HELD
+            if not accept_behaviour:
+                return HELD
+            act.log("accepted by a person, so the rollout goes on")
+            return None
     return HELD
 
 
-def run(policy: Policy, current: int, act: Actions) -> str:
+def run(policy: Policy, current: int, act: Actions, accept_behaviour: bool = False) -> str:
     try:
         # The share a person started is judged too, before the first step up.
         for percent in [current, *remaining(policy.steps, current)]:
             if percent != current:
                 act.set_percent(percent)
             act.log(f"canary at {percent}%")
-            outcome = _watch(policy, act)
+            outcome = _watch(policy, act, accept_behaviour)
             if outcome is not None:
                 return outcome
         act.promote()
@@ -134,6 +142,9 @@ def main() -> int:
     parser.add_argument("--prometheus-url", default="http://localhost:19090")
     parser.add_argument("--should-start", action="store_true", help="exit 0 if this commit should start a rollout")
     parser.add_argument("--subject", default="", help="the commit subject, with --should-start")
+    parser.add_argument("--accept-behaviour", action="store_true", help="a person accepted the difference")
+    parser.add_argument("--roll-back", action="store_true", help="set the canary to 0% now")
+    parser.add_argument("--lock", help="a file locked around every change of the split")
     arguments = parser.parse_args()
 
     import httpx
@@ -162,18 +173,45 @@ def main() -> int:
         ).stdout.strip()
         return int(out) if out else None
 
+    # Watching a share the cluster doesn't serve measures nothing. The deploy pipeline
+    # starts the rollout once it has applied the commit.
+    if live_percent() != current:
+        print(f"the cluster serves {live_percent()}%, Git says {current}%: the deploy has not applied it yet")
+        return EXIT[STOPPED]
+
+    @contextlib.contextmanager
+    def split_lock():
+        # The deploy pipeline takes the same lock to apply the model, so the two never
+        # change the split at once.
+        if not arguments.lock:
+            yield
+            return
+        with open(arguments.lock, "w") as held:
+            fcntl.flock(held, fcntl.LOCK_EX)
+            yield
+
     def ship(new_text: str, message: str, percent: int | None) -> None:
-        if live_percent() != expected["percent"]:
-            raise TakenOver(f"the live split is {live_percent()}%, the rollout left it at {expected['percent']}%")
-        manifest.write_text(new_text)
-        subprocess.run(["git", "-C", repo, "commit", "-qam", f"{ROLLOUT_PREFIX} {message}"], check=True)
-        if subprocess.run(["git", "-C", repo, "push", "-q", "origin", "HEAD"]).returncode != 0:
-            subprocess.run(["git", "-C", repo, "reset", "-q", "--hard", "HEAD~1"], check=True)
-            raise TakenOver("the deploy branch moved: someone else changed it")
-        subprocess.run([repo / "ci" / "apply_model.sh"], check=True)
-        expected["percent"] = percent
+        with split_lock():
+            if live_percent() != expected["percent"]:
+                raise TakenOver(f"the live split is {live_percent()}%, the rollout left it at {expected['percent']}%")
+            manifest.write_text(new_text)
+            subprocess.run(["git", "-C", repo, "commit", "-qam", f"{ROLLOUT_PREFIX} {message}"], check=True)
+            if subprocess.run(["git", "-C", repo, "push", "-q", "origin", "HEAD"]).returncode != 0:
+                subprocess.run(["git", "-C", repo, "reset", "-q", "--hard", "HEAD~1"], check=True)
+                raise TakenOver("the deploy branch moved: someone else changed it")
+            subprocess.run([repo / "ci" / "apply_model.sh"], check=True)
+            expected["percent"] = percent
         if subprocess.run([repo / "ci" / "check_model_split.sh"]).returncode != 0:
             raise Unhealthy(f"the versions answering do not match the split at {percent}%")
+
+    if arguments.roll_back:
+        try:
+            ship(rolled_back(manifest.read_text()), f"roll version {version} back to 0%, by a person's decision", 0)
+        except TakenOver as reason:
+            print(f"stopped: {reason}")
+            return EXIT[STOPPED]
+        print(f"rollout {ROLLED_BACK}")
+        return EXIT[ROLLED_BACK]
 
     with httpx.Client(base_url=arguments.prometheus_url, timeout=30) as prometheus:
         outcome = run(policy, current, Actions(
@@ -183,7 +221,7 @@ def main() -> int:
             measure=lambda seconds: window_metrics(prometheus, candidate=version, window_seconds=seconds),
             sleep=time.sleep,
             log=lambda message: print(time.strftime("%H:%M:%S"), message, flush=True),
-        ))
+        ), accept_behaviour=arguments.accept_behaviour)
     print(f"rollout {outcome}")
     return EXIT[outcome]
 
