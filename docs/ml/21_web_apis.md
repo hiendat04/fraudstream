@@ -21,7 +21,7 @@ flowchart LR
             I["inference-api<br/>1-3 pods"]
             D["drift-detection<br/>1-2 pods"]
         end
-        M["fraud-detection model<br/>KServe, scales to zero"]
+        M["fraud-detection model<br/>KServe, one replica kept warm"]
     end
     subgraph compose["docker compose"]
         R[("Redis<br/>db 0: feature values<br/>db 1: drift window")]
@@ -126,9 +126,10 @@ Liveness checks no dependency, because restarting a pod cannot repair Redis.
 With Redis stopped, `/livez` answers 200 in 1 ms and `/readyz` answers 503 in
 1.0 s.
 
-**Readiness never calls the model.** The model scales to zero after about 90
-idle seconds, and a probe every 5 seconds would keep it awake. With the API idle
-and probing, the model still scaled to zero while the API stayed Ready.
+**Readiness never calls the model.** A model that is slow or briefly down must not
+take the API out of service too, and a probe every 5 seconds would add load for no
+answer. The model keeps one replica warm (`minReplicas: 1`), so the first payment
+after a quiet spell never waits for it to start.
 
 ## Autoscaling
 

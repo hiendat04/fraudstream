@@ -17,7 +17,9 @@ from mlflow import MlflowClient
 from mlflow.exceptions import MlflowException
 from xgboost import XGBClassifier
 
-from fraudstream_ml.registry import CHAMPION_ALIAS, log_training_run
+from mlflow.store.artifact.utils.models import get_model_name_and_version
+
+from fraudstream_ml.registry import PRODUCTION_ALIAS, log_training_run, promote
 
 PARAMS = {"max_depth": 3, "learning_rate": 0.1, "num_boost_round": 400, "num_nodes": 2}
 METRICS = {"pr_auc": 0.0283, "roc_auc": 0.6584, "threshold": 0.626}
@@ -118,7 +120,26 @@ class RegistryTest(unittest.TestCase):
         self.record()
 
         with self.assertRaises(MlflowException):
-            self.client.get_model_version_by_alias(self.name, CHAMPION_ALIAS)
+            self.client.get_model_version_by_alias(self.name, PRODUCTION_ALIAS)
+
+    def test_every_new_version_is_latest_without_anyone_tagging_it(self):
+        """The release job reads `latest` to start a canary; MLflow keeps it current itself."""
+
+        self.record()
+        second = self.record()
+
+        _, version = get_model_name_and_version(self.client, f"models:/{self.name}/latest")
+        self.assertEqual(str(second.model_version), str(version))
+
+    def test_promotion_moves_production_and_leaves_latest(self):
+        first = self.record()
+        second = self.record()
+
+        promote(first.model_version, registered_model_name=self.name, tracking_uri=self.tracking_uri)
+
+        self.assertEqual(str(first.model_version), str(self.client.get_model_version_by_alias(self.name, PRODUCTION_ALIAS).version))
+        _, latest = get_model_name_and_version(self.client, f"models:/{self.name}/latest")
+        self.assertEqual(str(second.model_version), str(latest))
 
     def test_the_registered_model_loads_back_and_scores(self):
         """Checks a working model was saved, not just notes about one."""

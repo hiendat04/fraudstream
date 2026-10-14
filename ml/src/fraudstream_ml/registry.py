@@ -2,6 +2,12 @@
 
 Each run also records the Iceberg snapshot id of the data it used. That id lets
 you go from a model version back to the exact rows it was trained on.
+
+Two names point at versions. `models:/fraud-detection/latest` is MLflow's own pointer
+to the newest version, so every new version is `latest` the moment it registers;
+MLflow reserves the name, so nobody can set it by hand. A person starts a new
+version as a canary. The `production` alias moves automatically only when a
+version serves all traffic, so it always names the model actually answering.
 """
 
 from __future__ import annotations
@@ -13,7 +19,7 @@ from fraudstream_ml.versioning import TRAINING_TABLE
 
 EXPERIMENT = "fraud-model-training"
 REGISTERED_MODEL = "fraud-detection"
-CHAMPION_ALIAS = "champion"
+PRODUCTION_ALIAS = "production"
 
 
 @dataclass(frozen=True)
@@ -36,11 +42,10 @@ def log_training_run(
     tracking_uri: str | None = None,
     run_name: str | None = None,
 ) -> RecordedRun:
-    """Save one training run and register the model it produced.
+    """Save one training run and register the model it produced, which becomes `latest`.
 
-    Training only creates a new model version. It does not automatically make
-    that model the production model. Someone must decide which version should
-    be used for predictions.
+    Training never moves `production`. A new version reaches traffic only through
+    a canary, and becomes `production` when it serves everything.
     """
 
     import mlflow
@@ -72,13 +77,10 @@ def promote(
     version: int,
     *,
     registered_model_name: str = REGISTERED_MODEL,
-    alias: str = CHAMPION_ALIAS,
+    alias: str = PRODUCTION_ALIAS,
     tracking_uri: str | None = None,
 ) -> None:
-    """Mark a model version as the one to use for predictions.
-
-    Run this yourself after looking at the scores.
-    """
+    """Point an alias at a model version: `production` by default."""
 
     from mlflow import MlflowClient
 

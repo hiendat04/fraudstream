@@ -39,12 +39,13 @@ flowchart LR
     class MLF,PROM store
 ```
 
-- **One InferenceService, two revisions.** A new `MODEL_URI` in the manifest makes KServe
-  start a new revision next to the old one. `canaryTrafficPercent` sends that share of
+- **One InferenceService, two revisions.** A new model in the manifest's image tag
+  (`fraudstream-serving:model-5`) makes KServe start a new revision next to the old one.
+  The model ships inside that image, packaged from MLflow when it is built. `canaryTrafficPercent` sends that share of
   requests to the new revision, and the rest to the previous one. The inference API keeps
   calling one address and never knows a test is running.
 - **Every answer names its version.** The model server reads its version number and its
-  decision threshold from the MLflow registry when it starts. It returns both with every
+  decision threshold from the model card packaged next to the model in its image. It returns both with every
   score. The inference API passes `model_version` back to the caller and labels every
   count and timing with it.
 - **Each version decides at its own threshold.** Training picks the threshold, so version
@@ -55,21 +56,22 @@ flowchart LR
 
 ## What the manifest says, and what KServe does
 
-The whole state of a test lives in two lines of `k8s/models/fraud-detection.yaml`:
-`MODEL_URI` and `canaryTrafficPercent`.
+The whole state of a test lives in two lines of `k8s/models/fraud-detection.yaml`: the
+model in the image tag, and `canaryTrafficPercent`. (The demo below ran when the model was
+still named in a `MODEL_URI` variable; the steps are the same.)
 
 ```mermaid
 flowchart LR
-    A["<b>version 2 alone</b><br/>MODEL_URI …/2<br/>no canaryTrafficPercent"]
-    B["<b>canary</b><br/>MODEL_URI …/4<br/>canaryTrafficPercent: 20 → 80<br/>version 4 gets that share"]
-    C["<b>promoted</b><br/>MODEL_URI …/4<br/>no canaryTrafficPercent<br/>version 4 gets all"]
-    D["<b>rolled back</b><br/>MODEL_URI …/4<br/>canaryTrafficPercent: 0<br/>version 2 gets all"]
+    A["<b>version 2 alone</b><br/>image model-2<br/>no canaryTrafficPercent"]
+    B["<b>canary</b><br/>image model-4<br/>canaryTrafficPercent: 20 → 80<br/>version 4 gets that share"]
+    C["<b>promoted</b><br/>image model-4<br/>no canaryTrafficPercent<br/>version 4 gets all"]
+    D["<b>rolled back</b><br/>image model-4<br/>canaryTrafficPercent: 0<br/>version 2 gets all"]
 
-    A -- "commit: new MODEL_URI<br/>and a share" --> B
+    A -- "commit: new model tag<br/>and a share" --> B
     B -- "commit: a bigger share" --> B
     B -- "commit: delete the line" --> C
     B -- "commit: share 0" --> D
-    D -- "commit: MODEL_URI …/2,<br/>delete the line" --> A
+    D -- "commit: model-2 tag,<br/>delete the line" --> A
 
     classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
     classDef pass stroke-width:2px,stroke:#27ae60
@@ -427,13 +429,16 @@ docker exec fraudstream-control-plane sh -c 'dmesg | grep -i "out of memory"'
 
 ## Things worth knowing
 
-**A revision keeps the settings it was made with.** The canary commit sets
-`minReplicas: 1`, but only the new revision gets it. The old one still scales to zero
-after a quiet spell, and its next request waits about 30 seconds for the model to load.
-Keep traffic flowing for the whole test.
+**The served model never scales to zero.** A revision keeps the settings it was made
+with. When the manifest set `minReplicas: 1` only for a canary, the old revision still
+scaled to zero, and its next payment waited about 30 seconds for the model to load. The
+manifest now keeps `minReplicas: 1` always, and promotion no longer changes it, so it no
+longer makes one more revision either.
 
-**Promotion makes one more revision.** It sets `minReplicas: 0` again, which changes the
-revision's settings, so KServe starts revision 00009 for version 4.
+**`production` follows the traffic.** After an apply with no canary, `ci/apply_model.sh`
+points MLflow's `production` alias at the version serving everything, so the registry
+always names the model actually answering. `latest` is MLflow's own name for the newest
+version; it can't be set by hand.
 
 **A rollback keeps the policy.** The job only ever changes the traffic share.
 `rollout.yaml` stays as it was, so the next canary is stepped the same way.
@@ -488,7 +493,8 @@ the local cluster.
 | Version and threshold in every answer | `serving/src/fraudstream_serving/predictor.py` |
 | Metrics by version | `api/src/fraudstream_api/inference/telemetry.py` |
 | The dashboard | `k8s/observability/dashboards/model-ab.yaml` |
-| Apply the model and wait for its share | `ci/apply_model.sh` |
+| Package the model into its image | `serving/src/fraudstream_serving/fetch.py`, `k8s/Dockerfile.model` |
+| Apply the model, wait for its share, move `production` | `ci/apply_model.sh` |
 | Check who answers | `ci/check_model_split.sh`, `api/tools/model_split.py` |
 | Deploy, check and start a rollout | `Jenkinsfile` (`Model server` stage) |
 | The rollout job | `ci/jenkins/model-rollout.Jenkinsfile`, `ci/jenkins/jenkins.yaml` |

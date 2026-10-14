@@ -23,8 +23,8 @@ those problems on purpose and builds the whole MLOps loop around handling them.
   that stop bad data early. DataHub shows lineage, contracts and quality results.
 - **Reproducible ML.** Distributed XGBoost on Kubeflow. Every model in MLflow is linked to
   the Iceberg snapshot of the exact rows it trained on.
-- **Production-style serving.** KServe (scale-to-zero), an inference API and a drift API on
-  Kubernetes, with KEDA autoscaling and automatic Helm rollback.
+- **Production-style serving.** KServe with the model inside its image, an inference API
+  and a drift API on Kubernetes, with KEDA autoscaling and automatic Helm rollback.
 - **A real front door.** Every API sits behind an NGINX gateway with its own domain,
   HTTPS from a local CA, basic auth and a per-client rate limit. CI checks all four after
   each deploy and rolls back an API left open.

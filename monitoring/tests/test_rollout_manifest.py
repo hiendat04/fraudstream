@@ -1,4 +1,12 @@
-from fraudstream_monitoring.rollout_manifest import promoted, rolled_back, should_start, split, with_canary
+import pytest
+
+from fraudstream_monitoring.rollout_manifest import (
+    promoted,
+    rolled_back,
+    should_start,
+    split,
+    with_canary,
+)
 
 # A fixed copy of the manifest serving version 2 alone. The repo's own file changes with every rollout.
 MANIFEST = """\
@@ -14,19 +22,14 @@ metadata:
   namespace: kserve-models
 spec:
   predictor:
-    minReplicas: 0
+    minReplicas: 1
     containers:
       - name: kserve-container
-        image: dev.local/fraudstream-serving:dev
+        image: dev.local/fraudstream-serving:model-2
         imagePullPolicy: IfNotPresent
         ports:
           - containerPort: 8080
             protocol: TCP
-        env:
-          - name: MODEL_URI
-            value: models:/fraud-detection/2
-          - name: MLFLOW_TRACKING_URI
-            value: http://mlflow:5000
         resources:
           requests:
             cpu: 100m
@@ -38,7 +41,7 @@ PROGRESSIVE = {"mode": "progressive"}
 
 
 def canary(percent, version="4"):
-    return with_canary(MANIFEST.replace("models:/fraud-detection/2", f"models:/fraud-detection/{version}"), percent)
+    return with_canary(MANIFEST.replace("serving:model-2", f"serving:model-{version}"), percent)
 
 
 def test_a_round_trip_keeps_the_file_as_it_is():
@@ -57,10 +60,17 @@ def test_a_step_changes_only_the_traffic_share():
     assert stepped.replace("canaryTrafficPercent: 40", "canaryTrafficPercent: 20") == canary(20)
 
 
-def test_promotion_removes_the_canary_and_restores_scale_to_zero():
+def test_promotion_removes_the_canary_and_keeps_a_warm_replica():
+    """A served model that scales to zero makes its next payment wait for a cold start."""
+
     done = promoted(canary(60))
     assert split(done) == ("4", None)
-    assert "minReplicas: 0" in done
+    assert "minReplicas: 1" in done
+
+
+def test_a_manifest_without_a_model_tag_is_refused():
+    with pytest.raises(ValueError, match="model-<version>"):
+        split(MANIFEST.replace("serving:model-2", "serving:dev"))
 
 
 def test_a_rollback_sends_no_traffic_to_the_candidate():

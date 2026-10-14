@@ -149,6 +149,11 @@ Parameters → DEPLOY_ALL** redeploys everything without a code change.
 - **Never delete the deploy folder while Airflow runs.** Airflow keeps the deleted
   folder mounted and fails with `Operation not permitted: '/opt/airflow/dags'`.
   Recreate its containers with `--force-recreate` to fix it.
+- **The model ships inside its image.** The manifest names the model as
+  `fraudstream-serving:model-<version>`. The `Model server` stage packages that version
+  from MLflow with its card onto the serving code image, deploys
+  `model-<version>-<code commit>`, and points MLflow's `production` alias at whatever
+  serves all traffic. No pod downloads a model at start.
 - **A merge patch drops container settings.** `kubectl patch --type=merge` on the
   InferenceService replaced the container list and lost `MODEL_URI`, so the stage
   applies the manifest with only the image tag changed.

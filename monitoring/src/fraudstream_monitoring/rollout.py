@@ -204,9 +204,18 @@ def main() -> int:
         if subprocess.run([repo / "ci" / "check_model_split.sh"]).returncode != 0:
             raise Unhealthy(f"the versions answering do not match the split at {percent}%")
 
+    def roll_back(message: str) -> None:
+        # A rollback runs when something is already wrong, often with the cluster
+        # struggling too, so it must never crash. Once the 0% commit is pushed, Git says
+        # 0% and the next deploy applies it even if this apply or check did not finish.
+        try:
+            ship(rolled_back(manifest.read_text()), message, 0)
+        except (subprocess.CalledProcessError, Unhealthy) as reason:
+            print(f"the rollback did not finish cleanly ({reason}); check the split by hand", flush=True)
+
     if arguments.roll_back:
         try:
-            ship(rolled_back(manifest.read_text()), f"roll version {version} back to 0%, by a person's decision", 0)
+            roll_back(f"roll version {version} back to 0%, by a person's decision")
         except TakenOver as reason:
             print(f"stopped: {reason}")
             return EXIT[STOPPED]
@@ -217,7 +226,7 @@ def main() -> int:
         outcome = run(policy, current, Actions(
             set_percent=lambda p: ship(with_canary(manifest.read_text(), p), f"version {version} at {p}%", p),
             promote=lambda: ship(promoted(manifest.read_text()), f"promote version {version} to all traffic", None),
-            roll_back=lambda: ship(rolled_back(manifest.read_text()), f"roll version {version} back to 0%", 0),
+            roll_back=lambda: roll_back(f"roll version {version} back to 0%"),
             measure=lambda seconds: window_metrics(prometheus, candidate=version, window_seconds=seconds),
             sleep=time.sleep,
             log=lambda message: print(time.strftime("%H:%M:%S"), message, flush=True),
