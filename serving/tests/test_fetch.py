@@ -8,6 +8,10 @@ the container runs.
 from __future__ import annotations
 
 import json
+import os
+import subprocess
+import sys
+from pathlib import Path
 
 import mlflow
 import pytest
@@ -23,7 +27,7 @@ def registry(tmp_path):
     _register_model(uri, threshold=0.7)
     _register_model(uri, threshold=0.65)
     yield uri
-    mlflow.set_tracking_uri("")
+    mlflow.set_tracking_uri(None)
 
 
 def test_latest_resolves_to_the_newest_version(registry, tmp_path):
@@ -31,6 +35,24 @@ def test_latest_resolves_to_the_newest_version(registry, tmp_path):
 
     assert card["version"] == "2"
     assert card["threshold"] == 0.65
+
+
+def test_a_fresh_process_reads_only_the_given_registry(registry, tmp_path):
+    """CI runs fetch as its own command; MLflow must not fall back to a local mlflow.db."""
+
+    src = Path(__file__).parents[1] / "src"
+    workdir = tmp_path / "ci"
+    workdir.mkdir()
+    subprocess.run(
+        [sys.executable, "-m", "fraudstream_serving.fetch", "models:/test-fraud/1", "model",
+         "--tracking-uri", registry],
+        cwd=workdir, check=True,
+        # set_tracking_uri exports MLFLOW_TRACKING_URI; CI has no such variable.
+        env={**{k: v for k, v in os.environ.items() if not k.startswith("MLFLOW_")}, "PYTHONPATH": str(src)},
+    )
+
+    assert json.loads((workdir / "model" / CARD_FILE).read_text())["version"] == "1"
+    assert not (workdir / "mlflow.db").exists()
 
 
 def test_a_numbered_version_is_fetched_as_asked(registry, tmp_path):
