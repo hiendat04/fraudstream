@@ -10,19 +10,14 @@ metadata:
   namespace: kserve-models
 spec:
   predictor:
-    minReplicas: 0
+    minReplicas: 1
     containers:
       - name: kserve-container
-        image: dev.local/fraudstream-serving:dev
+        image: dev.local/fraudstream-serving:model-4
         imagePullPolicy: IfNotPresent
         ports:
           - containerPort: 8080
             protocol: TCP
-        env:
-          - name: MODEL_URI
-            value: models:/fraud-detection/4
-          - name: MLFLOW_TRACKING_URI
-            value: http://mlflow:5000
         resources:
           requests:
             cpu: 100m

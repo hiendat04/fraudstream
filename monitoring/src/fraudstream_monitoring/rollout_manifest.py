@@ -1,8 +1,11 @@
 """Read and change the traffic split in k8s/models/fraud-detection.yaml.
 
-Only canaryTrafficPercent, and minReplicas on promotion, are touched, so a step
-moves traffic between the revisions that exist and never adds one.
+The manifest names its model in the image tag, `fraudstream-serving:model-<version>`;
+the model is packaged inside that image. A step touches only canaryTrafficPercent, so
+it moves traffic between the revisions that exist and never adds one.
 """
+
+import re
 
 import yaml
 
@@ -29,10 +32,16 @@ def _predictor(documents: list[dict]) -> dict:
     return service["spec"]["predictor"]
 
 
+MODEL_TAG = re.compile(r":model-(\d+)$")
+
+
 def split(text: str) -> tuple[str, int | None]:
     predictor = _predictor(_load(text))
-    env = {item["name"]: item.get("value", "") for item in predictor["containers"][0].get("env", [])}
-    return env["MODEL_URI"].rsplit("/", 1)[-1], predictor.get("canaryTrafficPercent")
+    image = predictor["containers"][0]["image"]
+    found = MODEL_TAG.search(image)
+    if found is None:
+        raise ValueError(f"the image {image} must name its model as fraudstream-serving:model-<version>")
+    return found.group(1), predictor.get("canaryTrafficPercent")
 
 
 def with_canary(text: str, percent: int) -> str:
@@ -42,10 +51,10 @@ def with_canary(text: str, percent: int) -> str:
 
 
 def promoted(text: str) -> str:
+    # minReplicas stays as written: the served model keeps a warm replica, so its next
+    # payment never waits for a cold start.
     documents = _load(text)
-    predictor = _predictor(documents)
-    predictor.pop("canaryTrafficPercent", None)
-    predictor["minReplicas"] = 0
+    _predictor(documents).pop("canaryTrafficPercent", None)
     return _dump(documents)
 
 

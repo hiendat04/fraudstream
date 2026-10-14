@@ -7,10 +7,8 @@ from tools.model_split import deployed, problems, tally
 
 
 def isvc(version="4", canary=None):
-    predictor = {"containers": [{"env": [
-        {"name": "MODEL_URI", "value": f"models:/fraud-detection/{version}"},
-        {"name": "MLFLOW_TRACKING_URI", "value": "http://mlflow:5000"},
-    ]}]}
+    # The deployed tag carries the model version and the serving code's commit.
+    predictor = {"containers": [{"image": f"dev.local/fraudstream-serving:model-{version}-1a2b3c4"}]}
     if canary is not None:
         predictor["canaryTrafficPercent"] = canary
     return {"spec": {"predictor": predictor}}

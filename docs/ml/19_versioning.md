@@ -128,12 +128,21 @@ ORDER BY mv.version;
 
 ## Choosing which model serves predictions
 
-Training never does this on its own. Every run adds a version and stops there.
-Picking one is a decision someone makes after looking at the numbers:
+Two names drive deployment, and nobody sets either by hand:
+
+- **`latest`** is MLflow's own pointer to the newest version
+  (`models:/fraud-detection/latest`). Every run that registers a model moves it. MLflow
+  reserves the name, so it can't be set by hand or forgotten.
+- **`production`** is an alias that follows the traffic. When a version serves every
+  payment, the deploy points `production` at it.
+
+Training never decides what serves. A person starts a new version as a canary,
+judged against the served version (see [A/B testing](27_ab_testing.md)). `promote()` is
+still there to move an alias by hand:
 
 ```python
 from fraudstream_ml.registry import promote
-promote(version=2, tracking_uri="http://localhost:18085")
+promote(version=4, tracking_uri="http://localhost:18085")   # production -> 4
 ```
 
 ## How to run it

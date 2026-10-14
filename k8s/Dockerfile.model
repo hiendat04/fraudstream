@@ -1,0 +1,10 @@
+# Puts one packaged model version on top of the serving code image, so the model
+# ships inside the image. The build context is the folder that
+# `python -m fraudstream_serving.fetch` wrote: the MLflow model and its card.
+#
+#   docker build -f k8s/Dockerfile.model --build-arg BASE=dev.local/fraudstream-serving:<code> \
+#     -t dev.local/fraudstream-serving:model-4-<code> build/model-4
+ARG BASE
+FROM ${BASE}
+COPY . /opt/fraudstream/model
+ENV MODEL_URI=/opt/fraudstream/model

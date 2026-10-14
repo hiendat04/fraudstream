@@ -7,14 +7,17 @@ Standard library only, so CI runs it without the API's dependencies.
 """
 
 import json
+import re
 import sys
 from collections import Counter
 
 
 def deployed(isvc: dict) -> tuple[str, int | None]:
+    """The model version is in the image tag, `model-<version>-<code commit>`."""
+
     predictor = isvc["spec"]["predictor"]
-    env = {item["name"]: item.get("value", "") for item in predictor["containers"][0].get("env", [])}
-    return env["MODEL_URI"].rsplit("/", 1)[-1], predictor.get("canaryTrafficPercent")
+    version = re.search(r":model-(\d+)", predictor["containers"][0]["image"]).group(1)
+    return version, predictor.get("canaryTrafficPercent")
 
 
 def tally(lines: list[str]) -> tuple[Counter, int]:

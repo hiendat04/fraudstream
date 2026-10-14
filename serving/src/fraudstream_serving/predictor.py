@@ -12,11 +12,15 @@ gets the right score.
 
 from __future__ import annotations
 
+import json
 import os
+from pathlib import Path
 from typing import Any
 
 from kserve import Model, ModelServer
 from kserve.errors import InvalidInput
+
+from fraudstream_serving.fetch import CARD_FILE
 
 MODEL_NAME = "fraud-detection"
 UNKNOWN_VERSION = "unknown"
@@ -63,8 +67,14 @@ class FraudPredictor(Model):
         self.model = mlflow.xgboost.load_model(self.model_uri)
         self.feature_names = list(self.model.get_booster().feature_names)
 
+        card = Path(self.model_uri) / CARD_FILE
         reference = registry_reference(self.model_uri)
-        if reference is not None:
+        if card.is_file():
+            # The model was packaged into the image with its card, so nothing asks MLflow.
+            packaged = json.loads(card.read_text())
+            self.version = str(packaged["version"])
+            self.threshold = packaged.get("threshold")
+        elif reference is not None:
             # The threshold training chose is logged on the version's run. Each
             # version keeps its own, so its flag rate is measured the way it decides.
             client = mlflow.MlflowClient(self.tracking_uri)

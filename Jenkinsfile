@@ -94,7 +94,7 @@ pipeline {
       }
     }
     stage('Model server') {
-      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/models ci/apply_model.sh ci/check_model_split.sh api/tools/model_split.py') } }
+      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/Dockerfile.model k8s/models ci/apply_model.sh ci/check_model_split.sh api/tools/model_split.py') } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
