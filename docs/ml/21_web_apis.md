@@ -146,15 +146,15 @@ uv run python tools/traffic.py \
 
 One pod of each service before the load:
 
-![One pod per service](../images/web_apis/01-autoscaling-idle-one-pod-per-service.png)
+![One pod per service](../../images/web_apis/01-autoscaling-idle-one-pod-per-service.png)
 
 A new pod of each starts within seconds:
 
-![New pods starting](../images/web_apis/02-autoscaling-new-pods-starting.png)
+![New pods starting](../../images/web_apis/02-autoscaling-new-pods-starting.png)
 
 The inference API reaches three pods:
 
-![Third inference pod starting](../images/web_apis/03-autoscaling-third-inference-pod-starting.png)
+![Third inference pod starting](../../images/web_apis/03-autoscaling-third-inference-pod-starting.png)
 
 The drift detection API scales too, because every prediction sends it a row. It
 reached 132% of its CPU request at this load.
@@ -189,17 +189,17 @@ helm upgrade inference-api k8s/charts/fraudstream-api \
 The first pod of the new template (`85fc8949b4`) is Ready while the old pods
 (`749f64596d`) still serve:
 
-![First new pod ready](../images/web_apis/04-rolling-update-first-new-pod-ready.png)
+![First new pod ready](../../images/web_apis/04-rolling-update-first-new-pod-ready.png)
 
 An old pod terminates only once its replacement is up:
 
-![Old pod terminating](../images/web_apis/05-rolling-update-old-pod-terminating.png)
+![Old pod terminating](../../images/web_apis/05-rolling-update-old-pod-terminating.png)
 
 Each line of the traffic tool counts the answers that arrived in that second,
 grouped by the version that gave them. Both versions answer, and every answer is
 `ok`:
 
-![Traffic moving from v5 to v6](../images/web_apis/06-rolling-update-traffic-v5-to-v6.png)
+![Traffic moving from v5 to v6](../../images/web_apis/06-rolling-update-traffic-v5-to-v6.png)
 
 At 10 requests a second, an upgrade took 12 seconds and all 1,200 requests
 succeeded.
@@ -223,7 +223,7 @@ helm upgrade inference-api k8s/charts/fraudstream-api \
 The crashing pod (`d797846db`) restarts in a loop while the three healthy pods
 keep serving:
 
-![Crashing pod beside healthy pods](../images/web_apis/07-rollback-crashing-pod-beside-healthy-pods.png)
+![Crashing pod beside healthy pods](../../images/web_apis/07-rollback-crashing-pod-beside-healthy-pods.png)
 
 Checking the release and the setting it was given:
 
@@ -238,7 +238,7 @@ Captured while the broken release was still being applied, revision 25 is
 `pending-upgrade` and `REDIS_HOST` is the missing host. Revisions 17, 19 and 21
 are earlier attempts interrupted by hand:
 
-![Release history mid-release](../images/web_apis/08-rollback-helm-history-mid-release.png)
+![Release history mid-release](../../images/web_apis/08-rollback-helm-history-mid-release.png)
 
 Helm gave up at its own 2 minute timeout and rolled back:
 
@@ -252,7 +252,7 @@ Helm gave up at its own 2 minute timeout and rolled back:
 `REDIS_HOST` reads `redis` again. After the load stopped, KEDA returned to one
 pod per service and only the good pod remained:
 
-![Only the healthy pods remain](../images/web_apis/09-scaled-back-down-good-pod-only.png)
+![Only the healthy pods remain](../../images/web_apis/09-scaled-back-down-good-pod-only.png)
 
 Requests measured through a failed release and its rollback: 2,000 of 2,000
 succeeded. The drift detection API uses the same chart and behaved the same way:
@@ -312,7 +312,7 @@ kubectl -n fraudstream-apis create secret generic feature-store-registry \
 helm upgrade --install inference-api k8s/charts/fraudstream-api -n fraudstream-apis \
   -f k8s/apis/inference-api.yaml --set-string image.tag=v1 --rollback-on-failure --timeout 2m
 
-# score one payment through the gateway (local-ca.crt: see docs/24_gateway.md)
+# score one payment through the gateway (local-ca.crt: see docs/ml/24_gateway.md)
 curl --cacert local-ca.crt -u "$GATEWAY_USER:$GATEWAY_PASSWORD" -H "Content-Type: application/json" \
   -d @api/tools/transaction.json https://inference.fraudstream.localhost/v1/predict
 

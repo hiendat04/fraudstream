@@ -12,7 +12,7 @@ The ERDs below were exported from DBeaver and show the real tables, keys and rel
 
 ## Bronze: keep the source
 
-![Bronze database schema](../images/schema/bronze-schema-erd.png)
+![Bronze database schema](../../images/schema/bronze-schema-erd.png)
 
 `bronze.raw_transactions` holds source records as they arrived, with no deduplication,
 plus ingestion metadata (file, row number, schema version, hash, timestamp).
@@ -21,7 +21,7 @@ each transaction to the load that produced it.
 
 ## Silver: pick clean records, keep the evidence
 
-![Silver database schema](../images/schema/silver-schema-erd.png)
+![Silver database schema](../../images/schema/silver-schema-erd.png)
 
 `silver.stg_transactions` holds the single winner per `transaction_id`, typed, with arrival
 delay, duplicate rank and quality status. `silver.stg_transaction_quality_issues` keeps
@@ -34,7 +34,7 @@ Bronze inputs = Silver selected + quarantined + duplicate-rejected
 
 ## Gold: serve analytics and ML
 
-[![Gold database schema](../images/schema/gold-schema-erd.png)](../images/schema/gold-schema-erd.png)
+[![Gold database schema](../../images/schema/gold-schema-erd.png)](../../images/schema/gold-schema-erd.png)
 
 `gold.fact_transactions` is the central fact, one row per selected transaction, joined to
 the date, customer, account, merchant, city, channel and category dimensions.

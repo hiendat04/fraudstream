@@ -88,25 +88,28 @@ flowchart LR
 
 | Area | What it does | Docs                                                                                                                                                                                      |
 |---|---|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
-| Data generators | 510,000 offline rows and 512,500 stream events with controlled duplicates, late and out-of-order data, skew and schema change | [01_offline_data_generator.md](docs/01_offline_data_generator.md)<br>[02_streaming_data_generator.md](docs/02_streaming_data_generator.md)                                                |
-| Bronze, Silver, Gold | Raw preserved, then cleaned and deduplicated, then a star schema with daily aggregates. Written to Iceberg and PostgreSQL | [03_bronze_ingestion.md](docs/03_bronze_ingestion.md)<br>[04_silver_transactions.md](docs/04_silver_transactions.md)<br>[05_gold_tables.md](docs/05_gold_tables.md)                       |
-| Feature engineering | Velocity, merchant risk, amount anomaly, device/IP reuse and late-arrival features | [06_feature_engineering.md](docs/06_feature_engineering.md)                                                                                                                               |
-| Flink streaming | Validation, dedup, five-minute windows, late-event handling and alerts | [07_flink_streaming_pipeline.md](docs/07_flink_streaming_pipeline.md)<br>[08_flink_window_processing.md](docs/08_flink_window_processing.md)                                              |
-| Orchestration | Three Airflow DAGs linked by validated data assets | [09_orchestration_flow.md](docs/09_orchestration_flow.md)<br>[10_airflow_workflow_demonstration.md](docs/10_airflow_workflow_demonstration.md)                                            |
-| Governance | DataHub catalog, lineage, contracts and assertions; database ERDs; quality report | [11_data_governance_datahub.md](docs/11_data_governance_datahub.md)<br>[12_database_schema.md](docs/12_database_schema.md)<br>[13_data_quality_report.md](docs/13_data_quality_report.md) |
-| Lakehouse and CDC | Iceberg on MinIO, Trino, and Debezium change capture | [14_lakehouse_iceberg.md](docs/14_lakehouse_iceberg.md)<br>[15_change_data_capture.md](docs/15_change_data_capture.md)                                                                    |
-| Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/16_feature_store.md)                                                                                                                                           |
-| Model training | XGBoost against a logistic baseline, split by date, and a Kubeflow pipeline | [17_ml_training.md](docs/17_ml_training.md)<br>[18_ml_pipeline.md](docs/18_ml_pipeline.md)                                                                                                |
-| Versioning | MLflow registry tied to Iceberg data snapshots | [19_versioning.md](docs/19_versioning.md)                                                                                                                                                 |
-| Kubernetes platform | Ingress with HTTPS, KEDA, Knative, and KServe | [20_local_k8s_platform.md](docs/20_local_k8s_platform.md)                                                                                                                                 |
-| Web APIs | Inference and drift detection, with Helm rollout and rollback | [21_web_apis.md](docs/21_web_apis.md)                                                                                                                                                     |
-| Testing | Coverage, mutation, property-based and load testing | [22_validation_and_verification.md](docs/22_validation_and_verification.md)                                                                                                               |
-| CI/CD | Jenkins pipeline with a before and after of a real deploy | [23_ci_cd.md](docs/23_ci_cd.md)                                                                                                                                                           |
-| Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/24_gateway.md)                                                                                                                                                       |
-| Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/25_infrastructure_as_code.md)                                                                                                                         |
-| Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/26_observability.md) |
-| A/B testing | A new model runs as a KServe canary next to the served one, compared on real traffic without labels, and stepped up, promoted or rolled back by commits, by hand or by a Jenkins job | [27_ab_testing.md](docs/27_ab_testing.md) |
-| Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/optimization/flink/streaming_job_optimization.md)                |
+| **Data engineering** | | |
+| Data generators | 510,000 offline rows and 512,500 stream events with controlled duplicates, late and out-of-order data, skew and schema change | [01_offline_data_generator.md](docs/data_engineering/01_offline_data_generator.md)<br>[02_streaming_data_generator.md](docs/data_engineering/02_streaming_data_generator.md)                                                |
+| Bronze, Silver, Gold | Raw preserved, then cleaned and deduplicated, then a star schema with daily aggregates. Written to Iceberg and PostgreSQL | [03_bronze_ingestion.md](docs/data_engineering/03_bronze_ingestion.md)<br>[04_silver_transactions.md](docs/data_engineering/04_silver_transactions.md)<br>[05_gold_tables.md](docs/data_engineering/05_gold_tables.md)                       |
+| Feature engineering | Velocity, merchant risk, amount anomaly, device/IP reuse and late-arrival features | [06_feature_engineering.md](docs/data_engineering/06_feature_engineering.md)                                                                                                                               |
+| Flink streaming | Validation, dedup, five-minute windows, late-event handling and alerts | [07_flink_streaming_pipeline.md](docs/data_engineering/07_flink_streaming_pipeline.md)<br>[08_flink_window_processing.md](docs/data_engineering/08_flink_window_processing.md)                                              |
+| Orchestration | Three Airflow DAGs linked by validated data assets | [09_orchestration_flow.md](docs/data_engineering/09_orchestration_flow.md)<br>[10_airflow_workflow_demonstration.md](docs/data_engineering/10_airflow_workflow_demonstration.md)                                            |
+| Governance | DataHub catalog, lineage, contracts and assertions; database ERDs; quality report | [11_data_governance_datahub.md](docs/data_engineering/11_data_governance_datahub.md)<br>[12_database_schema.md](docs/data_engineering/12_database_schema.md)<br>[13_data_quality_report.md](docs/data_engineering/13_data_quality_report.md) |
+| Lakehouse and CDC | Iceberg on MinIO, Trino, and Debezium change capture | [14_lakehouse_iceberg.md](docs/data_engineering/14_lakehouse_iceberg.md)<br>[15_change_data_capture.md](docs/data_engineering/15_change_data_capture.md)                                                                    |
+| Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/data_engineering/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/data_engineering/optimization/flink/streaming_job_optimization.md)                |
+| **ML platform** | | |
+| Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/ml/16_feature_store.md)                                                                                                                                           |
+| Model training | XGBoost against a logistic baseline, split by date, and a Kubeflow pipeline | [17_ml_training.md](docs/ml/17_ml_training.md)<br>[18_ml_pipeline.md](docs/ml/18_ml_pipeline.md)                                                                                                |
+| Versioning | MLflow registry tied to Iceberg data snapshots | [19_versioning.md](docs/ml/19_versioning.md)                                                                                                                                                 |
+| Kubernetes platform | Ingress with HTTPS, KEDA, Knative, and KServe | [20_local_k8s_platform.md](docs/ml/20_local_k8s_platform.md)                                                                                                                                 |
+| Web APIs | Inference and drift detection, with Helm rollout and rollback | [21_web_apis.md](docs/ml/21_web_apis.md)                                                                                                                                                     |
+| Testing | Coverage, mutation, property-based and load testing | [22_validation_and_verification.md](docs/ml/22_validation_and_verification.md)                                                                                                               |
+| CI/CD | Jenkins pipeline with a before and after of a real deploy | [23_ci_cd.md](docs/ml/23_ci_cd.md)                                                                                                                                                           |
+| Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/ml/24_gateway.md)                                                                                                                                                       |
+| Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/ml/25_infrastructure_as_code.md)                                                                                                                         |
+| Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/ml/26_observability.md) |
+| A/B testing | A new model runs as a KServe canary next to the served one, compared on real traffic without labels, and stepped up, promoted or rolled back by commits, by hand or by a Jenkins job | [27_ab_testing.md](docs/ml/27_ab_testing.md) |
+| **LLM layer** | An analyst copilot on top of the ML platform: LLM serving, RAG, MCP tools and agents. In progress | [llm/](docs/llm/README.md) |
 
 ## Quick start
 
@@ -137,10 +140,10 @@ docker compose --profile orchestration up --build -d \
 ```
 
 Everything else has its own run instructions in the docs above: Flink
-([07](docs/07_flink_streaming_pipeline.md#run-locally)), Trino
-([15](docs/14_lakehouse_iceberg.md#trino-querying-iceberg-tables)), DataHub
-([11](docs/11_data_governance_datahub.md)), Feast ([17](docs/16_feature_store.md)) and
-the Kubernetes stack ([21](docs/20_local_k8s_platform.md)). Add `--spark-ui` to any Spark
+([07](docs/data_engineering/07_flink_streaming_pipeline.md#run-locally)), Trino
+([15](docs/data_engineering/14_lakehouse_iceberg.md#trino-querying-iceberg-tables)), DataHub
+([11](docs/data_engineering/11_data_governance_datahub.md)), Feast ([17](docs/ml/16_feature_store.md)) and
+the Kubernetes stack ([21](docs/ml/20_local_k8s_platform.md)). Add `--spark-ui` to any Spark
 job, or `--flink-ui` to the Flink job, to watch it run. Stop the services with
 `docker compose down`.
 
@@ -164,8 +167,8 @@ PYTHONPATH=src python -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
 The API suites, mutation tests and load test are covered in
-[docs/23](docs/22_validation_and_verification.md), and CI runs all of them
-([docs/24](docs/23_ci_cd.md)).
+[docs/23](docs/ml/22_validation_and_verification.md), and CI runs all of them
+([docs/24](docs/ml/23_ci_cd.md)).
 
 ## Repository layout
 
@@ -178,6 +181,9 @@ fraudstream/
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
+│   ├── data_engineering/     # Generators, Bronze/Silver/Gold, Flink, Airflow, DataHub, lakehouse
+│   ├── ml/                   # Feature store, training, serving, CI/CD, gateway, IaC, observability
+│   └── llm/                  # The LLM layer: serving, RAG, MCP and agents
 ├── feature_store/            # Isolated Python 3.12 Feast runtime, feature repo, and push job
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence

@@ -242,7 +242,7 @@ runs, so two runs can never change the same stack at once.
 gcloud storage ls "gs://fraudstream-tfstate/dev/"
 ```
 
-![Terraform state, one folder per stack](../images/iac/01-terraform-state-per-stack.png)
+![Terraform state, one folder per stack](../../images/iac/01-terraform-state-per-stack.png)
 
 **The code matches the cloud.** Applying the gke stack a second time finds nothing to
 do: `0 added, 0 changed, 0 destroyed`. Its outputs are what the other scripts read:
@@ -252,7 +252,7 @@ the cluster name, the zone and the gateway IP.
 ./infra/terraform/tf.sh gke apply
 ```
 
-![Terraform apply on a running cluster changes nothing](../images/iac/02-terraform-gke-apply.png)
+![Terraform apply on a running cluster changes nothing](../../images/iac/02-terraform-gke-apply.png)
 
 ### Ansible
 
@@ -265,9 +265,9 @@ cd infra/ansible && set -a && . ../../.env && set +a
 ansible-playbook site.yml
 ```
 
-![Ansible rerun: base packages and Docker](../images/iac/03-ansible-rerun-base-and-docker.png)
+![Ansible rerun: base packages and Docker](../../images/iac/03-ansible-rerun-base-and-docker.png)
 
-![Ansible rerun: the stores and the seed checks](../images/iac/04-ansible-rerun-stores-and-seed.png)
+![Ansible rerun: the stores and the seed checks](../../images/iac/04-ansible-rerun-stores-and-seed.png)
 
 ### The images
 
@@ -280,14 +280,14 @@ from here.
 gcloud artifacts docker images list "$REPO" --include-tags
 ```
 
-![Artifact Registry with the three images](../images/iac/05-artifact-registry-images.png)
+![Artifact Registry with the three images](../../images/iac/05-artifact-registry-images.png)
 
 ### The cluster
 
 **The namespaces.** Next to GKE's own, the platform (`nginx-ingress`, `cert-manager`,
 `keda`) and the application (`fraudstream-apis`).
 
-![GKE namespaces](../images/iac/06-gke-namespaces.png)
+![GKE namespaces](../../images/iac/06-gke-namespaces.png)
 
 **The serving pods.** The model server and both APIs are running, spread over the two
 nodes, with pod addresses from the `10.20.0.0/16` range the firewall trusts.
@@ -296,7 +296,7 @@ nodes, with pod addresses from the `10.20.0.0/16` range the firewall trusts.
 kubectl -n fraudstream-apis get pods -o wide
 ```
 
-![The three serving pods on GKE](../images/iac/07-gke-serving-pods.png)
+![The three serving pods on GKE](../../images/iac/07-gke-serving-pods.png)
 
 **The front door.** NGINX's Service is a Google load balancer on the reserved static
 IP, `34.66.7.193`, so the address survives a redeploy.
@@ -305,7 +305,7 @@ IP, `34.66.7.193`, so the address survives a redeploy.
 kubectl -n nginx-ingress get svc
 ```
 
-![NGINX on the static IP](../images/iac/08-gke-load-balancer-ip.png)
+![NGINX on the static IP](../../images/iac/08-gke-load-balancer-ip.png)
 
 ### A payment scored on Google Cloud
 
@@ -313,7 +313,7 @@ kubectl -n nginx-ingress get svc
 Swagger over HTTPS. It says "Not Secure" because the certificate comes from the
 project's own CA, not a public one.
 
-![Swagger on GCP](../images/iac/09-swagger-on-gcp.png)
+![Swagger on GCP](../../images/iac/09-swagger-on-gcp.png)
 
 **The same score as the laptop.** The demo payment scores `0.4251362681388855`,
 exactly what the laptop gives. The features were found for the customer and the
@@ -328,7 +328,7 @@ gateway_curl -s -u "$GATEWAY_USER:$GATEWAY_PASSWORD" -H 'Content-Type: applicati
   -d @api/tools/transaction.json "https://inference.$GATEWAY_IP.sslip.io/v1/predict"
 ```
 
-![A payment scored on GCP, same score as the laptop](../images/iac/10-payment-scored-on-gcp.png)
+![A payment scored on GCP, same score as the laptop](../../images/iac/10-payment-scored-on-gcp.png)
 
 ### The stores are closed to the internet
 
@@ -347,7 +347,7 @@ kubectl -n fraudstream-apis run netcheck --rm -i --restart=Never --image=busybox
   sh -c 'for t in postgres:5432 redis:6379 mlflow:5000; do nc -z -w3 ${t%:*} ${t#*:} && echo "  $t ok"; done'
 ```
 
-![Closed from the internet, open from the cluster](../images/iac/11-stores-closed-to-internet.png)
+![Closed from the internet, open from the cluster](../../images/iac/11-stores-closed-to-internet.png)
 
 ## Things worth knowing
 

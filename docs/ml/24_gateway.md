@@ -197,17 +197,17 @@ browser doesn't know the CA.
 
 **Sign in.** Opening the API in a browser asks for the gateway's username and password first.
 
-![Browser sign-in prompt](../images/gateway/01-browser-sign-in.png)
+![Browser sign-in prompt](../../images/gateway/01-browser-sign-in.png)
 
 **After signing in**, the inference API's Swagger page loads over HTTPS on its own domain.
 
-![Swagger UI after signing in](../images/gateway/02-swagger-after-sign-in.png)
+![Swagger UI after signing in](../../images/gateway/02-swagger-after-sign-in.png)
 
 **The certificate** is for `inference.fraudstream.localhost`, issued by `fraudstream local CA`,
 and valid for 90 days. cert-manager renews it. The host name sits in the certificate's
 alternative names, which is why "Common Name" is empty.
 
-![Certificate issued by the local CA](../images/gateway/03-certificate-from-local-ca.png)
+![Certificate issued by the local CA](../../images/gateway/03-certificate-from-local-ca.png)
 
 **Every rule, checked from the outside.** `ci/check_gateway.sh` checks each rule in the
 diagram above: plain HTTP gets 308, no password or a wrong one gets 401, the right one
@@ -219,16 +219,16 @@ set -a && . ./.env && set +a
 GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh inference.fraudstream.localhost
 ```
 
-![Gateway check for the inference API](../images/gateway/04-check-gateway-inference.png)
+![Gateway check for the inference API](../../images/gateway/04-check-gateway-inference.png)
 
-![Gateway check for the drift detection API](../images/gateway/05-check-gateway-drift-detection.png)
+![Gateway check for the drift detection API](../../images/gateway/05-check-gateway-drift-detection.png)
 
 **An open deploy is rolled back.** CI runs the same check after every API deploy. Here the
 chart was deployed with auth switched off, the way a mistyped annotation would silently
 do it. The check caught `no password: got '200', wanted '401'`, Helm rolled back to the
 last protected revision, and the next check passed.
 
-![A deploy without auth is caught and rolled back](../images/gateway/06-rollback-open-deploy.png)
+![A deploy without auth is caught and rolled back](../../images/gateway/06-rollback-open-deploy.png)
 
 **The SLA still holds.** The same load test as
 [doc 22](22_validation_and_verification.md#load-test), 50 requests a second for 5 minutes,

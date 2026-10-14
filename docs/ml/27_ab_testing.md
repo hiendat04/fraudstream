@@ -241,7 +241,7 @@ gateway_curl -s -u "$GATEWAY_USER:$GATEWAY_PASSWORD" -H 'Content-Type: applicati
   -d "$(head -1 api/tools/payments.jsonl)" https://inference.fraudstream.localhost/v1/predict
 ```
 
-![The traffic split and an answer from version 4](../images/ab_testing/01-kserve-traffic-split.png)
+![The traffic split and an answer from version 4](../../images/ab_testing/01-kserve-traffic-split.png)
 
 **CI checks who answers.** After applying, the `Model server` stage sends 30 replayed
 payments. 27 were answered by version 2 and 3 by version 4, so both versions are live.
@@ -251,7 +251,7 @@ The same check runs by hand:
 GATEWAY_ADDRESS=127.0.0.1 ./ci/check_model_split.sh
 ```
 
-![The Model server stage checks the split](../images/ab_testing/02-jenkins-canary-check.png)
+![The Model server stage checks the split](../../images/ab_testing/02-jenkins-canary-check.png)
 
 **Thirty minutes of real payments.** 18,000 payments at 10 a second. 17,983 were answered:
 14,401 by version 2 and 3,582 by version 4, which is 19.9%. 17 failed at the gateway (13
@@ -261,7 +261,7 @@ answered 502, 4 lost the connection).
 replay 1800
 ```
 
-![The replay, counted by version](../images/ab_testing/03-traffic-replay-by-version.png)
+![The replay, counted by version](../../images/ab_testing/03-traffic-replay-by-version.png)
 
 **The two versions score alike.** Open `https://grafana.fraudstream.localhost`, then
 Dashboards → FraudStream · Model A/B, last 30 minutes. The share holds at 80/20. Median,
@@ -269,14 +269,14 @@ p90 and p99 scores lie on top of each other, around 0.52, 0.63 and 0.69. 54.3% o
 2's payments score 0.5 or more, against 51.7% for version 4, and neither gives any payment
 0.75.
 
-![Model A/B dashboard: share, thresholds and scores](../images/ab_testing/04-grafana-model-ab-scores.png)
+![Model A/B dashboard: share, thresholds and scores](../../images/ab_testing/04-grafana-model-ab-scores.png)
 
 **Health is the same for both.** Version 2 flags about 8% of payments. Version 4 swings
 between 6% and 8%, because it sees a quarter as many. Model answer time rose for both
 versions at once around 13:10, and the 5xx failures came at the same time. That points at
 the platform, not at one model.
 
-![Model A/B dashboard: flag rate, answer time and failures](../images/ab_testing/05-grafana-model-ab-health.png)
+![Model A/B dashboard: flag rate, answer time and failures](../../images/ab_testing/05-grafana-model-ab-health.png)
 
 **The decision: roll back.** Version 4 was healthy and scored like version 2, but flagged
 a little fewer payments. Without labels, that is a call for the fraud team, not a
@@ -288,7 +288,7 @@ sed -i '' 's/canaryTrafficPercent: 20/canaryTrafficPercent: 0/' k8s/models/fraud
 git commit -am "fix(models): roll version 4 back to 0%" && git push
 ```
 
-![After the rollback, only version 2 answers](../images/ab_testing/06-jenkins-rollback-check.png)
+![After the rollback, only version 2 answers](../../images/ab_testing/06-jenkins-rollback-check.png)
 
 To promote instead, delete the `canaryTrafficPercent` line, set `minReplicas: 0`, commit
 and push. The check then expects every answer from version 4.
@@ -312,7 +312,7 @@ the rollout job. The deploy pipeline starts it once the share is live.
 2 and 8 from version 4, and the policy said progressive, so it scheduled
 `fraudstream-model-rollout`.
 
-![The deploy pipeline starts the rollout job](../images/ab_testing/07-jenkins-rollout-triggered.png)
+![The deploy pipeline starts the rollout job](../../images/ab_testing/07-jenkins-rollout-triggered.png)
 
 **Two holds, then a promotion.** The rollout took 40 minutes, and a person stepped in
 twice:
@@ -331,14 +331,14 @@ twice:
 These holds were handled by changing a threshold in a commit and re-running the job. The
 job now asks on a hold instead, as the next section shows.
 
-![The rollout job judges 80% and promotes version 4](../images/ab_testing/08-jenkins-rollout-promoted.png)
+![The rollout job judges 80% and promotes version 4](../../images/ab_testing/08-jenkins-rollout-promoted.png)
 
 **The share stepping up.** Version 4's share rose 20% → 40% → 60% → 80% → 100% between
 15:05 and 15:52. The long flat stretch at 40% is the first hold. Both versions answered
 about 14,000 to 15,000 payments, and their score bands still match: 54.0% and 53.6% at
 0.5 or more.
 
-![Version 4's share stepping up to 100%](../images/ab_testing/09-grafana-share-stepping-up.png)
+![Version 4's share stepping up to 100%](../../images/ab_testing/09-grafana-share-stepping-up.png)
 
 **Every step is in Git.** One person's commit started it. The job wrote 40%, 60%, 80% and
 the promotion. The two `fix(ci)` commits in between are fixes found during this run, in
@@ -348,7 +348,7 @@ the promotion. The two `fix(ci)` commits in between are fixes found during this 
 git pull --rebase && git log --oneline -8
 ```
 
-![The rollout's commits](../images/ab_testing/10-git-rollout-commits.png)
+![The rollout's commits](../../images/ab_testing/10-git-rollout-commits.png)
 
 ### Deciding on a hold
 
@@ -366,13 +366,13 @@ git commit -am "test(models): force a hold to try the decision buttons" && git p
 then the paused stage (or **Paused for Input** on the build), pick an answer and press
 **Decide**. Nobody answering within 4 hours leaves the share where it is.
 
-![The paused rollout asks for a decision](../images/ab_testing/14-jenkins-hold-decision.png)
+![The paused rollout asks for a decision](../../images/ab_testing/14-jenkins-hold-decision.png)
 
 **Roll back.** The job commits 0% with the reason in the message,
 `rollout(models): roll version 2 back to 0%, by a person's decision`. All 30 payments of
 the check went to version 4. The build ends yellow, with who decided.
 
-![A person's rollback](../images/ab_testing/15-jenkins-hold-rolled-back.png)
+![A person's rollback](../../images/ab_testing/15-jenkins-hold-rolled-back.png)
 
 **Continue.** Started again from 0% → 20%, and answered Continue. From then on, every step
 still prints its verdict, here a hold on flag rate (9.72% against 7.06% at 40%), followed
@@ -386,7 +386,7 @@ sed -i '' 's/canaryTrafficPercent: 0/canaryTrafficPercent: 20/' k8s/models/fraud
 git commit -am "test(models): hold again, then continue" && git push
 ```
 
-![Continue: every hold accepted, then the promotion](../images/ab_testing/16-jenkins-hold-accepted-promoted.png)
+![Continue: every hold accepted, then the promotion](../../images/ab_testing/16-jenkins-hold-accepted-promoted.png)
 
 Put version 4 and the limits back afterwards:
 
@@ -404,16 +404,16 @@ Docker VM ran out of memory. The kernel killed Prometheus, the Kubernetes API se
 restarted, and the gateway answered 502 for about four minutes. The check right after the
 move to 60% found 2 of 30 payments unanswered, so the job rolled back to 0%.
 
-![The rollout job rolls back an unhealthy step](../images/ab_testing/11-jenkins-rollout-unhealthy.png)
+![The rollout job rolls back an unhealthy step](../../images/ab_testing/11-jenkins-rollout-unhealthy.png)
 
 The fault was the platform, not version 4. Rolling back was still right: payments went
 unanswered while version 4 held 60%. A failed call has no answer, so no version, and the
 job can't tell whose fault a failure is. On the dashboard, version 4's share fell to 0.
 Answer times, which had reached 5 seconds, came back down.
 
-![Version 4's share falls to 0](../images/ab_testing/12-grafana-rollback-share.png)
+![Version 4's share falls to 0](../../images/ab_testing/12-grafana-rollback-share.png)
 
-![Answer time and failures during the rollback](../images/ab_testing/13-grafana-rollback-health.png)
+![Answer time and failures during the rollback](../../images/ab_testing/13-grafana-rollback-health.png)
 
 The rollback commit was pushed and applied. The job then waited longer than its 5 minutes
 for KServe while the cluster recovered, so it ended as failed. Git and the cluster both

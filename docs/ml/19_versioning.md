@@ -38,23 +38,23 @@ The evidence below comes from two runs of the same pipeline. The only difference
 is how much data they asked for: the first stopped at 1 June, the second at
 30 June.
 
-![Both versions in the registry](../images/mlflow/01-registered-model-versions.png)
+![Both versions in the registry](../../images/mlflow/01-registered-model-versions.png)
 
 ### Version 1
 
-![Version 1](../images/mlflow/02-version-1-model.png)
+![Version 1](../../images/mlflow/02-version-1-model.png)
 
-![Version 1 settings](../images/mlflow/03-version-1-parameters.png)
+![Version 1 settings](../../images/mlflow/03-version-1-parameters.png)
 
-![Version 1 scores](../images/mlflow/04-version-1-metrics.png)
+![Version 1 scores](../../images/mlflow/04-version-1-metrics.png)
 
 ### Version 2
 
-![Version 2](../images/mlflow/05-version-2-model.png)
+![Version 2](../../images/mlflow/05-version-2-model.png)
 
-![Version 2 settings](../images/mlflow/06-version-2-parameters.png)
+![Version 2 settings](../../images/mlflow/06-version-2-parameters.png)
 
-![Version 2 scores](../images/mlflow/07-version-2-metrics.png)
+![Version 2 scores](../../images/mlflow/07-version-2-metrics.png)
 
 | | Version 1 | Version 2 |
 |---|---|---|
@@ -69,13 +69,13 @@ version and a data version, joined by one number.
 
 Version 2 scores lower, and that is expected. It was tested on a longer and
 harder stretch of time. Its 0.0281 lines up with the notebook's 0.0279 in
-`docs/18_ml_training.md`, which used the same full period.
+`docs/ml/17_ml_training.md`, which used the same full period.
 
 ## Only the new rows get stored
 
 This is the part worth checking rather than believing.
 
-![Iceberg snapshot history](../images/mlflow/08-incremental-snapshots.png)
+![Iceberg snapshot history](../../images/mlflow/08-incremental-snapshots.png)
 
 | Commit | Rows added | Rows in table | Size written |
 |---|---|---|---|
@@ -92,7 +92,7 @@ has actually changed, so re-running the same window costs nothing at all.
 
 ## Where the model itself lives
 
-![The saved model files](../images/mlflow/09-model-files-in-storage.png)
+![The saved model files](../../images/mlflow/09-model-files-in-storage.png)
 
 MLflow writes these to MinIO. `model.ubj` is the model. The rest describe how to
 load it and what it needs to run, which is what lets anyone use it without

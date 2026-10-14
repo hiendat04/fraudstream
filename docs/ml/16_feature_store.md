@@ -1,7 +1,7 @@
 # Feature Store: Feast Over the Iceberg Lakehouse
 
 A [Feast](https://feast.dev) feature store sits on top of the existing Iceberg
-lakehouse (`docs/15_lakehouse_iceberg.md`): Gold's batch snapshots are served
+lakehouse (`docs/data_engineering/14_lakehouse_iceberg.md`): Gold's batch snapshots are served
 through Feast's Spark offline store into Redis via an Airflow DAG, and Flink's
 5-minute streaming windows are pushed into both an offline landing table and
 Redis by a standalone deployment job. Nothing in Bronze, Silver, Gold, or the
@@ -42,7 +42,7 @@ feature views read from at training time.
 
 **Why batch sources add one day to `event_timestamp`:** Gold's daily snapshots
 are timestamped at the *start* of the day they aggregate, but a snapshot only
-becomes knowable once that day closes (`docs/06_feature_engineering.md`'s
+becomes knowable once that day closes (`docs/data_engineering/06_feature_engineering.md`'s
 cutoff rule). Each batch source query adds `+ INTERVAL 1 DAY` so Feast's
 point-in-time join never hands a snapshot back to a transaction it wasn't
 allowed to see.
@@ -54,7 +54,7 @@ allowed to see.
 | `customer_rolling_features` | 31 days | 30 days | A snapshot older than its own window no longer describes "the last 30 days." +1 day absorbs the daily cadence. |
 | `customer_orders_90d_features` | 91 days | 90 days | Same rule; a near-lifetime order count just decays slower. |
 | `merchant_risk_features` | 31 days | 30 days | Same rule. Merchants get far more coverage from it than customers (see below). |
-| `customer_features_5m_stream` | 1 hour | 5 min | Set by Flink's 40-minute allowed-lateness (`docs/07_flink_streaming_pipeline.md`), not the window size: a late correction must still be joinable, so TTL > lateness budget, plus slack. |
+| `customer_features_5m_stream` | 1 hour | 5 min | Set by Flink's 40-minute allowed-lateness (`docs/data_engineering/07_flink_streaming_pipeline.md`), not the window size: a late correction must still be joinable, so TTL > lateness budget, plus slack. |
 | `merchant_features_5m_stream` | 1 hour | 5 min | Same producer, same lateness budget. |
 
 TTLs come from what each feature's name promises to mean, not a curve fit.
@@ -89,8 +89,8 @@ cd feature_store/feature_repo && uv run feast apply && cd -
 docker compose --profile feature-store up feast-stream-push
 ```
 
-![feast apply registering all five feature views](../images/feature_store/01-feast-apply-registers-feature-views.png)
-![feast-stream-push flushing batches to Redis and Iceberg](../images/feature_store/02-stream-push-job-flushing-batches.png)
+![feast apply registering all five feature views](../../images/feature_store/01-feast-apply-registers-feature-views.png)
+![feast-stream-push flushing batches to Redis and Iceberg](../../images/feature_store/02-stream-push-job-flushing-batches.png)
 
 Verify both stores independently:
 
@@ -102,9 +102,9 @@ docker exec -it fraudstream-trino trino --execute \
 
 | Online store (Redis) | Offline store (Iceberg on MinIO / Trino) |
 |---|---|
-| ![Redis DBSIZE after the push job runs](../images/feature_store/03-online-store-redis-key-count.png) | ![Iceberg parquet files landing for the customer table in MinIO](../images/feature_store/05-offline-store-minio-customer-parquet.png) |
-| ![RedisInsight showing per-customer/merchant hash keys](../images/feature_store/04-online-store-redisinsight-entity-keys.png) | ![Iceberg parquet files landing for the merchant table in MinIO](../images/feature_store/06-offline-store-minio-merchant-parquet.png) |
-| | ![Trino row count over the Iceberg landing table](../images/feature_store/07-offline-store-trino-row-count.png) |
+| ![Redis DBSIZE after the push job runs](../../images/feature_store/03-online-store-redis-key-count.png) | ![Iceberg parquet files landing for the customer table in MinIO](../../images/feature_store/05-offline-store-minio-customer-parquet.png) |
+| ![RedisInsight showing per-customer/merchant hash keys](../../images/feature_store/04-online-store-redisinsight-entity-keys.png) | ![Iceberg parquet files landing for the merchant table in MinIO](../../images/feature_store/06-offline-store-minio-merchant-parquet.png) |
+| | ![Trino row count over the Iceberg landing table](../../images/feature_store/07-offline-store-trino-row-count.png) |
 
 ### Incremental materialization DAG
 
@@ -112,8 +112,8 @@ docker exec -it fraudstream-trino trino --execute \
 docker compose --profile orchestration up -d
 ```
 
-![Asset graph: the DAG chain ending in the feature-store-materialized asset](../images/feature_store/08-airflow-asset-graph-feature-store-materialized.png)
-![fraudstream_feature_store_materialize DAG: apply -> materialize -> validate](../images/feature_store/09-airflow-dag-materialize-task-groups.png)
+![Asset graph: the DAG chain ending in the feature-store-materialized asset](../../images/feature_store/08-airflow-asset-graph-feature-store-materialized.png)
+![fraudstream_feature_store_materialize DAG: apply -> materialize -> validate](../../images/feature_store/09-airflow-dag-materialize-task-groups.png)
 
 Unpause and trigger `fraudstream_feature_store_materialize` in the Airflow UI,
 then check `data/gold/_feature_store_materialization_summary.json`.
@@ -124,15 +124,15 @@ A new row inserted straight into Gold, then walked through the DAG, proves
 the pipeline is genuinely incremental rather than a full reload each time:
 
 1. Baseline: the online store has never heard of the demo customer, and its key count is noted.
-   ![get_online_features returns None for the new customer before materialization](../images/feature_store/10-incremental-demo-before-online-read-null.png)
-   ![Redis DBSIZE before the demo row exists](../images/feature_store/11-incremental-demo-before-redis-dbsize.png)
+   ![get_online_features returns None for the new customer before materialization](../../images/feature_store/10-incremental-demo-before-online-read-null.png)
+   ![Redis DBSIZE before the demo row exists](../../images/feature_store/11-incremental-demo-before-redis-dbsize.png)
 2. A new snapshot is inserted directly into `iceberg.gold.feat_customer_rolling` and confirmed present.
-   ![Inserting one new row into Gold via Trino](../images/feature_store/12-incremental-demo-insert-new-gold-row.png)
-   ![Verifying the new row is readable from Gold](../images/feature_store/13-incremental-demo-verify-row-in-gold.png)
+   ![Inserting one new row into Gold via Trino](../../images/feature_store/12-incremental-demo-insert-new-gold-row.png)
+   ![Verifying the new row is readable from Gold](../../images/feature_store/13-incremental-demo-verify-row-in-gold.png)
 3. Triggering the DAG.
-   ![First DAG run succeeds, but its window predates the new row](../images/feature_store/14-incremental-demo-first-dag-run-too-early.png)
+   ![First DAG run succeeds, but its window predates the new row](../../images/feature_store/14-incremental-demo-first-dag-run-too-early.png)
 4. The online store now returns the latest values, and Redis's key count grows by exactly one.
-   ![get_online_features now returns the new row's values](../images/feature_store/15-incremental-demo-after-online-read-populated.png)
-   ![Redis DBSIZE increased by exactly 1](../images/feature_store/16-incremental-demo-after-redis-dbsize-increased.png)
+   ![get_online_features now returns the new row's values](../../images/feature_store/15-incremental-demo-after-online-read-populated.png)
+   ![Redis DBSIZE increased by exactly 1](../../images/feature_store/16-incremental-demo-after-redis-dbsize-increased.png)
 5. The run summary confirms every feature view resumed in `"incremental"` mode with a non-null `watermark_before` — a full reload, not a resume.
-   ![Materialization summary JSON: every view's mode is "incremental"](../images/feature_store/17-incremental-demo-summary-json-mode-incremental.png)
+   ![Materialization summary JSON: every view's mode is "incremental"](../../images/feature_store/17-incremental-demo-summary-json-mode-incremental.png)

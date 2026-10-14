@@ -46,7 +46,7 @@ Settings live in `configs/generator/offline_transactions.json`:
 **Drift is on by default** (`2026-05-01`, up to `1.6x`), so amounts and the fraud rate
 rise over the last ~60 days. Numbers from older default runs are stale.
 
-![Generator configuration with the drift settings highlighted](../images/generator/drift_configuration.png)
+![Generator configuration with the drift settings highlighted](../../images/generator/drift_configuration.png)
 
 ## What it writes
 
@@ -67,7 +67,7 @@ The label table has three columns, `transaction_id`, `is_fraud`, `event_timestam
 It is kept apart from the transactions so a feature view carries features only, and
 the label is joined in at training time:
 
-![Feature table joined to the transaction label table on transaction_id](../images/generator/transaction_labels_feature_join.png)
+![Feature table joined to the transaction label table on transaction_id](../../images/generator/transaction_labels_feature_join.png)
 
 ## Handing over to Bronze
 
@@ -84,7 +84,7 @@ minutes), messy-field counts, fraud and fraud-ring rows, ID cardinality, rows ei
 side of the schema change, the label table, and drift. The `drift` section holds the
 mean amount before and after `drift_start_date`:
 
-![Drift section of the generator quality summary](../images/generator/drift_quality_summary.png)
+![Drift section of the generator quality summary](../../images/generator/drift_quality_summary.png)
 
 ## Test it
 

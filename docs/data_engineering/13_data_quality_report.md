@@ -4,7 +4,7 @@ The generators already write their measured problems to JSON. `fraudstream-data-
 turns those files into one self-contained HTML report (cards, tables, percentage bars).
 It doesn't rescan 500,000 records or start Spark.
 
-[![Generated offline and streaming data-quality report](../images/data_quality/data_quality_report.png)](../images/data_quality/data_quality_report.png)
+[![Generated offline and streaming data-quality report](../../images/data_quality/data_quality_report.png)](../../images/data_quality/data_quality_report.png)
 
 ## Generate it
 

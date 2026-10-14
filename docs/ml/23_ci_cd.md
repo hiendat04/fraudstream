@@ -74,9 +74,9 @@ runs are still started by hand.
 Jenkins found the branch on its own, and all seven suites passed. The deploy
 stages did not run, because this is not the deploy branch.
 
-![Feature branch discovered](../images/ci_cd/01-ci-feature-branch-discovered.png)
+![Feature branch discovered](../../images/ci_cd/01-ci-feature-branch-discovered.png)
 
-![Tests only](../images/ci_cd/02-ci-feature-branch-tests-only.png)
+![Tests only](../../images/ci_cd/02-ci-feature-branch-tests-only.png)
 
 ### BEFORE the merge
 
@@ -84,15 +84,15 @@ Images deployed by hand in earlier phases.
 
 Inference API runs `fraudstream-inference:v6`:
 
-![Inference API before](../images/ci_cd/03-before-inference-api-v6.png)
+![Inference API before](../../images/ci_cd/03-before-inference-api-v6.png)
 
 Drift detection API runs `fraudstream-drift-detection:v2`:
 
-![Drift API before](../images/ci_cd/04-before-drift-detection-v2.png)
+![Drift API before](../../images/ci_cd/04-before-drift-detection-v2.png)
 
 Model server runs `fraudstream-serving:dev`:
 
-![Model server before](../images/ci_cd/05-before-model-server-dev.png)
+![Model server before](../../images/ci_cd/05-before-model-server-dev.png)
 
 ### CD: the merge into the deploy branch
 
@@ -101,31 +101,31 @@ build #3 (top) deployed everything green. Build #2 failed at the training pipeli
 and builds #1 and #2 at the Airflow stage, fixed as described under *Things worth
 knowing*.
 
-![Deploy branch discovered](../images/ci_cd/06-cd-deploy-branch-discovered.png)
+![Deploy branch discovered](../../images/ci_cd/06-cd-deploy-branch-discovered.png)
 
-![Deploy stage view](../images/ci_cd/07-cd-deploy-branch-stage-view.png)
+![Deploy stage view](../../images/ci_cd/07-cd-deploy-branch-stage-view.png)
 
 ### AFTER the merge
 
 Every deployed image now carries the commit it was built from, `b3fabea`:
 
-![Commit](../images/ci_cd/08-after-commit-b3fabea.png)
+![Commit](../../images/ci_cd/08-after-commit-b3fabea.png)
 
 Inference API now runs `fraudstream-inference:b3fabea`:
 
-![Inference API after](../images/ci_cd/09-after-inference-api-b3fabea.png)
+![Inference API after](../../images/ci_cd/09-after-inference-api-b3fabea.png)
 
 Drift detection API now runs `fraudstream-drift-detection:b3fabea`:
 
-![Drift API after](../images/ci_cd/10-after-drift-detection-b3fabea.png)
+![Drift API after](../../images/ci_cd/10-after-drift-detection-b3fabea.png)
 
 Model server now runs `fraudstream-serving:b3fabea`:
 
-![Model server after](../images/ci_cd/11-after-model-server-b3fabea.png)
+![Model server after](../../images/ci_cd/11-after-model-server-b3fabea.png)
 
 The training pipeline gained a version named after the same commit:
 
-![Pipeline version](../images/ci_cd/12-after-training-pipeline-version-b3fabea.png)
+![Pipeline version](../../images/ci_cd/12-after-training-pipeline-version-b3fabea.png)
 
 ## Setup
 

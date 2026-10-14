@@ -157,12 +157,12 @@ class StreamingFeatureConfig:
         if require_connector_jar and not self.connector_jar.is_file():
             raise FileNotFoundError(
                 f"Kafka connector JAR does not exist: {self.connector_jar}. "
-                "Run the connector setup command from docs/07_flink_streaming_pipeline.md."
+                "Run the connector setup command from docs/data_engineering/07_flink_streaming_pipeline.md."
             )
         if require_connector_jar and not any(self.iceberg_jars_dir.glob("*.jar")):
             raise FileNotFoundError(
                 f"No Iceberg/Postgres/hadoop-aws JARs found in {self.iceberg_jars_dir}. "
-                "Run the Iceberg jar setup command from docs/07_flink_streaming_pipeline.md."
+                "Run the Iceberg jar setup command from docs/data_engineering/07_flink_streaming_pipeline.md."
             )
         self.iceberg.validate()
 

@@ -16,7 +16,7 @@ load test needs the deployed APIs.
 
 ## Coverage
 
-![Coverage report](../images/validation/01-coverage-report.png)
+![Coverage report](../../images/validation/01-coverage-report.png)
 
 ```bash
 cd api && uv run pytest --cov --cov-report=html
@@ -44,9 +44,9 @@ Classes like "unknown channel" or "stale history" already had tests. What was
 missing were the values sitting exactly on each limit, so `test_boundaries.py`
 adds 40 named cases for nine rules.
 
-![Boundary cases](../images/validation/02-boundary-cases-payment-and-ttl.png)
+![Boundary cases](../../images/validation/02-boundary-cases-payment-and-ttl.png)
 
-![Boundary cases](../images/validation/03-boundary-cases-bins-and-batches.png)
+![Boundary cases](../../images/validation/03-boundary-cases-bins-and-batches.png)
 
 ```bash
 cd api && uv run pytest -v tests/test_boundaries.py
@@ -81,11 +81,11 @@ uv run mutmut results
 
 Before, 114 mutants survived:
 
-![Mutation score before](../images/validation/04-mutation-score-before.png)
+![Mutation score before](../../images/validation/04-mutation-score-before.png)
 
 After six small tests, 85 survive and the score is 86.2%:
 
-![Mutation score after](../images/validation/05-mutation-score-after.png)
+![Mutation score after](../../images/validation/05-mutation-score-after.png)
 
 Those six tests came straight from the survivors, and each closes a real hole:
 
@@ -110,9 +110,9 @@ model never reads.
 
 Ten properties, for the ways a score could quietly differ between runs.
 
-![API properties](../images/validation/06-properties-api.png)
+![API properties](../../images/validation/06-properties-api.png)
 
-![Model properties](../images/validation/07-properties-model.png)
+![Model properties](../../images/validation/07-properties-model.png)
 
 ```bash
 cd api && uv run pytest tests/test_properties.py
@@ -147,7 +147,7 @@ uv run --group loadtest locust -f loadtest/locustfile.py --headless -u 50 -r 50 
   --html ../reports/load_test_inference_api.html
 ```
 
-![SLA run](../images/validation/08-load-test-sla-run.png)
+![SLA run](../../images/validation/08-load-test-sla-run.png)
 
 | Measure | Target | Measured |
 |---|---|---|
@@ -158,10 +158,10 @@ uv run --group loadtest locust -f loadtest/locustfile.py --headless -u 50 -r 50 
 Median was 22 ms. The 15 s maximum is the first request waking the model, which
 is why the run is preceded by a warm-up. The two failures are the NGINX
 connection reset already described in
-[docs/21_web_apis.md](21_web_apis.md#things-worth-noticing).
+[docs/ml/21_web_apis.md](21_web_apis.md#things-worth-noticing).
 
 These runs were over plain HTTP. Since the gateway, the same test runs over HTTPS
-with the password and still meets the SLA: see [docs/24_gateway.md](24_gateway.md#proof).
+with the password and still meets the SLA: see [docs/ml/24_gateway.md](24_gateway.md#proof).
 
 A second run raises the load 10 users a minute up to 120, to find where the
 targets stop holding:
@@ -172,7 +172,7 @@ uv run --group loadtest locust -f loadtest/capacity.py --headless \
   --html ../reports/load_test_inference_api_capacity.html
 ```
 
-![Capacity run](../images/validation/09-load-test-capacity-run.png)
+![Capacity run](../../images/validation/09-load-test-capacity-run.png)
 
 | Users | 10 | 30 | 60 | 90 | 120 |
 |---|---|---|---|---|---|
@@ -188,7 +188,7 @@ so it is the first thing that would need scaling. Since the gateway, one client 
 60 requests a second is refused with 429, so this step-up test now measures that limit
 past 60 users.
 
-Both reports are in [reports/](../reports).
+Both reports are in [reports/](../../reports).
 
 ## Things worth knowing
 

@@ -37,45 +37,45 @@ The optimization combines two techniques:
 
 **1. Main Silver job timeline**
 
-![Baseline main Silver job timeline](../../../images/spark/baseline/01-main-job-timeline.png)
+![Baseline main Silver job timeline](../../../../images/spark/baseline/01-main-job-timeline.png)
 
 **2. Main job summary**
 
-![Baseline main Silver job summary](../../../images/spark/baseline/02-main-job-summary.png)
+![Baseline main Silver job summary](../../../../images/spark/baseline/02-main-job-summary.png)
 
 **3. Selected-row stage with 200 tasks**
 
-![Baseline selected-row stage task metrics showing 200 tasks](../../../images/spark/baseline/03-selected-row-stage-task-metrics.png)
+![Baseline selected-row stage task metrics showing 200 tasks](../../../../images/spark/baseline/03-selected-row-stage-task-metrics.png)
 
 **4. Application job summary**
 
-![Baseline application job summary](../../../images/spark/baseline/04-application-job-summary.png)
+![Baseline application job summary](../../../../images/spark/baseline/04-application-job-summary.png)
 
 **5. SQL summary showing the 4.1-minute execution**
 
-![Baseline Spark SQL summary showing 4.1 minutes](../../../images/spark/baseline/05-sql-query-summary.png)
+![Baseline Spark SQL summary showing 4.1 minutes](../../../../images/spark/baseline/05-sql-query-summary.png)
 
 ### Optimized: AQE enabled and 8 shuffle partitions
 
 **1. Application timeline**
 
-![Optimized Spark application timeline](../../../images/spark/optimized/01-application-timeline.png)
+![Optimized Spark application timeline](../../../../images/spark/optimized/01-application-timeline.png)
 
 **2. Main job summary**
 
-![Optimized main Silver job summary](../../../images/spark/optimized/02-main-job-summary.png)
+![Optimized main Silver job summary](../../../../images/spark/optimized/02-main-job-summary.png)
 
 **3. Completed-job summary**
 
-![Optimized completed-job summary](../../../images/spark/optimized/03-completed-job-summary.png)
+![Optimized completed-job summary](../../../../images/spark/optimized/03-completed-job-summary.png)
 
 **4. Selected-row stage with 8 tasks**
 
-![Optimized selected-row stage task metrics showing 8 tasks](../../../images/spark/optimized/04-selected-row-stage-task-metrics.png)
+![Optimized selected-row stage task metrics showing 8 tasks](../../../../images/spark/optimized/04-selected-row-stage-task-metrics.png)
 
 **5. SQL summary showing the 21-second execution**
 
-![Optimized Spark SQL summary showing 21 seconds](../../../images/spark/optimized/05-sql-query-summary.png)
+![Optimized Spark SQL summary showing 21 seconds](../../../../images/spark/optimized/05-sql-query-summary.png)
 
 ## Why It Worked
 

@@ -197,7 +197,7 @@ kubectl --context kind-fraudstream -n observability port-forward svc/kps-prometh
 # then open http://localhost:9090/targets
 ```
 
-![Prometheus targets, all up](../images/observability/01-prometheus-targets-up.png)
+![Prometheus targets, all up](../../images/observability/01-prometheus-targets-up.png)
 
 **The Web APIs dashboard during the load test.** 50 clients for 5 minutes, at 50
 requests a second through the gateway, with metrics, logs and traces all on. All
@@ -213,17 +213,17 @@ cd api && uv run --group loadtest locust -f loadtest/locustfile.py --headless -u
   --html ../reports/load_test_inference_api_observed.html
 ```
 
-![Web APIs dashboard during the load test](../images/observability/02-grafana-web-apis-load-test.png)
+![Web APIs dashboard during the load test](../../images/observability/02-grafana-web-apis-load-test.png)
 
-![Model answer time, gateway and replicas during the load test](../images/observability/03-grafana-web-apis-model-and-replicas.png)
+![Model answer time, gateway and replicas during the load test](../../images/observability/03-grafana-web-apis-model-and-replicas.png)
 
 **The machine.** CPU, memory, disk and network for the node, and per namespace. The
 node is the kind container, so these are the Docker VM's numbers, which the Compose
 services share. During the test, CPU peaked near 60%.
 
-![Compute dashboard](../images/observability/04-grafana-compute.png)
+![Compute dashboard](../../images/observability/04-grafana-compute.png)
 
-![CPU, memory and network by namespace](../images/observability/05-grafana-compute-by-namespace.png)
+![CPU, memory and network by namespace](../../images/observability/05-grafana-compute-by-namespace.png)
 
 **The metrics port is internal.** Through the gateway, `/metrics` answers 404. Inside
 the cluster, on port 9000, the counters are there. An unknown path is counted as
@@ -237,9 +237,9 @@ kubectl --context kind-fraudstream -n fraudstream-apis port-forward svc/inferenc
 curl -s localhost:9000/metrics | grep -E '^(http_requests_total|fraud_score_count)'; kill $pf
 ```
 
-![metrics through the gateway: 404](../images/observability/06-metrics-not-through-gateway.png)
+![metrics through the gateway: 404](../../images/observability/06-metrics-not-through-gateway.png)
 
-![metrics inside the cluster](../images/observability/07-metrics-inside-the-cluster.png)
+![metrics inside the cluster](../../images/observability/07-metrics-inside-the-cluster.png)
 
 ### One payment
 
@@ -247,19 +247,19 @@ curl -s localhost:9000/metrics | grep -E '^(http_requests_total|fraud_score_coun
 features from Redis, 12.3 ms waiting for the model. The drift API's span, called in the
 background after the answer, is part of the same trace.
 
-![One payment in Jaeger](../images/observability/08-jaeger-one-payment.png)
+![One payment in Jaeger](../../images/observability/08-jaeger-one-payment.png)
 
 **Its log lines.** Searching Kibana for the trace id finds the access lines of both
 APIs, each with its pod, path and status.
 
-![The payment's log lines in Kibana](../images/observability/09-kibana-logs-by-trace.png)
+![The payment's log lines in Kibana](../../images/observability/09-kibana-logs-by-trace.png)
 
 **From a log line to its trace, in Grafana.** The same search in Grafana's Logs data
 source, then the `trace_id` link on a line opens the trace next to it.
 
-![The payment's log lines in Grafana](../images/observability/10-grafana-logs-by-trace.png)
+![The payment's log lines in Grafana](../../images/observability/10-grafana-logs-by-trace.png)
 
-![From the log line to its trace](../images/observability/11-grafana-log-to-trace.png)
+![From the log line to its trace](../../images/observability/11-grafana-log-to-trace.png)
 
 ### The drift pipeline
 
@@ -273,22 +273,22 @@ docker exec fraudstream-airflow-scheduler airflow dags trigger fraudstream_drift
   -c '{"window_end": "2026-03-01"}'
 ```
 
-![Drift DAG, no drift, retrain skipped](../images/observability/12-airflow-drift-dag-skipped.png)
+![Drift DAG, no drift, retrain skipped](../../images/observability/12-airflow-drift-dag-skipped.png)
 
 **The newest week: drift, and one retrain.** The scheduled run checked the week ending
 2026-06-30: 15,943 payments, status drift. It started the training pipeline.
 
-![Drift DAG, drift found, retrain started](../images/observability/13-airflow-drift-dag-retrain.png)
+![Drift DAG, drift found, retrain started](../../images/observability/13-airflow-drift-dag-retrain.png)
 
 **The retrain in Kubeflow.** `drift-retrain-2026-06-30` ran the newest pipeline version,
 on 2026-01-01 to 2026-06-30, and every step succeeded.
 
-![The drift retrain run in Kubeflow](../images/observability/14-kubeflow-drift-retrain-run.png)
+![The drift retrain run in Kubeflow](../../images/observability/14-kubeflow-drift-retrain-run.png)
 
 **A new model version, not served.** The run registered `fraud-detection` version 4 in
 MLflow. The API keeps serving version 2 until a person moves it.
 
-![Version 4 registered in MLflow](../images/observability/15-mlflow-new-model-version.png)
+![Version 4 registered in MLflow](../../images/observability/15-mlflow-new-model-version.png)
 
 **The drift dashboard.** For the week ending 2026-06-30: one input in drift and four in
 warning. The largest PSIs are `total_orders_90d` (0.445), `customer_orders_90d_available`
@@ -296,9 +296,9 @@ warning. The largest PSIs are `total_orders_90d` (0.445), `customer_orders_90d_a
 70.2% had 90-day order history and 85.2% had merchant history. Below, the live panels
 show what the model answers.
 
-![Model drift dashboard](../images/observability/16-grafana-model-drift.png)
+![Model drift dashboard](../../images/observability/16-grafana-model-drift.png)
 
-![Model drift dashboard, live panels](../images/observability/17-grafana-model-drift-live.png)
+![Model drift dashboard, live panels](../../images/observability/17-grafana-model-drift-live.png)
 
 ### Memory
 

@@ -53,7 +53,7 @@ is worse than no number. The pattern is simply *longer shelf life plus busier
 entity equals more answers* — merchants average 11.9 daily snapshots each against a
 customer's 2.5, so the same 31-day limit treats them very differently.
 
-![How much of each feature is blank](../images/ml/01-null-share-by-feature.png)
+![How much of each feature is blank](../../images/ml/01-null-share-by-feature.png)
 
 **This one measurement decided the model.** With 22 of 51 features carrying blanks
 and 10 of them more than half blank, we need something that copes with missing
@@ -125,9 +125,9 @@ Scoring the test set once, with the cut-off chosen on validation:
 | Precision / Recall / F1 | 0.033 / 0.144 / 0.054 |
 | Accuracy | 92.06% *(and "never fraud" would score 98.43%)* |
 
-![Precision-recall and ROC curves on the test set](../images/ml/02-test-pr-and-roc-curves.png)
+![Precision-recall and ROC curves on the test set](../../images/ml/02-test-pr-and-roc-curves.png)
 
-![Which features the model leaned on](../images/ml/03-feature-importance.png)
+![Which features the model leaned on](../../images/ml/03-feature-importance.png)
 
 **Being honest: this is a weak detector, and the data explains why.** The fraud
 answers in this dataset were built from a few hidden traits — most of all whether a

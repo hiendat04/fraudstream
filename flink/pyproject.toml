@@ -6,7 +6,7 @@ dependencies = [
     # Pinned to the 2.1.x line (not the newer 2.2.x) because Apache Iceberg's
     # Flink connector only ships a runtime jar built against Flink 2.1
     # (iceberg-flink-runtime-2.1) as of Iceberg 1.11.0 -- no 2.2 build exists
-    # yet. See docs/07_flink_streaming_pipeline.md for the jar setup.
+    # yet. See docs/data_engineering/07_flink_streaming_pipeline.md for the jar setup.
     "apache-flink==2.1.3",
 ]
 

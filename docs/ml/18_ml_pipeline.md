@@ -48,7 +48,7 @@ to start a group of workers that train together. The lakehouse stays where it
 already was, in Docker on the host, and the cluster joins its network so the pods
 can reach it by name.
 
-![The pipeline run, every step green](../images/kubeflow/01-pipeline-run-succeeded.png)
+![The pipeline run, every step green](../../images/kubeflow/01-pipeline-run-succeeded.png)
 
 Each step reads the artifacts of the ones before it and writes its own, so the
 graph above is not a drawing of what should happen — it is what did.
@@ -63,7 +63,7 @@ graph above is not a drawing of what should happen — it is what did.
 | `evaluate` | picks the cut-off on validation, scores test once |
 | `save-bundle` | saves the model with its column order and threshold |
 
-![Run history](../images/kubeflow/02-pipeline-run-history.png)
+![Run history](../../images/kubeflow/02-pipeline-run-history.png)
 
 A full run takes about four minutes, most of it the first step pulling features
 out of Spark.
@@ -77,7 +77,7 @@ for them, and collects what they made.
 Two controllers make that happen, and they are running long before any training
 does:
 
-![The two Trainer controllers](../images/kubeflow/03-trainer-controllers.png)
+![The two Trainer controllers](../../images/kubeflow/03-trainer-controllers.png)
 
 The chain is `TrainJob` → `JobSet` → `Job` → pods. The trainer controller turns
 the request into a group; the JobSet controller makes sure the group starts
@@ -93,13 +93,13 @@ reason object storage appears in the middle of this pipeline.
 
 Two worker pods, one per rank, created for the run and finished afterwards:
 
-![The worker pods](../images/kubeflow/04-trainjob-worker-pods.png)
+![The worker pods](../../images/kubeflow/04-trainjob-worker-pods.png)
 
 Each one reports the rank it was given, and rank 0 writes the model:
 
-![Worker 0](../images/kubeflow/05-worker-rank-0-logs.png)
+![Worker 0](../../images/kubeflow/05-worker-rank-0-logs.png)
 
-![Worker 1](../images/kubeflow/06-worker-rank-1-logs.png)
+![Worker 1](../../images/kubeflow/06-worker-rank-1-logs.png)
 
 **Each worker holds a different half of the rows.** They are dealt out one at a
 time — worker 0 takes rows 0, 2, 4, worker 1 takes 1, 3, 5 — rather than in
@@ -114,7 +114,7 @@ overlap. A test asserts they never do.
 
 ## What it scored
 
-![Test metrics](../images/kubeflow/07-test-metrics.png)
+![Test metrics](../../images/kubeflow/07-test-metrics.png)
 
 | | Notebook | Pipeline, 2 workers |
 |---|---|---|
@@ -129,7 +129,7 @@ changes.
 
 Two things worth saying plainly. The logistic-regression baseline scored PR-AUC
 0.0282 and ROC-AUC 0.6623, so it ties on one and wins on the other — the ceiling
-here is a property of the data, as `docs/18_ml_training.md` explains, and moving
+here is a property of the data, as `docs/ml/17_ml_training.md` explains, and moving
 the training onto a cluster does not change that.
 
 And at 348,000 training rows, splitting the work across two workers is very

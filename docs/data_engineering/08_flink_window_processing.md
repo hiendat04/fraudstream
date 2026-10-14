@@ -6,7 +6,7 @@ the `10:00–10:05` window even if it reaches Flink later.
 
 ## One window function
 
-![Reusable Flink feature window implementation](../images/flink/window/01-build-feature-window.png)
+![Reusable Flink feature window implementation](../../images/flink/window/01-build-feature-window.png)
 
 `_build_feature_window()` does the work:
 
@@ -18,7 +18,7 @@ the `10:00–10:05` window even if it reaches Flink later.
 
 ## Used twice
 
-![Customer and merchant window construction](../images/flink/window/02-customer-merchant-window-usage.png)
+![Customer and merchant window construction](../../images/flink/window/02-customer-merchant-window-usage.png)
 
 | Stream | Key | Result |
 |---|---|---|
