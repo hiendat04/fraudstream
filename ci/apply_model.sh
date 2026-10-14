@@ -25,8 +25,10 @@ if ! docker exec fraudstream-control-plane crictl inspecti "$image" >/dev/null 2
     || docker build -f k8s/Dockerfile.serving -t "$code_image" .
   packaged=$(mktemp -d)
   trap 'rm -rf "$packaged"' EXIT
-  (cd serving && uv run python -m fraudstream_serving.fetch "models:/fraud-detection/$version" "$packaged" \
-    --tracking-uri "$MLFLOW_TRACKING_URI")
+  # Download through the MLflow server: its direct links name MinIO as minio:9000,
+  # which only resolves inside the Compose network.
+  (cd serving && MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD=false PYTHONPATH=src uv run python -m fraudstream_serving.fetch \
+    "models:/fraud-detection/$version" "$packaged" --tracking-uri "$MLFLOW_TRACKING_URI")
   docker build -f k8s/Dockerfile.model --build-arg BASE="$code_image" -t "$image" "$packaged"
   kind load docker-image "$image" --name fraudstream
 fi

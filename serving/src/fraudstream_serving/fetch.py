@@ -5,7 +5,8 @@ download at start, no MLflow to reach, and rolling back means running the previo
 image. The folder holds the MLflow model and a card with what the predictor would
 otherwise ask the registry for: the version and the decision threshold.
 
-    cd serving && uv run python -m fraudstream_serving.fetch models:/fraud-detection/latest build/model
+    cd serving && MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD=false PYTHONPATH=src uv run python -m \
+        fraudstream_serving.fetch models:/fraud-detection/4 /tmp/model --tracking-uri http://localhost:18085
 """
 
 from __future__ import annotations
@@ -23,8 +24,8 @@ def fetch(model_uri: str, out_dir: str | Path, tracking_uri: str | None = None) 
     if not model_uri.startswith("models:/"):
         raise ValueError(f"only registered models (models:/...) can be packaged, not {model_uri}")
 
-    import mlflow
     from mlflow import MlflowClient
+    from mlflow.store.artifact.artifact_repository_registry import get_artifact_repository
     from mlflow.store.artifact.utils.models import get_model_name_and_version
 
     client = MlflowClient(tracking_uri)
@@ -33,9 +34,11 @@ def fetch(model_uri: str, out_dir: str | Path, tracking_uri: str | None = None) 
 
     out = Path(out_dir)
     out.mkdir(parents=True, exist_ok=True)
-    mlflow.artifacts.download_artifacts(
-        artifact_uri=f"models:/{name}/{version}", dst_path=str(out), tracking_uri=tracking_uri
-    )
+    # Not download_artifacts("models:/..."): MLflow resolves that through its process-wide
+    # registry, not this client, and in a fresh process reads a new local mlflow.db.
+    get_artifact_repository(
+        client.get_model_version_download_uri(name, version), tracking_uri=tracking_uri
+    ).download_artifacts("", dst_path=str(out))
     card = {
         "name": name,
         "version": str(version),
