@@ -1,0 +1,55 @@
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: llm-models
+  namespace: llm
+spec:
+  accessModes: [ReadWriteOnce]
+  resources:
+    requests:
+      storage: 10Gi
+---
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: fetch-models
+  namespace: llm
+spec:
+  backoffLimit: 2
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: fetch
+          image: curlimages/curl:8.21.0
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -eu
+              fetch() {
+                repo=$1 rev=$2 file=$3 sha=$4
+                if [ -f "/models/$file" ] && echo "$sha  /models/$file" | sha256sum -c -s; then
+                  echo "$file: already there"; return
+                fi
+                echo "$file: downloading"
+                curl -fL --retry 5 -o "/models/$file.part" "https://huggingface.co/$repo/resolve/$rev/$file"
+                if ! echo "$sha  /models/$file.part" | sha256sum -c -s; then
+                  rm -f "/models/$file.part"; echo "$file: wrong checksum" >&2; exit 1
+                fi
+                mv "/models/$file.part" "/models/$file"
+                echo "$file: ok"
+              }
+              fetch unsloth/Qwen3-4B-GGUF 22c9fc8a8c7700b76a1789366280a6a5a1ad1120 \
+                Qwen3-4B-Q4_K_M.gguf f6f851777709861056efcdad3af01da38b31223a3ba26e61a4f8bf3a2195813a
+              fetch unsloth/Qwen3-4B-GGUF 22c9fc8a8c7700b76a1789366280a6a5a1ad1120 \
+                Qwen3-4B-Q4_0.gguf 92f4a83cdfe691b216a949f915e47f35f0ed85b833aa03490c719160ac5cdf7a
+              fetch unsloth/Qwen3-1.7B-GGUF d7f544eead698dbd1f15126ef60b45a1e1933222 \
+                Qwen3-1.7B-Q4_K_M.gguf b139949c5bd74937ad8ed8c8cf3d9ffb1e99c866c823204dc42c0d91fa181897
+              rm -f /models/*.part
+          volumeMounts:
+            - name: models
+              mountPath: /models
+      volumes:
+        - name: models
+          persistentVolumeClaim:
+            claimName: llm-models

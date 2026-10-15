@@ -24,6 +24,17 @@ helm upgrade --install agentgateway oci://cr.agentgateway.dev/charts/agentgatewa
   --version "$AGENTGATEWAY_VERSION" -n agentgateway-system \
   -f k8s/llm/agentgateway-values.yaml --wait --timeout 5m >/dev/null
 
+echo "==> model cache (first run downloads about 6 GB)"
+kubectl create namespace llm --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+# A finished Job can't be changed, so it is replaced each run; it skips files it has.
+kubectl -n llm delete job fetch-models --ignore-not-found >/dev/null
+kubectl apply -f k8s/llm/models/fetch.yaml >/dev/null
+kubectl -n llm wait --for=condition=complete job/fetch-models --timeout=45m
+
+echo "==> model servers"
+kubectl apply -f k8s/llm/models/qwen3-4b.yaml -f k8s/llm/models/qwen3-1-7b.yaml >/dev/null
+kubectl -n llm rollout status deploy/qwen3-4b --timeout=10m
+
 echo "==> the Gateway"
 kubectl apply -f k8s/llm/gateway.yaml >/dev/null
 kubectl -n llm wait --for=condition=Programmed gateway/llm-gateway --timeout=3m
