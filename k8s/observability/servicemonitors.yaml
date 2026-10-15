@@ -13,3 +13,37 @@ spec:
   endpoints:
     - port: prometheus
       interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llm-gateway
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - llm
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: llm-gateway
+  podMetricsEndpoints:
+    - targetPort: 15020
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: llm-model-servers
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - llm
+  selector:
+    matchLabels:
+      llm.fraudstream/server: llama-cpp
+  podMetricsEndpoints:
+    - port: http
+      path: /metrics
+      interval: 15s

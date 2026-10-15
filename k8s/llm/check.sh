@@ -54,4 +54,22 @@ after=$(masks)
 if [ "$after" -gt "$before" ]; then echo "ok   the gateway masked PII ($before -> $after)"
 else echo "FAIL the gateway counted no mask ($before -> $after)"; phase=Failed; fi
 kubectl -n llm delete pod llm-check >/dev/null
+# Every dashboard panel must have data. The requests above produced some; Prometheus
+# scrapes every 15 seconds.
+sleep 30
+prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
+python3 - "$prom" <<'PY' || phase=Failed
+import json, re, subprocess, sys, urllib.parse
+text = open("k8s/observability/dashboards/llm.yaml").read()
+board = json.loads(text.split("llm.json: |", 1)[1].replace("\n    ", "\n"))
+bad = 0
+for panel in board["panels"]:
+    for target in panel["targets"]:
+        url = sys.argv[1] + "?query=" + urllib.parse.quote(target["expr"])
+        out = json.loads(subprocess.run(["kubectl", "get", "--raw", url], capture_output=True, text=True, check=True).stdout)
+        found = len(out["data"]["result"])
+        print(("ok  " if found else "FAIL") + f" panel '{panel['title']}' {target['refId']}: {found} series")
+        bad += not found
+sys.exit(1 if bad else 0)
+PY
 [ "$phase" = Succeeded ]

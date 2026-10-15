@@ -68,4 +68,7 @@ kubectl -n llm wait --for=condition=Programmed gateway/llm-gateway --timeout=3m
 echo "==> policy"
 kubectl apply -f k8s/llm/policy.yaml >/dev/null
 
+echo "==> scraping and the LLM dashboard"
+kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/llm.yaml >/dev/null
+
 echo "LLM gateway: http://llm-gateway.llm.svc.cluster.local:8080/v1"

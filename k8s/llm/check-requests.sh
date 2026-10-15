@@ -24,6 +24,11 @@ expect "agents on qwen3-4b" 200 "$(call "$AGENTS_KEY" qwen3-4b 'Say OK. /no_thin
 if grep -q '"model":"qwen3-4b"' /tmp/body; then echo "ok   the reply names qwen3-4b"
 else echo "FAIL the reply does not name qwen3-4b: $(head -c 200 /tmp/body)"; fail=1; fi
 
+# The gateway times the first token and each token after it only on streamed replies.
+expect "a streamed reply" 200 "$(curl -s -o /tmp/body -w '%{http_code}' "$gw" \
+  -H "Authorization: Bearer $BENCHMARK_KEY" -H 'Content-Type: application/json' \
+  -d '{"model":"qwen3-4b","max_tokens":16,"stream":true,"messages":[{"role":"user","content":"Count to five. /no_think"}]}')"
+
 # The card number is masked before the model sees it, so the model cannot repeat it.
 # check.sh also confirms the gateway counted a mask, so a model that simply refused
 # to repeat cannot pass this.

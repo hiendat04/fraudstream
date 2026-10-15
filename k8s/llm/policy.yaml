@@ -24,3 +24,42 @@ spec:
             local:
               - {requests: 30, unit: Minutes, key: apiKey.consumer}
               - {tokens: 20000, unit: Minutes, key: apiKey.consumer}
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: llm-gateway-telemetry
+  namespace: llm
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+  frontend:
+    metrics:
+      attributes:
+        add:
+          - name: consumer
+            expression: apiKey.consumer
+    tracing:
+      backendRef:
+        name: jaeger
+        namespace: observability
+        port: 4317
+      protocol: GRPC
+      randomSampling: "true"
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: llm-gateway-traces
+  namespace: observability
+spec:
+  from:
+    - group: agentgateway.dev
+      kind: AgentgatewayPolicy
+      namespace: llm
+  to:
+    - group: ""
+      kind: Service
+      name: jaeger
