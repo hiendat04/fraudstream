@@ -41,3 +41,50 @@ spec:
         kinds:
           - group: agentgateway.dev
             kind: AgentgatewayModel
+
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: qwen3-4b
+  namespace: llm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+      sectionName: llm
+  match:
+    model: qwen3-4b
+  provider: Custom
+  custom:
+    providerOverride: llama-cpp
+    backendRef:
+      group: inference.networking.k8s.io
+      kind: InferencePool
+      name: qwen3-4b
+    formats:
+      - type: Completions
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: qwen3-1-7b
+  namespace: llm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+      sectionName: llm
+  match:
+    model: qwen3-1.7b
+  provider: Custom
+  custom:
+    providerOverride: llama-cpp
+    backendRef:
+      group: inference.networking.k8s.io
+      kind: InferencePool
+      name: qwen3-1-7b
+    formats:
+      - type: Completions

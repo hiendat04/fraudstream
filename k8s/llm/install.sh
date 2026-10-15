@@ -35,6 +35,16 @@ echo "==> model servers"
 kubectl apply -f k8s/llm/models/qwen3-4b.yaml -f k8s/llm/models/qwen3-1-7b.yaml >/dev/null
 kubectl -n llm rollout status deploy/qwen3-4b --timeout=10m
 
+# One endpoint picker and InferencePool per model, named after the model.
+echo "==> llm-d endpoint pickers ${LLMD_ROUTER_VERSION}"
+for pool in qwen3-4b qwen3-1-7b; do
+  helm upgrade --install "$pool" oci://ghcr.io/llm-d/charts/llm-d-router-gateway \
+    --version "$LLMD_ROUTER_VERSION" -n llm -f k8s/llm/router-values.yaml \
+    --set router.modelServers.matchLabels.app="$pool" \
+    --set router.monitoring.prometheus.auth.secretName="$pool-metrics-reader" \
+    --wait --timeout 5m >/dev/null
+done
+
 echo "==> the Gateway"
 kubectl apply -f k8s/llm/gateway.yaml >/dev/null
 kubectl -n llm wait --for=condition=Programmed gateway/llm-gateway --timeout=3m
