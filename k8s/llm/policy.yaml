@@ -1,0 +1,26 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: llm-gateway
+  namespace: llm
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+  traffic:
+    apiKeyAuthentication:
+      mode: Strict
+      secretRef:
+        name: llm-api-keys
+    rateLimit:
+      conditional:
+        - condition: apiKey.consumer == "benchmark"
+          policy:
+            local:
+              - {requests: 600, unit: Minutes, key: apiKey.consumer}
+              - {tokens: 2000000, unit: Minutes, key: apiKey.consumer}
+        - policy:
+            local:
+              - {requests: 30, unit: Minutes, key: apiKey.consumer}
+              - {tokens: 20000, unit: Minutes, key: apiKey.consumer}

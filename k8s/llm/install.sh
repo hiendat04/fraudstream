@@ -45,8 +45,27 @@ for pool in qwen3-4b qwen3-1-7b; do
     --wait --timeout 5m >/dev/null
 done
 
+# A key is made once per consumer and kept. The gateway only stores its hash, with
+# the consumer's name and the models it may use.
+echo "==> API keys"
+entry() {
+  local consumer=$1 models=$2 key hash
+  kubectl -n llm get secret "llm-key-$consumer" >/dev/null 2>&1 \
+    || kubectl -n llm create secret generic "llm-key-$consumer" --from-literal=key="$(openssl rand -hex 24)" >/dev/null
+  key=$(kubectl -n llm get secret "llm-key-$consumer" -o jsonpath='{.data.key}' | base64 -d)
+  hash=$(printf %s "$key" | shasum -a 256 | cut -d' ' -f1)
+  printf '{"keyHash":"sha256:%s","metadata":{"consumer":"%s","models":%s}}' "$hash" "$consumer" "$models"
+}
+kubectl -n llm create secret generic llm-api-keys \
+  --from-literal=benchmark="$(entry benchmark '["qwen3-4b","qwen3-1.7b"]')" \
+  --from-literal=agents="$(entry agents '["qwen3-4b"]')" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
 echo "==> the Gateway"
 kubectl apply -f k8s/llm/gateway.yaml >/dev/null
 kubectl -n llm wait --for=condition=Programmed gateway/llm-gateway --timeout=3m
+
+echo "==> policy"
+kubectl apply -f k8s/llm/policy.yaml >/dev/null
 
 echo "LLM gateway: http://llm-gateway.llm.svc.cluster.local:8080/v1"

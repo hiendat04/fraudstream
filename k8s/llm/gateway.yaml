@@ -41,7 +41,6 @@ spec:
         kinds:
           - group: agentgateway.dev
             kind: AgentgatewayModel
-
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayModel
@@ -65,6 +64,20 @@ spec:
       name: qwen3-4b
     formats:
       - type: Completions
+  policies:
+    authorization:
+      policy:
+        matchExpressions:
+          - '"qwen3-4b" in apiKey.models'
+    promptGuard:
+      request:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
+      response:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
 ---
 apiVersion: agentgateway.dev/v1alpha1
 kind: AgentgatewayModel
@@ -88,3 +101,17 @@ spec:
       name: qwen3-1-7b
     formats:
       - type: Completions
+  policies:
+    authorization:
+      policy:
+        matchExpressions:
+          - '"qwen3-1.7b" in apiKey.models'
+    promptGuard:
+      request:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
+      response:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
