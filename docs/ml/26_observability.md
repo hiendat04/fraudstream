@@ -6,7 +6,8 @@ Every payment leaves a trace in Jaeger and log lines in Elasticsearch that carry
 same trace id, so one payment can be followed from a dashboard to its log lines to its
 trace. Grafana shows all three, and Grafana, Kibana and Jaeger all sit behind the
 gateway. Once a day, an Airflow pipeline checks whether the model's inputs still look
-like its training data, and starts retraining when they don't.
+like its training data, and starts retraining when they don't. The LLM endpoint is
+watched too: tokens, timing and PII guard catches, per model and per consumer.
 
 ## What is collected, and where it goes
 
@@ -17,6 +18,7 @@ flowchart LR
         SVC["inference-api<br/>drift-detection<br/>NGINX gateway"]
         K8S["node and pods"]
         AF["Airflow<br/>drift DAG"]
+        LLM["LLM gateway<br/>model servers"]
     end
 
     subgraph OBS["observability namespace"]
@@ -39,6 +41,8 @@ flowchart LR
     SVC -- "scraped" --> PROM
     K8S -- "scraped" --> PROM
     AF -- "pushed through<br/>the Pushgateway" --> PROM
+    LLM -- "scraped" --> PROM
+    LLM -- "OTLP spans" --> JG
     JG --> JUI
     JG & ES & PROM --> GRAF
     ES --> KIB
@@ -91,6 +95,23 @@ The trace id starts in the inference API and travels in the `traceparent` header
 the drift API's span joins the same trace. The real payment above took 28 ms across
 two services and 7 spans. The health checks (`/livez`, `/readyz`) are left out of all
 three signals, because they come every few seconds and would bury the real traffic.
+
+## The LLM endpoint
+
+agentgateway measures every generation it forwards, and llama.cpp reports its own queue
+and tokens. Every gateway metric carries a `consumer` label taken from the caller's API
+key, so the agents and the benchmark are counted apart. Each call is also a trace in
+Jaeger.
+
+| Question | Metric |
+|---|---|
+| How many tokens does a request use, in, out and in total? | `agentgateway_gen_ai_client_token_usage{gen_ai_token_type}`, a histogram per request |
+| How long does a whole generation take? | `agentgateway_gen_ai_server_request_duration` |
+| How long until the first token? | `agentgateway_gen_ai_server_time_to_first_token` |
+| How fast do the tokens come after that? | `agentgateway_gen_ai_server_time_per_output_token` |
+| How often does the PII guard catch a prompt, and what does it do? | `agentgateway_guardrail_checks_total{phase,action}` |
+| Who was refused, and why? | `agentgateway_requests_total{status}` (401, 403, 404, 429) |
+| How busy is each model server? | `llamacpp:requests_processing`, `llamacpp:requests_deferred`, `llamacpp:tokens_predicted_total` |
 
 ## The drift pipeline
 
@@ -300,6 +321,27 @@ show what the model answers.
 
 ![Model drift dashboard, live panels](../../images/observability/17-grafana-model-drift-live.png)
 
+### The LLM endpoint
+
+**The LLM dashboard during a benchmark.** One request at a time to Qwen3-4B: about 6 s to
+the first token, about 125 ms per token after it, and 7 output tokens a second. Each request
+reads 1,213 tokens, 1,010 of them from cache, and writes 200.
+
+![LLM dashboard: requests, tokens and timing](../../images/llm/02-grafana-llm-dashboard-top.png)
+
+**Refusals and the PII guard.** Nothing was refused or masked during the benchmark. The
+share of prompts caught covers the last hour, so it includes the card number the
+acceptance check sent: 1.3%.
+
+![LLM dashboard: tokens, queue, refusals and PII](../../images/llm/03-grafana-llm-dashboard-bottom.png)
+
+**One LLM call in Jaeger.** The gateway's span for `POST /v1/chat/completions`, the call
+to the llm-d picker, and the call to the chosen model pod, 29.6 s in all.
+
+![One LLM call in Jaeger](../../images/llm/04-jaeger-llm-call.png)
+
+The rest is in [the LLM inference platform doc](../llm/29_llm_inference_platform.md).
+
 ### Memory
 
 After the load test, the `observability` pods used 3.57 GiB, above their 3 GiB
@@ -356,6 +398,13 @@ endpoint, and an empty endpoint turns tracing off.
 has caching on. A drift retrain always slides to a new window, so it trains for real,
 but forcing a second run on the same window would return the cached model.
 
+**Streamed LLM replies are not masked.** agentgateway masks streamed prompts, but not
+streamed replies, so callers that need masked replies don't stream. Time to first token
+and time per token are measured only for streamed replies.
+
+**A refused key has no consumer.** The `consumer` label comes from the key, so a request
+refused before its key is read (401) is counted without one.
+
 ## Where things are
 
 | Area | Location |
@@ -364,13 +413,14 @@ but forcing a second run on the same window would return the cached model.
 | Prometheus, Grafana, data sources | `k8s/observability/prometheus-values.yaml` |
 | Pushgateway | `k8s/observability/pushgateway-values.yaml` |
 | What Prometheus scrapes beyond the charts | `k8s/observability/servicemonitors.yaml` |
-| Dashboards | `k8s/observability/dashboards/{web-apis,compute,model-drift}.yaml` |
+| Dashboards | `k8s/observability/dashboards/{web-apis,compute,model-drift,llm}.yaml` |
 | Jaeger | `k8s/observability/jaeger.yaml` |
 | Elasticsearch, Kibana, Fluent Bit | `k8s/observability/logging.yaml`, `logging-setup.yaml`, `fluent-bit-values.yaml` |
 | UIs behind the gateway | `k8s/observability/ingress.yaml`, `k8s/gateway/pipelines.yaml` |
 | Request metrics | `api/src/fraudstream_api/metrics.py` |
 | Model metrics | `api/src/fraudstream_api/inference/telemetry.py` |
 | Traces | `api/src/fraudstream_api/tracing.py` |
+| LLM metrics labels and traces | `k8s/llm/policy.yaml` (`llm-gateway-telemetry`) |
 | JSON logs | `api/src/fraudstream_api/logs.py`, `api/logging.json` |
 | Drift check | `monitoring/src/fraudstream_monitoring/drift.py`, `summary.py` |
 | Publish to the Pushgateway | `monitoring/src/fraudstream_monitoring/publish.py`, `gateway.py` |

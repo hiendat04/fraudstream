@@ -1,0 +1,117 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: llm
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: llm-gateway
+  namespace: llm
+spec:
+  resources:
+    requests:
+      cpu: 100m
+      memory: 128Mi
+    limits:
+      memory: 512Mi
+  service:
+    spec:
+      type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: llm-gateway
+  namespace: llm
+spec:
+  gatewayClassName: agentgateway
+  infrastructure:
+    parametersRef:
+      group: agentgateway.dev
+      kind: AgentgatewayParameters
+      name: llm-gateway
+  listeners:
+    - name: llm
+      port: 8080
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+        kinds:
+          - group: agentgateway.dev
+            kind: AgentgatewayModel
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: qwen3-4b
+  namespace: llm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+      sectionName: llm
+  match:
+    model: qwen3-4b
+  provider: Custom
+  custom:
+    providerOverride: llama-cpp
+    backendRef:
+      group: inference.networking.k8s.io
+      kind: InferencePool
+      name: qwen3-4b
+    formats:
+      - type: Completions
+  policies:
+    authorization:
+      policy:
+        matchExpressions:
+          - '"qwen3-4b" in apiKey.models'
+    promptGuard:
+      request:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
+      response:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: qwen3-1-7b
+  namespace: llm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+      sectionName: llm
+  match:
+    model: qwen3-1.7b
+  provider: Custom
+  custom:
+    providerOverride: llama-cpp
+    backendRef:
+      group: inference.networking.k8s.io
+      kind: InferencePool
+      name: qwen3-1-7b
+    formats:
+      - type: Completions
+  policies:
+    authorization:
+      policy:
+        matchExpressions:
+          - '"qwen3-1.7b" in apiKey.models'
+    promptGuard:
+      request:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask
+      response:
+        - regex:
+            builtins: [CreditCard, Email, PhoneNumber]
+            action: Mask

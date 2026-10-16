@@ -6,3 +6,7 @@ gateways between them. Each doc is added here when its part is built.
 
 The fraud model still makes every fraud decision. The LLM layer fetches facts,
 explains them and cites its sources.
+
+| Doc | What it covers |
+|---|---|
+| [29 · LLM inference platform](29_llm_inference_platform.md) | Qwen3 on llama.cpp behind llm-d and agentgateway: keys, limits, PII masking, telemetry, benchmark |

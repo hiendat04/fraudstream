@@ -1,0 +1,44 @@
+provider:
+  name: none
+httpRoute:
+  create: false
+router:
+  monitoring:
+    prometheus:
+      enabled: true
+  epp:
+    pluginsConfigFile: llamacpp.yaml
+    pluginsConfig:
+      apiVersion: llm-d.ai/v1alpha1
+      kind: EndpointPickerConfig
+      plugins:
+        - type: queue-scorer
+        - type: kv-cache-utilization-scorer
+        - type: prefix-cache-scorer
+        - type: metrics-data-source
+          parameters:
+            scheme: http
+            path: /metrics
+        - type: core-metrics-extractor
+          parameters:
+            defaultEngine: llamacpp
+            engineConfigs:
+              - name: llamacpp
+                queuedRequestsSpec: "llamacpp:requests_deferred"
+                runningRequestsSpec: "llamacpp:requests_processing"
+                kvUsageSpec: "llamacpp:kv_cache_usage_ratio"
+      schedulingProfiles:
+        - name: default
+          plugins:
+            - pluginRef: queue-scorer
+              weight: 2
+            - pluginRef: kv-cache-utilization-scorer
+              weight: 2
+            - pluginRef: prefix-cache-scorer
+              weight: 3
+    resources:
+      requests:
+        cpu: 200m
+        memory: 256Mi
+      limits:
+        memory: 512Mi
