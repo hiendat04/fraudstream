@@ -1,0 +1,39 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: __JOB__
+  namespace: llm
+spec:
+  backoffLimit: 0
+  activeDeadlineSeconds: 5400
+  template:
+    spec:
+      restartPolicy: Never
+      containers:
+        - name: guidellm
+          image: __IMAGE__
+          env:
+            - name: KEY
+              valueFrom: {secretKeyRef: {name: llm-key-benchmark, key: key}}
+            - {name: MODEL, value: "__MODEL__"}
+            - {name: HOME, value: /tmp}
+          command: ["/bin/sh", "-c"]
+          args:
+            - |
+              set -e
+              backend=$(printf '{"kind":"openai_http","target":"http://llm-gateway.llm.svc.cluster.local:8080","model":"%s","api_key":"%s","validate_backend":false}' "$MODEL" "$KEY")
+              guidellm run \
+                --backend "$backend" \
+                --profile kind=goodput,target_attainment=0.95,initial_streams=1 \
+                --data kind=synthetic_text,prefix_tokens=1000,prefix_count=__PREFIXES__,prompt_tokens=200,output_tokens=200 \
+                --tokenizer kind=huggingface_auto,model=Qwen/Qwen3-4B \
+                --metrics '{"kind":"generative","slo":{"ttft_ms":8000,"tpot_ms":400}}' \
+                --constraint kind=max_duration,seconds=900 \
+                --seed kind=static,value=42 \
+                --disable-console-interactive \
+                --output kind=json,path=/tmp/report.json
+              echo "===REPORT==="
+              cat /tmp/report.json
+          resources:
+            requests: {cpu: 500m, memory: 512Mi}
+            limits: {memory: 2Gi}
