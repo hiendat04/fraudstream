@@ -27,6 +27,17 @@ Kept = higher goodput; on a tie, more output tokens per second. The report for e
 
 **Winner:** Q4_0 weights, 8 threads, 1 slot, 8,192-token context. Only the weights changed from the baseline.
 
+## Routing: plain Service vs the llm-d picker
+
+Two copies of Qwen3-1.7B (Q4_K_M, 4 threads, 2 slots each; the 4B is scaled to 0 to free memory), with
+4 different shared prefixes, as if four agents with different system prompts used the model.
+Only the `backendRef` of the `qwen3-1-7b` model in `k8s/llm/gateway.yaml` differs. Both runs start with empty caches.
+
+| # | `backendRef` | Goodput (concurrency) | Requests/s | Output tokens/s | TTFT p50 / p95 (s) | Time per output token p50 / p95 (ms) | Prefix found in cache |
+|---|---|---|---|---|---|---|---|
+| 5 | plain Service `qwen3-1-7b`, port 8000 | none (fails at 1) | 0.014 | 2.9 | 47.0 / 48.7 | 389 / 403 | 5 of 13 requests |
+| 6 | InferencePool `qwen3-1-7b` (llm-d picker) | none (fails at 1) | 0.016 | 3.1 | **10.7** / 48.9 | **213** / 402 | **9 of 14** requests |
+
 ## 0. Baseline
 
 Even one request at a time misses the SLA, so there is no goodput.
@@ -84,3 +95,15 @@ The 8 threads use whatever cores the laptop frees up; 6 cannot. Not kept.
 `--cache-reuse` helps when a cached prompt reappears shifted inside a new one. Here every request
 starts with the same prefix, which llama.cpp already reuses (1,010 of 1,213 tokens from the cache),
 so there is nothing left for it to find.
+
+## 5–6. Routing
+
+The picker sends a request to the pod that already holds its prefix; the Service sends it round-robin.
+
+- The prefix is found in the cache for 9 of 14 requests through the picker, against 5 of 13 through the Service.
+- A cache hit skips reading 1,000 tokens, so median TTFT falls from 47.0 s to 10.7 s.
+- p95 is the same (about 49 s): the requests that miss the cache read the whole prompt either way.
+- Neither meets the SLA: two 1.7B pods share the same 4–5 cores, and Q4_K_M has no fast arm64 path.
+
+Both pods do work in both runs (`images/llm/01-grafana-routing-service.png`,
+`images/llm/02-grafana-routing-picker.png`), so the gain comes from where requests land, not from balance.
