@@ -19,7 +19,7 @@ spec:
           image: ghcr.io/ggml-org/llama.cpp:server-b11610
           args:
             - --model
-            - /models/Qwen3-4B-Q4_K_M.gguf
+            - /models/Qwen3-4B-Q4_0.gguf
             - --alias
             - qwen3-4b
             - --jinja

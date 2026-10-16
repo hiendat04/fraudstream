@@ -24,7 +24,7 @@ spec:
               backend=$(printf '{"kind":"openai_http","target":"http://llm-gateway.llm.svc.cluster.local:8080","model":"%s","api_key":"%s","validate_backend":false}' "$MODEL" "$KEY")
               guidellm run \
                 --backend "$backend" \
-                --profile kind=goodput,target_attainment=0.95,initial_streams=1 \
+                --profile __PROFILE__ \
                 --data kind=synthetic_text,prefix_tokens=1000,prefix_count=__PREFIXES__,prompt_tokens=200,output_tokens=200 \
                 --tokenizer kind=huggingface_auto,model=Qwen/Qwen3-4B \
                 --metrics '{"kind":"generative","slo":{"ttft_ms":8000,"tpot_ms":400}}' \
