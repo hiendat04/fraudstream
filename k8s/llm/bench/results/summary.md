@@ -105,5 +105,5 @@ The picker sends a request to the pod that already holds its prefix; the Service
 - p95 is the same (about 49 s): the requests that miss the cache read the whole prompt either way.
 - Neither meets the SLA: two 1.7B pods share the same 4–5 cores, and Q4_K_M has no fast arm64 path.
 
-Both pods do work in both runs (`images/llm/01-grafana-routing-service.png`,
-`images/llm/02-grafana-routing-picker.png`), so the gain comes from where requests land, not from balance.
+Both pods do work in both runs (`images/llm/05-grafana-routing-service.png`,
+`images/llm/06-grafana-routing-picker.png`), so the gain comes from where requests land, not from balance.
