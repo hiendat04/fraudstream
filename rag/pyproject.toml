@@ -1,0 +1,46 @@
+[project]
+name = "fraudstream-rag"
+version = "0.1.0"
+description = "The RAG pipeline: documents to chunks to embeddings to Feast, and the embedding model it shares with the context API"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "feast[spark,postgres]==0.66.0",
+    "pyspark==4.1.2",
+    "onnxruntime==1.31.0",
+    "tokenizers==0.23.3",
+    "numpy>=2,<3",
+    "pandas>=2.2,<3",
+    "httpx==0.28.1",
+    "pyyaml==6.0.3",
+    "boto3>=1.34",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "mutmut==3.8.0",
+    "hypothesis==6.168.0",
+    "hypothesis-crosshair==0.0.30",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "../src", "../feature_store/src", "."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/fraudstream_rag"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if __name__ == .__main__.:"]
+fail_under = 90
+
+[tool.mutmut]
+source_paths = ["src/fraudstream_rag"]
+pytest_add_cli_args_test_selection = ["tests"]
+also_copy = ["feature_repo", "checks", "handbook"]
