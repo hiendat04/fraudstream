@@ -1,0 +1,27 @@
+top_k: 5
+min_hit_rate: 0.9
+questions:
+  - question: Many small payments on one card within a few minutes. What is going on?
+    expect: handbook/typology-card-testing
+  - question: Several customers are paying from the same device and IP address.
+    expect: handbook/typology-fraud-rings
+  - question: When can an analyst release a held payment?
+    expect: handbook/review-policy
+  - question: Who has to agree before a payment above 5,000 USD is blocked?
+    expect: handbook/review-policy
+  - question: What may I ask the cardholder to check who they are?
+    expect: handbook/customer-contact
+  - question: Can I paste the full card number into a case note?
+    expect: handbook/data-handling
+  - question: A 900 USD payment abroad at 3 am. Should I block the card?
+    expect: handbook/typology-high-value-cross-border
+  - question: A new device with no 3-D Secure made a large cash transfer.
+    expect: handbook/typology-account-takeover
+  - question: What threshold does the fraud detection model use to hold a payment?
+    expect: model-cards/
+  - question: How good is the model? What is its PR-AUC?
+    expect: model-cards/
+  - question: Which features describe a merchant's risk?
+    expect: feature-dictionary/merchant_risk_features
+  - question: What does the 5-minute customer window contain?
+    expect: feature-dictionary/customer_features_5m_stream

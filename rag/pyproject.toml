@@ -4,7 +4,7 @@ version = "0.1.0"
 description = "The RAG pipeline: documents to chunks to embeddings to Feast, and the embedding model it shares with the context API"
 requires-python = ">=3.12,<3.13"
 dependencies = [
-    "feast[spark,postgres]==0.66.0",
+    "feast[spark,postgres,redis]==0.66.0",
     "pyspark==4.1.2",
     "onnxruntime==1.31.0",
     "tokenizers==0.23.3",
