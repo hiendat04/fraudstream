@@ -1,0 +1,35 @@
+contractFormat: fraudstream-data-contract/v1
+metadata:
+  id: fraudstream.rag-index
+  version: 1.0.0
+  status: active
+  owner: fraudstream-data-platform
+  pipeline: fraudstream_rag_index
+datasets:
+  - name: rag.chunks
+    grain: one row per section of a handbook page, a model card or a feature view page
+    requiredFields: [chunk_id, doc_id, source, title, heading, text, content_hash, embedding, updated_at]
+  - name: llm.rag.fraudstream_rag_document_chunks
+    grain: one Feast row per chunk and feature, searched by vector
+    requiredFields: [chunk_id, doc_id, source, title, heading, text, content_hash, embedding]
+qualityRules:
+  - id: rag-sources-present
+    target: rag.chunks
+    description: Every source gives documents, and every document is safe to index.
+    evaluator: rag_sources_present
+    severity: HIGH
+  - id: rag-chunks-embedded
+    target: rag.chunks
+    description: Every chunk has a 768-dimension vector of length 1 from the pinned model.
+    evaluator: rag_chunks_embedded
+    severity: HIGH
+  - id: rag-stores-agree
+    target: llm.rag.fraudstream_rag_document_chunks
+    description: The pgvector store holds exactly the chunks the Iceberg table holds.
+    evaluator: rag_stores_agree
+    severity: HIGH
+  - id: rag-golden-retrieval
+    target: llm.rag.fraudstream_rag_document_chunks
+    description: Golden questions find their document in the top five results through Feast.
+    evaluator: rag_golden_retrieval
+    severity: MEDIUM

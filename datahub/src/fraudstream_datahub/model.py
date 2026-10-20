@@ -173,6 +173,40 @@ OFFLINE_FEATURE_DATASETS = tuple(
     for table_name in OFFLINE_FEATURE_TABLE_NAMES
 )
 
+RAG_SUMMARY = "data/rag/_rag_index_summary.json"
+RAG_SOURCES = ("handbook", "model_card", "feature_dictionary")
+RAG_DIMENSIONS = 768
+RAG_HANDBOOK = DatasetRef(
+    platform="s3",
+    name="fraudstream/rag/handbook",
+    layer="source",
+    description="The fraud-operations handbook in Markdown, copied from Git by CI.",
+)
+RAG_MODEL_CARDS = DatasetRef(
+    platform="mlflow",
+    name="fraud-detection",
+    layer="source",
+    description="Every registered version of the fraud detection model, read as a model card.",
+)
+RAG_FEATURE_DICTIONARY = DatasetRef(
+    platform="feast",
+    name="fraudstream",
+    layer="source",
+    description="The fraudstream feature views in the Feast registry, read as a feature dictionary.",
+)
+RAG_CHUNKS = DatasetRef(
+    platform="iceberg",
+    name="rag.chunks",
+    layer="rag",
+    description="Every chunk the copilot can cite, with its embedding; one Iceberg snapshot per change.",
+)
+RAG_ONLINE_CHUNKS = DatasetRef(
+    platform=POSTGRES_PLATFORM,
+    name="llm.rag.fraudstream_rag_document_chunks",
+    layer="rag",
+    description="Feast's pgvector online store for the chunks, which the context API searches.",
+)
+
 DATASETS_BY_NAME = {
     dataset.name: dataset
     for dataset in (
@@ -183,6 +217,11 @@ DATASETS_BY_NAME = {
         SILVER_QUALITY_ISSUES,
         *CORE_GOLD_DATASETS,
         *OFFLINE_FEATURE_DATASETS,
+        RAG_HANDBOOK,
+        RAG_MODEL_CARDS,
+        RAG_FEATURE_DICTIONARY,
+        RAG_CHUNKS,
+        RAG_ONLINE_CHUNKS,
     )
 }
 
@@ -240,7 +279,42 @@ PIPELINES = (
             (_gold("feat_merchant_risk_rolling"), _gold("feat_transaction_training")),
         ),
     ),
+    PipelineSpec(
+        pipeline_id="fraudstream_rag_index",
+        title="RAG Index",
+        dag_id="fraudstream_rag_index",
+        description="Load the handbook, model cards and feature dictionary; validate, chunk and embed them; write Iceberg and pgvector; check retrieval.",
+        inputs=(RAG_HANDBOOK, RAG_MODEL_CARDS, RAG_FEATURE_DICTIONARY),
+        outputs=(RAG_CHUNKS, RAG_ONLINE_CHUNKS),
+        lineage=(
+            (RAG_HANDBOOK, RAG_CHUNKS),
+            (RAG_MODEL_CARDS, RAG_CHUNKS),
+            (RAG_FEATURE_DICTIONARY, RAG_CHUNKS),
+            (RAG_CHUNKS, RAG_ONLINE_CHUNKS),
+        ),
+    ),
 )
+
+
+def selected_pipelines(pipeline_id: str | None) -> tuple[PipelineSpec, ...]:
+    """Every pipeline, or just the one a DAG publishes for itself."""
+
+    if pipeline_id is None:
+        return PIPELINES
+    chosen = tuple(pipeline for pipeline in PIPELINES if pipeline.pipeline_id == pipeline_id)
+    if not chosen:
+        raise ContractError(f"unknown pipeline: {pipeline_id}")
+    return chosen
+
+
+def pipeline_datasets(pipelines: tuple[PipelineSpec, ...]) -> tuple[DatasetRef, ...]:
+    """The datasets these pipelines read or write, each once."""
+
+    found: dict[str, DatasetRef] = {}
+    for pipeline in pipelines:
+        for dataset in (*pipeline.inputs, *pipeline.outputs):
+            found.setdefault(dataset.name, dataset)
+    return tuple(found.values())
 
 
 class ContractError(ValueError):
@@ -376,28 +450,40 @@ def contract_index(
 
 
 def validate_contract_schema(project_root: Path, contracts: tuple[ContractSpec, ...]) -> None:
-    """Fail publishing when a contract requires a column absent from PostgreSQL DDL."""
+    """Fail publishing when a contract requires a column absent from PostgreSQL DDL.
 
+    Only the fraudstream database has DDL in the repository. The RAG tables are
+    made by Spark and Feast, and their columns are checked by the RAG tests.
+    """
+
+    tables = [
+        (contract, dataset)
+        for contract in contracts
+        for dataset in contract.datasets
+        if DATASETS_BY_NAME[dataset.name].platform == POSTGRES_PLATFORM
+        and dataset.name.startswith(f"{DATABASE_NAME}.")
+    ]
+    if not tables:
+        return
     schema_path = project_root / "infra/postgres/init/001_create_fraudstream_schema.sql"
     if not schema_path.is_file():
         raise ContractError(f"PostgreSQL schema is missing: {schema_path}")
     sql = schema_path.read_text(encoding="utf-8")
-    for contract in contracts:
-        for dataset in contract.datasets:
-            _, schema, table = dataset.name.split(".", maxsplit=2)
-            marker = f"CREATE TABLE IF NOT EXISTS {schema}.{table} ("
-            if marker not in sql:
-                raise ContractError(f"contract table is absent from PostgreSQL DDL: {dataset.name}")
-            table_block = sql.split(marker, maxsplit=1)[1].split("\nCREATE ", maxsplit=1)[0]
-            columns = set(
-                re.findall(r"^\s{4}([A-Za-z_][A-Za-z0-9_]*)\s+", table_block, re.MULTILINE)
+    for contract, dataset in tables:
+        _, schema, table = dataset.name.split(".", maxsplit=2)
+        marker = f"CREATE TABLE IF NOT EXISTS {schema}.{table} ("
+        if marker not in sql:
+            raise ContractError(f"contract table is absent from PostgreSQL DDL: {dataset.name}")
+        table_block = sql.split(marker, maxsplit=1)[1].split("\nCREATE ", maxsplit=1)[0]
+        columns = set(
+            re.findall(r"^\s{4}([A-Za-z_][A-Za-z0-9_]*)\s+", table_block, re.MULTILINE)
+        )
+        missing_fields = sorted(set(dataset.required_fields) - columns)
+        if missing_fields:
+            raise ContractError(
+                f"contract {contract.contract_id} requires missing fields on "
+                f"{dataset.name}: {', '.join(missing_fields)}"
             )
-            missing_fields = sorted(set(dataset.required_fields) - columns)
-            if missing_fields:
-                raise ContractError(
-                    f"contract {contract.contract_id} requires missing fields on "
-                    f"{dataset.name}: {', '.join(missing_fields)}"
-                )
 
 
 def result_index(results: tuple[ValidationResult, ...]) -> dict[str, tuple[ValidationResult, ...]]:
@@ -557,6 +643,61 @@ def _training_id_uniqueness(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
     }
 
 
+def _rag_part(root: Path, part: str) -> Mapping[str, Any]:
+    return _mapping(_read_json(root, RAG_SUMMARY), part, Path(RAG_SUMMARY))
+
+
+def _rag_sources_present(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
+    validation = _rag_part(root, "validation")
+    documents = _mapping(validation, "documents", Path(RAG_SUMMARY))
+    problems = _list(validation, "problems", Path(RAG_SUMMARY))
+    counts = {source: _integer(documents, source) for source in RAG_SOURCES}
+    passed = not problems and all(count > 0 for count in counts.values())
+    return passed, "Every source must give documents, and every document must be safe to index.", {
+        **counts,
+        "problems": len(problems),
+    }
+
+
+def _rag_chunks_embedded(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
+    embedded = _rag_part(root, "embed")
+    chunks = _integer(embedded, "chunks")
+    dimensions = _list(embedded, "dimensions", Path(RAG_SUMMARY))
+    lowest, highest = float(embedded["min_norm"]), float(embedded["max_norm"])
+    passed = chunks > 0 and dimensions == [RAG_DIMENSIONS] and abs(lowest - 1) < 1e-3 and abs(highest - 1) < 1e-3
+    return passed, f"Every chunk must have a {RAG_DIMENSIONS}-dimension vector of length 1.", {
+        "chunks": chunks,
+        "dimensions": ",".join(str(dimension) for dimension in dimensions),
+        "min_norm": lowest,
+        "max_norm": highest,
+    }
+
+
+def _rag_stores_agree(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
+    chunks = _integer(_rag_part(root, "embed"), "chunks")
+    offline_rows = _integer(_rag_part(root, "offline"), "rows")
+    online_rows = _integer(_rag_part(root, "online"), "rows")
+    passed = chunks > 0 and chunks == offline_rows == online_rows
+    return passed, "The Iceberg table and the pgvector store must hold exactly the current chunks.", {
+        "chunks": chunks,
+        "offline_rows": offline_rows,
+        "online_rows": online_rows,
+    }
+
+
+def _rag_golden_retrieval(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
+    retrieval = _rag_part(root, "retrieval")
+    questions = _integer(retrieval, "questions")
+    hits = _integer(retrieval, "hits")
+    passed = questions > 0 and retrieval.get("passed") is True
+    return passed, "Golden questions must find their document in the top results through Feast.", {
+        "questions": questions,
+        "hits": hits,
+        "top_k": _integer(retrieval, "top_k"),
+        "min_hit_rate": retrieval.get("min_hit_rate", "missing"),
+    }
+
+
 Evaluator = Callable[[Path], tuple[bool, str, Mapping[str, Any]]]
 EVALUATORS: dict[str, Evaluator] = {
     "bronze_row_reconciliation": _bronze_row_reconciliation,
@@ -567,6 +708,10 @@ EVALUATORS: dict[str, Evaluator] = {
     "gold_core_table_completeness": _gold_core_table_completeness,
     "training_row_grain": _training_row_grain,
     "training_id_uniqueness": _training_id_uniqueness,
+    "rag_sources_present": _rag_sources_present,
+    "rag_chunks_embedded": _rag_chunks_embedded,
+    "rag_stores_agree": _rag_stores_agree,
+    "rag_golden_retrieval": _rag_golden_retrieval,
 }
 
 

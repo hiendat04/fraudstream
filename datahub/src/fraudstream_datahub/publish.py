@@ -10,7 +10,6 @@ from typing import Any, Sequence
 
 from fraudstream_datahub.model import (
     DATASETS_BY_NAME,
-    PIPELINES,
     ContractSpec,
     DatasetRef,
     ValidationResult,
@@ -18,7 +17,9 @@ from fraudstream_datahub.model import (
     dataset_validation_status,
     evaluate_contracts,
     load_contracts,
+    pipeline_datasets,
     result_index,
+    selected_pipelines,
     validate_contract_schema,
 )
 
@@ -34,25 +35,27 @@ def build_report(
     contract_dir: Path,
     env: str,
     platform_instance: str = DEFAULT_PLATFORM_INSTANCE,
+    pipeline_id: str | None = None,
 ) -> tuple[tuple[ContractSpec, ...], tuple[ValidationResult, ...], dict[str, Any]]:
-    """Build and validate all metadata before touching DataHub."""
+    """Build and validate the metadata of every pipeline, or of one, before touching DataHub."""
 
-    contracts = load_contracts(contract_dir)
+    pipelines = selected_pipelines(pipeline_id)
+    chosen = {pipeline.pipeline_id for pipeline in pipelines}
+    contracts = tuple(contract for contract in load_contracts(contract_dir) if contract.pipeline_id in chosen)
     validate_contract_schema(project_root, contracts)
     results = evaluate_contracts(project_root, contracts)
     statuses = {status: 0 for status in ("SUCCESS", "FAILURE", "ERROR")}
     for result in results:
         statuses[result.status] += 1
+    datasets = pipeline_datasets(pipelines)
     report = {
-        "pipelines": [pipeline.pipeline_id for pipeline in PIPELINES],
-        "dataset_count": len(DATASETS_BY_NAME),
+        "pipelines": [pipeline.pipeline_id for pipeline in pipelines],
+        "dataset_count": len(datasets),
         "contract_count": len(contracts),
         "contract_schema_check": "SUCCESS",
         "assertion_count": len(results),
         "assertion_status_counts": statuses,
-        "dataset_urns": sorted(
-            dataset.urn(env, platform_instance) for dataset in DATASETS_BY_NAME.values()
-        ),
+        "dataset_urns": sorted(dataset.urn(env, platform_instance) for dataset in datasets),
     }
     return contracts, results, report
 
@@ -66,16 +69,18 @@ def publish(
     ui_url: str,
     env: str,
     platform_instance: str,
+    pipeline_id: str | None = None,
 ) -> dict[str, Any]:
-    """Upsert the complete governance graph and measured assertion results."""
+    """Upsert the governance graph, of every pipeline or of one, and measured assertion results."""
 
     from datahub.ingestion.graph.client import DatahubClientConfig, DataHubGraph
     from datahub.configuration.common import GraphError
     from datahub.sdk import DataFlow, DataHubClient, DataJob, Dataset
 
     contracts, results, report = build_report(
-        project_root, contract_dir, env, platform_instance
+        project_root, contract_dir, env, platform_instance, pipeline_id
     )
+    pipelines = selected_pipelines(pipeline_id)
     contracts_by_dataset = contract_index(contracts)
     results_by_dataset = result_index(results)
 
@@ -85,7 +90,7 @@ def publish(
     client = DataHubClient(graph=graph)
     client.test_connection()
 
-    for dataset in DATASETS_BY_NAME.values():
+    for dataset in pipeline_datasets(pipelines):
         contract_entry = contracts_by_dataset.get(dataset.name)
         dataset_results = results_by_dataset.get(dataset.name, ())
         properties = _dataset_properties(
@@ -106,7 +111,7 @@ def publish(
         )
         client.entities.upsert(entity)
 
-    for pipeline in PIPELINES:
+    for pipeline in pipelines:
         airflow_url = f"{ui_url.rstrip('/')}/dags/{pipeline.dag_id}"
         flow = DataFlow(
             name=pipeline.pipeline_id,
@@ -259,6 +264,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ui-url", default=DEFAULT_UI_URL)
     parser.add_argument("--env", default=DEFAULT_ENV)
     parser.add_argument("--platform-instance", default=DEFAULT_PLATFORM_INSTANCE)
+    parser.add_argument("--pipeline", help="publish only this pipeline, e.g. fraudstream_rag_index")
     parser.add_argument(
         "--dry-run",
         action="store_true",
@@ -277,7 +283,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     )
     if args.dry_run:
         _, _, report = build_report(
-            project_root, contract_dir, args.env, args.platform_instance
+            project_root, contract_dir, args.env, args.platform_instance, args.pipeline
         )
     else:
         report = publish(
@@ -288,6 +294,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             ui_url=args.ui_url,
             env=args.env,
             platform_instance=args.platform_instance,
+            pipeline_id=args.pipeline,
         )
     print(json.dumps(report, indent=2, sort_keys=True))
     return 0

@@ -78,3 +78,10 @@ def test_the_registry_and_lakehouse_settings_are_the_fraudstream_projects() -> N
         if rag["offline_store"]["spark_conf"].get(key) != main["offline_store"]["spark_conf"].get(key)
     }
     assert differing == {"spark.app.name"}
+
+
+def test_the_datahub_contract_names_only_chunk_columns() -> None:
+    contract = yaml.safe_load((MAIN_REPO.parents[1] / "datahub" / "contracts" / "rag_index.contract.yaml").read_text())
+
+    for dataset in contract["datasets"]:
+        assert set(dataset["requiredFields"]) <= set(CHUNK_COLUMNS), dataset["name"]
