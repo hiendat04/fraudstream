@@ -110,6 +110,8 @@ def create_app(
             fraud_probability=answer.probability,
             model_version=answer.version,
             history_found=found,
+            threshold=answer.threshold,
+            flagged=None if answer.threshold is None else answer.probability >= answer.threshold,
         )
 
     @app.get("/livez")

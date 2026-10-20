@@ -51,3 +51,6 @@ class Prediction(BaseModel):
     fraud_probability: float
     model_version: str
     history_found: dict[str, bool]
+    # The model's own decision, so whoever explains the score never has to make one.
+    threshold: float | None
+    flagged: bool | None

@@ -7,6 +7,7 @@ and no model.
 import unittest
 from datetime import UTC, datetime, timedelta
 
+import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
@@ -275,6 +276,31 @@ class DriftFeedWiringTest(unittest.TestCase):
             self.assertIsInstance(feed, DriftFeed)
             self.assertEqual("http://drift-detection/v1/observations", feed._url)
             self.assertEqual(0.5, feed._http.timeout.read)
+
+
+@pytest.mark.parametrize(
+    ("probability", "flagged"),
+    [
+        pytest.param(0.4999, False, id="just-below-the-threshold-is-not-flagged"),
+        pytest.param(0.5, True, id="at-the-threshold-is-flagged"),
+    ],
+)
+def test_the_answer_carries_the_models_threshold_and_decision(
+    inference_settings, payment, probability, flagged
+):
+    model = FakeModel(probability=probability, threshold=0.5)
+    app = create_app(inference_settings, reader=FakeReader(), model=model, drift=FakeDrift())
+    with TestClient(app) as client:
+        body = client.post("/v1/predict", json=payment).json()
+    assert (body["threshold"], body["flagged"]) == (0.5, flagged)
+
+
+def test_a_model_server_without_a_threshold_leaves_the_decision_open(inference_settings, payment):
+    model = FakeModel(threshold=None)
+    app = create_app(inference_settings, reader=FakeReader(), model=model, drift=FakeDrift())
+    with TestClient(app) as client:
+        body = client.post("/v1/predict", json=payment).json()
+    assert body["threshold"] is None and body["flagged"] is None
 
 
 if __name__ == "__main__":
