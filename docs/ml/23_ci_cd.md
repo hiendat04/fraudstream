@@ -1,8 +1,8 @@
 # CI/CD with Jenkins
 
 Every push is tested. A push to the deploy branch is also built and deployed:
-the two web APIs, the KServe model, the training pipeline, the Airflow pipelines
-and the stream push job. Secrets live in Jenkins, never in the repository.
+the two web APIs, the KServe model, the training pipeline, the Airflow pipelines,
+the RAG pipeline and the stream push job. Secrets live in Jenkins, never in the repository.
 
 ## Architecture
 
@@ -16,7 +16,7 @@ flowchart LR
 
         subgraph JENKINS["Jenkins container · multibranch job 'fraudstream'"]
             direction LR
-            CI["<b>CI · every branch</b><br/>7 test suites<br/>in parallel"]
+            CI["<b>CI · every branch</b><br/>9 test suites<br/>in parallel"]
             GATE{"deploy branch<br/>and files<br/>changed?"}
             STOP(["tested only"])
             CD["<b>CD · deploy branch</b><br/>build image<br/>tag = commit"]
@@ -37,7 +37,7 @@ flowchart LR
         subgraph COMPOSE["docker compose"]
             direction TB
             TREE[/"deploy folder<br/>AIRFLOW_PROJECT_DIR"/]
-            AF["Airflow<br/>4 DAGs"]
+            AF["Airflow<br/>6 DAGs"]
             SP["feast-stream-push<br/>offline + online"]
             TREE --> AF
             TREE --> SP
@@ -49,6 +49,7 @@ flowchart LR
     CD -- "port-forward + upload" --> KFP
     CD -- "rsync + reserialize" --> TREE
     CD -- "restart" --> SP
+    CD -- "build image, copy handbook, trigger run" --> AF
 ```
 
 Jenkins runs in the Compose stack and joins two networks: `kind`, to reach the
@@ -61,11 +62,13 @@ the host's Docker through a mounted socket, so images never leave the machine.
 | Drift detection API | `api/src`, `api/reference`, its Dockerfile, the chart, the gateway scripts | answers with `x-app-version` = commit, then passes the gateway check, or is rolled back |
 | KServe model server | `serving/src`, its Dockerfile, `k8s/models` | a real payment scores through the API |
 | Training pipeline | `ml/src`, `pipelines/src`, `k8s/Dockerfile.ml` | a version named after the commit exists |
-| Airflow pipelines | `airflow`, `src`, `configs`, feature store code | four DAGs listed, no import errors |
+| Airflow pipelines | `airflow`, `src`, `configs`, feature store code | six DAGs listed, no import errors |
+| RAG pipeline | `rag`, its DAG, the Airflow Dockerfile, the DataHub code | a triggered run of `fraudstream_rag_index` succeeds |
 | Stream push job | feature store code, `src` | still running 30 s after restart |
 
 Deploying a pipeline registers it; it does not run it. Airflow DAGs and training
-runs are still started by hand.
+runs are still started by hand. The RAG pipeline is the exception: a deploy that
+indexes nothing proves nothing, so the stage also runs it and waits.
 
 ## Demo
 
@@ -159,5 +162,8 @@ Parameters → DEPLOY_ALL** redeploys everything without a code change.
   applies the manifest with only the image tag changed.
 - **The JVM ignores `$HOME`.** Spark's 1.2 GB jar cache is pointed at the Jenkins
   volume with `spark.jars.ivy`; otherwise concurrent builds raced to download it.
+- **The RAG stage builds the Airflow image, but a person recreates Airflow.** Recreating
+  it would kill running tasks, so the build turns unstable until
+  `docker compose --profile orchestration up -d` is run.
 - **A change to a Dockerfile's dependencies** for the stream push job still needs
   `docker compose --profile feature-store up -d --build feast-stream-push`.
