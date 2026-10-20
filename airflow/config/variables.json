@@ -17,5 +17,8 @@
   "fraudstream_feature_store_start_timestamp": "2026-01-01T00:00:00+00:00",
   "fraudstream_feature_store_summary_path": "/opt/airflow/project/data/gold/_feature_store_materialization_summary.json",
   "fraudstream_drift_reference_path": "/opt/airflow/project/api/reference/fraud-detection-v2.json",
-  "fraudstream_drift_summary_dir": "/opt/airflow/project/data/monitoring/drift"
+  "fraudstream_drift_summary_dir": "/opt/airflow/project/data/monitoring/drift",
+  "fraudstream_rag_handbook_uri": "s3a://fraudstream/rag/handbook",
+  "fraudstream_rag_run_dir": "/opt/airflow/project/data/rag/runs",
+  "fraudstream_rag_summary_path": "/opt/airflow/project/data/rag/_rag_index_summary.json"
 }

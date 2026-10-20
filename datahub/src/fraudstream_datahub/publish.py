@@ -24,7 +24,7 @@ from fraudstream_datahub.model import (
 )
 
 
-DEFAULT_SERVER = "http://localhost:18082"
+DEFAULT_SERVER = "http://localhost:18087"
 DEFAULT_UI_URL = "http://localhost:9002"
 DEFAULT_ENV = "PROD"
 DEFAULT_PLATFORM_INSTANCE = "fraudstream-local"
