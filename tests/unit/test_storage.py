@@ -92,6 +92,19 @@ class LocalFileSchemeTest(TestCase):
 
             self.assertFalse(storage.object_exists(warehouse, uri))
 
+    def test_delete_object_removes_one_file_and_ignores_a_missing_one(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            warehouse = WarehouseConfig()
+            keep, gone = f"file://{tmp_dir}/keep.md", f"file://{tmp_dir}/gone.md"
+            storage.put_text(warehouse, keep, "a")
+            storage.put_text(warehouse, gone, "b")
+
+            storage.delete_object(warehouse, gone)
+            storage.delete_object(warehouse, gone)
+
+            self.assertFalse(storage.object_exists(warehouse, gone))
+            self.assertTrue(storage.object_exists(warehouse, keep))
+
     def test_delete_prefix_on_a_missing_root_is_a_no_op(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             storage.delete_prefix(WarehouseConfig(), f"file://{tmp_dir}/never-written")
@@ -154,6 +167,13 @@ class S3SchemeTest(TestCase):
         mock_client.put_object.assert_called_once_with(
             Bucket="bucket", Key="a.csv", Body="héllo".encode("utf-8")
         )
+
+    def test_delete_object_deletes_that_one_key(self) -> None:
+        _, mock_client = self._patch_boto3_client()
+
+        storage.delete_object(WarehouseConfig(), "s3a://bucket/rag/handbook/a.md")
+
+        mock_client.delete_object.assert_called_once_with(Bucket="bucket", Key="rag/handbook/a.md")
 
     def test_get_text_decodes_the_response_body(self) -> None:
         _, mock_client = self._patch_boto3_client()

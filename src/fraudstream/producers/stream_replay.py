@@ -22,7 +22,7 @@ TimeMode = Literal["fixed_rate", "produced_at"]
 
 DEFAULT_SOURCE_PATH = Path("data/raw_stream/transactions/topic=financial_transactions/events.jsonl")
 DEFAULT_TOPIC = "financial_transactions"
-DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"
+DEFAULT_BOOTSTRAP_SERVERS = "localhost:9093"
 SUPPORTED_TIME_MODES = {"fixed_rate", "produced_at"}
 
 

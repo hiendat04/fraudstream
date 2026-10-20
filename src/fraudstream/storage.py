@@ -173,6 +173,17 @@ def delete_prefix(warehouse: WarehouseConfig, uri_prefix: str) -> None:
         client.delete_objects(Bucket=bucket, Delete={"Objects": [{"Key": key} for key in batch]})
 
 
+def delete_object(warehouse: WarehouseConfig, uri: str) -> None:
+    """Delete one object. Deleting one that is already gone is not an error, as in S3."""
+
+    if uri.startswith(_FILE_SCHEME):
+        _local_path(uri).unlink(missing_ok=True)
+        return
+
+    bucket, key = parse_s3_uri(uri)
+    _client(warehouse).delete_object(Bucket=bucket, Key=key)
+
+
 def _local_path(uri: str) -> Path:
     """Resolve a `file://` URI to a local `Path`."""
 

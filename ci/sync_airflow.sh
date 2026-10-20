@@ -11,7 +11,7 @@ cd "$(dirname "$0")/.."
 [ ! -d "$target/.git" ] || { echo "$target is a git checkout, not a deploy folder" >&2; exit 1; }
 
 for dir in airflow/dags airflow/include airflow/config airflow/scripts src configs feature_store/src feature_store/feature_repo \
-  monitoring/src api/src api/reference ml/src; do
+  monitoring/src api/src api/reference ml/src rag/src rag/feature_repo rag/checks datahub/src datahub/contracts; do
   mkdir -p "$target/$dir"
   rsync -a --delete --exclude __pycache__ "$dir/" "$target/$dir/"
 done

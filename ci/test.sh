@@ -13,8 +13,9 @@ run_datahub()       { cd datahub && PYTHONPATH=src uv run python -m unittest dis
 run_api()           { cd api && uv run --all-extras --group reference pytest -q --cov; }
 run_serving()       { cd serving && uv run pytest -q --cov; }
 run_monitoring()    { cd monitoring && uv run pytest -q --cov; }
+run_rag()           { cd rag && PYTHONPATH=src uv run python -m fraudstream_rag.embedding && uv run pytest -q --cov; }
 
-all_suites=(root ml pipelines feature_store datahub api serving monitoring)
+all_suites=(root ml pipelines feature_store datahub api serving monitoring rag)
 suites=("${@:-${all_suites[@]}}")
 
 for suite in "${suites[@]}"; do

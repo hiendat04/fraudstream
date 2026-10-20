@@ -33,6 +33,23 @@ def project_python_command(module: str, arguments: str) -> str:
     )
 
 
+def rag_command(step: str, arguments: str) -> str:
+    """Run one step of the RAG pipeline, with the lakehouse and Feast helpers it reuses on the path."""
+
+    normalized_arguments = " ".join(
+        line.strip() for line in arguments.splitlines() if line.strip()
+    )
+    root = "{{ var.value.fraudstream_project_root }}"
+    return dedent(
+        f"""\
+        set -euo pipefail
+        cd "{root}"
+        export PYTHONPATH="{root}/rag/src:{root}/feature_store/src:{root}/src"
+        python -m fraudstream_rag.steps {step} {normalized_arguments}
+        """
+    )
+
+
 def monitoring_command(module: str, arguments: str) -> str:
     """Like project_python_command, with the drift check and the code it reuses on the path."""
 
