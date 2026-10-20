@@ -155,7 +155,7 @@ pipeline {
     }
 
     stage('Airflow pipelines') {
-      when { expression { deploying('airflow src configs feature_store/src feature_store/feature_repo monitoring api/src/fraudstream_api/drift_detection api/reference ml/src') } }
+      when { expression { deploying('airflow src configs feature_store/src feature_store/feature_repo monitoring api/src/fraudstream_api/drift_detection api/reference ml/src rag datahub/src datahub/contracts') } }
       steps {
         script {
           if (sh(script: 'test -d /deploy/.git', returnStatus: true) == 0) {
@@ -175,9 +175,44 @@ pipeline {
             errors=$(docker exec fraudstream-airflow-scheduler airflow dags list-import-errors)
             echo "$errors" | grep -q "No data found" || { echo "$errors"; exit 1; }
             dags=$(docker exec fraudstream-airflow-scheduler airflow dags list)
-            for dag in fraudstream_raw_to_bronze fraudstream_bronze_to_silver_gold fraudstream_offline_features fraudstream_feature_store_materialize fraudstream_drift_monitoring; do
+            for dag in fraudstream_raw_to_bronze fraudstream_bronze_to_silver_gold fraudstream_offline_features fraudstream_feature_store_materialize fraudstream_drift_monitoring fraudstream_rag_index; do
               echo "$dags" | grep -qw "$dag" || { echo "$dag is missing"; exit 1; }
             done
+          '''
+        }
+      }
+    }
+
+    stage('RAG pipeline') {
+      when { expression { deploying('rag airflow/dags/rag_index.py airflow/Dockerfile datahub/src datahub/contracts ci/run_dag.sh') } }
+      steps {
+        script {
+          // Building the image embeds one sentence with the pinned model, so a broken pin or wheel fails here.
+          sh 'docker build -f airflow/Dockerfile -t "fraudstream-airflow:$TAG" -t fraudstream-airflow:local .'
+          if (sh(script: 'test -d /deploy/.git', returnStatus: true) == 0) {
+            unstable('AIRFLOW_PROJECT_DIR is not set, so the RAG pipeline was not run')
+            return
+          }
+          withCredentials([usernamePassword(credentialsId: 'minio',
+                                            usernameVariable: 'MINIO_ACCESS_KEY',
+                                            passwordVariable: 'MINIO_SECRET_KEY')]) {
+            sh '''
+              cd rag
+              MINIO_ENDPOINT=http://minio:9000 PYTHONPATH=src:../src uv run python -m fraudstream_rag.steps sync-handbook \
+                --source handbook --target s3a://fraudstream/rag/handbook
+            '''
+          }
+          if (sh(script: 'docker ps --format "{{.Names}}" | grep -qx fraudstream-airflow-scheduler', returnStatus: true) != 0) {
+            unstable('Airflow is not running: the handbook was copied, but the pipeline was not run')
+            return
+          }
+          // Recreating Airflow would kill running tasks, so a person does it.
+          if (sh(script: 'test "$(docker inspect -f "{{.Image}}" fraudstream-airflow-scheduler)" = "$(docker image inspect -f "{{.Id}}" fraudstream-airflow:local)"', returnStatus: true) != 0) {
+            unstable('Airflow runs an older image: recreate it with docker compose --profile orchestration up -d')
+          }
+          sh '''
+            docker exec fraudstream-airflow-scheduler airflow dags reserialize
+            ./ci/run_dag.sh fraudstream_rag_index 1800
           '''
         }
       }
