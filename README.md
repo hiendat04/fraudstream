@@ -190,6 +190,7 @@ fraudstream/
 ├── infra/
 │   ├── ansible/              # Playbook and roles that set up and seed the stores VM on GCP
 │   ├── postgres/             # PostgreSQL schema initialization SQL
+│   ├── pgvector/             # pgvector initialization SQL for the LLM layer's Postgres
 │   ├── terraform/            # Terraform modules and one stack per piece of the GCP setup
 │   └── session.sh            # Start, end and check a cloud session
 ├── k8s/                      # kind cluster bootstrap, service images, pipeline RBAC
@@ -203,6 +204,7 @@ fraudstream/
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
 ├── monitoring/               # Isolated Python 3.12 drift check, Pushgateway publisher, and retrain trigger
 ├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
+├── rag/                      # Isolated Python 3.12 RAG pipeline, handbook, Feast project, golden questions
 ├── reports/                  # Generated human-readable reports and load test results
 ├── serving/                  # Isolated Python 3.12 predictor that serves the fraud model on KServe
 ├── src/fraudstream/          # Python source code
