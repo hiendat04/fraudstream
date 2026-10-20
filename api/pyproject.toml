@@ -35,6 +35,24 @@ drift = [
     "opentelemetry-instrumentation-httpx==0.66b0",
     "opentelemetry-instrumentation-redis==0.66b0",
 ]
+context = [
+    "feast[redis,postgres]==0.66.0",
+    "fastapi==0.141.1",
+    "uvicorn==0.53.0",
+    "pydantic-settings==2.15.0",
+    "pandas>=2.2,<3",
+    "numpy>=2,<3",
+    "onnxruntime==1.31.0",
+    "tokenizers==0.23.3",
+    "pyyaml==6.0.3",
+    "prometheus-client==0.24.1",
+    "opentelemetry-api==1.45.0",
+    "opentelemetry-sdk==1.45.0",
+    "opentelemetry-exporter-otlp-proto-http==1.45.0",
+    "opentelemetry-instrumentation-fastapi==0.66b0",
+    "opentelemetry-instrumentation-httpx==0.66b0",
+    "opentelemetry-instrumentation-redis==0.66b0",
+]
 
 [dependency-groups]
 dev = [
@@ -58,7 +76,7 @@ loadtest = [
 package = false
 
 [tool.pytest.ini_options]
-pythonpath = ["src", "../ml/src", "."]
+pythonpath = ["src", "../ml/src", "../rag/src", "."]
 testpaths = ["tests"]
 
 [tool.coverage.run]

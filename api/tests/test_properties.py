@@ -12,10 +12,12 @@ from hypothesis import given, settings, strategies as st
 
 from fraudstream_ml.dataset import BATCH_FEATURE_VIEWS
 
+from fraudstream_api.context.stores import CUSTOMER_VIEWS, views_answer
 from fraudstream_api.drift_detection.psi import bin_counts, psi
 from fraudstream_api.drift_detection.reference import Reference, build_reference
 from fraudstream_api.inference.features import OnlineFeatures, model_inputs, usable_features
 
+from tests.test_context_stores import feast_answer
 from tests.test_inference_app import TTLS
 from tests.test_inference_features import WITH_HISTORY, transaction_from
 
@@ -93,3 +95,12 @@ def test_a_reference_survives_a_round_trip_through_json(columns):
     written = reference.to_json()
 
     assert Reference.from_json(written).to_json() == written
+
+
+@given(stored_at=st.integers(min_value=0, max_value=4_102_444_800))
+def test_reading_the_same_answer_twice_gives_the_same_views(stored_at):
+    answer = feast_answer(CUSTOMER_VIEWS, stored_at)
+    first = views_answer(answer, CUSTOMER_VIEWS)
+    assert first == views_answer(answer, CUSTOMER_VIEWS)
+    # A view has values exactly when the store says when it got them.
+    assert all((view["as_of"] is None) == (not view["features"]) for view in first.values())
