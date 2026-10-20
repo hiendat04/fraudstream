@@ -54,7 +54,7 @@ class PushSettings:
     """Runtime settings for the stream-push deployment job."""
 
     repo_path: str = "feature_store/feature_repo"
-    bootstrap_servers: str = "localhost:9092"
+    bootstrap_servers: str = "localhost:9093"
     consumer_group: str = "fraudstream-feast-stream-push"
     # Flush thresholds bound both the online write latency and the size of
     # each Iceberg append.

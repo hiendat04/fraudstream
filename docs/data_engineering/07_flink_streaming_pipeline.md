@@ -169,7 +169,7 @@ Replay events from another terminal:
 
 ```bash
 PYTHONPATH=src python -m fraudstream.producers.stream_replay \
-  --bootstrap-servers localhost:9092 --topic financial_transactions --events-per-second 5000
+  --bootstrap-servers localhost:9093 --topic financial_transactions --events-per-second 5000
 ```
 
 `--dry-run` prints the resolved configuration without starting Flink. Tuning results are

@@ -32,7 +32,7 @@ from fraudstream.jobs.warehouse import (
 
 APP_NAME = "FraudStreamStreamingFeatures"
 DEFAULT_FLINK_UI_PORT = 8081
-DEFAULT_BOOTSTRAP_SERVERS = "localhost:9092"
+DEFAULT_BOOTSTRAP_SERVERS = "localhost:9093"
 DEFAULT_SOURCE_TOPIC = "financial_transactions"
 DEFAULT_GROUP_ID = "fraudstream-flink-features-v1"
 DEFAULT_CONNECTOR_JAR = Path("flink/lib/flink-sql-connector-kafka-5.0.0-2.1.jar")

@@ -34,7 +34,7 @@ class StreamReplayProducerTest(TestCase):
                 ReplayConfig(
                     source_path=source_path,
                     topic="financial_transactions_test",
-                    bootstrap_servers="localhost:9092",
+                    bootstrap_servers="localhost:9093",
                     events_per_second=0,
                     max_events=2,
                     progress_interval=0,

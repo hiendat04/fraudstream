@@ -38,9 +38,9 @@ next to the log.
 
 ```bash
 uv sync --extra kafka
-docker compose up -d kafka kafka-topic-init kafka-ui   # broker on :9092, Kafka UI on :18080
+docker compose up -d kafka kafka-topic-init kafka-ui   # broker on :9093, Kafka UI on :18080
 PYTHONPATH=src python -m fraudstream.producers.stream_replay \
-  --bootstrap-servers localhost:9092 --topic financial_transactions --events-per-second 5000
+  --bootstrap-servers localhost:9093 --topic financial_transactions --events-per-second 5000
 ```
 
 | Option | Meaning |
@@ -51,7 +51,7 @@ PYTHONPATH=src python -m fraudstream.producers.stream_replay \
 | `--time-mode produced_at` | Replay using the gaps between source `produced_at` times |
 | `--speed-factor 3600` | Compress time: one source hour becomes one second |
 
-`Connection refused` on `localhost:9092` means the broker isn't running. It is not a
+`Connection refused` on `localhost:9093` means the broker isn't running. It is not a
 Flink problem. Set `KAFKA_UI_PORT` if `18080` is taken, and `docker compose down`
 to stop.
 

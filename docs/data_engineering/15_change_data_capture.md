@@ -78,7 +78,7 @@ A run with `--write-mode overwrite` shows up as a burst of deletes then inserts.
 
 ```bash
 docker exec -it fraudstream-kafka kafka-console-consumer \
-  --bootstrap-server localhost:9092 \
+  --bootstrap-server localhost:9093 \
   --topic fraudstream.bronze.raw_transactions --from-beginning --max-messages 5
 ```
 
