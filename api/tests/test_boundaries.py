@@ -138,3 +138,47 @@ def test_the_observation_minimum(drift_client, observations, has_verdict):
     status = drift_client.get("/v1/drift").json()["status"]
 
     assert (status != "not_enough_data") == has_verdict
+
+
+@pytest.mark.parametrize(
+    ("body", "status"),
+    [
+        pytest.param({"question": ""}, 422, id="empty-question-is-refused"),
+        pytest.param({"question": "   "}, 422, id="whitespace-question-is-refused"),
+        pytest.param({"question": "x"}, 200, id="one-character-question-is-searched"),
+        pytest.param({"question": "x" * 500}, 200, id="question-at-the-limit-is-searched"),
+        pytest.param({"question": "x" * 501}, 422, id="question-over-the-limit-is-refused"),
+        pytest.param({"question": "x", "top_k": 0}, 422, id="top-k-zero-is-refused"),
+        pytest.param({"question": "x", "top_k": 1}, 200, id="top-k-one-is-searched"),
+        pytest.param({"question": "x", "top_k": 10}, 200, id="top-k-at-the-limit-is-searched"),
+        pytest.param({"question": "x", "top_k": 11}, 422, id="top-k-over-the-limit-is-refused"),
+    ],
+)
+def test_search_limits(context_client, body, status):
+    assert context_client.post("/v1/search", json=body).status_code == status
+
+
+@pytest.mark.parametrize(
+    ("entity_id", "status"),
+    [
+        pytest.param("c" * 64, 200, id="id-at-the-limit-is-read"),
+        pytest.param("c" * 65, 422, id="id-over-the-limit-is-refused"),
+        pytest.param("cust.1", 422, id="a-dot-is-refused"),
+        pytest.param("cust 1", 422, id="a-space-is-refused"),
+        pytest.param("cust_1-a", 200, id="underscore-and-dash-are-read"),
+    ],
+)
+def test_entity_id_limits(context_client, entity_id, status):
+    assert context_client.get(f"/v1/customers/{entity_id}").status_code == status
+
+
+@pytest.mark.parametrize(
+    ("chunk_id", "status"),
+    [
+        pytest.param("", 422, id="empty-chunk-id-is-refused"),
+        pytest.param("c" * 200, 200, id="chunk-id-at-the-limit-is-read"),
+        pytest.param("c" * 201, 422, id="chunk-id-over-the-limit-is-refused"),
+    ],
+)
+def test_chunk_id_limits(context_client, chunk_id, status):
+    assert context_client.get("/v1/chunks", params={"chunk_id": chunk_id}).status_code == status

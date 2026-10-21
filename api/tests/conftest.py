@@ -11,11 +11,14 @@ import pytest
 from fastapi.testclient import TestClient
 from hypothesis import settings as hypothesis_settings
 
+from fraudstream_api.context.app import create_app as create_context_app
+from fraudstream_api.context.settings import Settings as ContextSettings
 from fraudstream_api.drift_detection.app import create_app as create_drift_app
 from fraudstream_api.drift_detection.settings import Settings as DriftSettings
 from fraudstream_api.inference.app import create_app as create_inference_app
 from fraudstream_api.inference.settings import Settings as InferenceSettings
 
+from tests.test_context_app import FakeStores
 from tests.test_drift_app import reference_json
 from tests.test_inference_app import PAYMENT, FakeDrift, FakeModel, FakeReader
 
@@ -79,4 +82,23 @@ def drift_client(drift_reference_path, fake_redis_server):
     )
     redis = fakeredis.FakeAsyncRedis(server=fake_redis_server, decode_responses=True)
     with TestClient(create_drift_app(settings, redis=redis)) as client:
+        yield client
+
+
+@pytest.fixture
+def context_settings() -> ContextSettings:
+    return ContextSettings(
+        postgres_user="u", postgres_password="p", pgvector_user="v", pgvector_password="w",
+        app_version="test",
+    )
+
+
+@pytest.fixture
+def fake_stores() -> FakeStores:
+    return FakeStores()
+
+
+@pytest.fixture
+def context_client(context_settings, fake_stores):
+    with TestClient(create_context_app(context_settings, stores=fake_stores)) as client:
         yield client

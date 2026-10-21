@@ -11,6 +11,8 @@ from fastapi.testclient import TestClient
 from opentelemetry.sdk.trace.export import SimpleSpanProcessor
 from opentelemetry.sdk.trace.export.in_memory_span_exporter import InMemorySpanExporter
 
+from fraudstream_api.context.app import create_app as create_context_app
+from fraudstream_api.context.settings import Settings as ContextSettings
 from fraudstream_api.drift_detection.app import create_app as create_drift_app
 from fraudstream_api.drift_detection.settings import Settings as DriftSettings
 from fraudstream_api.inference.app import create_app as create_inference_app
@@ -18,6 +20,7 @@ from fraudstream_api.inference.model import ModelClient
 from fraudstream_api.inference.settings import Settings as InferenceSettings
 from fraudstream_api.tracing import enable_tracing, traces_url
 
+from tests.test_context_app import FakeStores
 from tests.test_inference_app import FakeModel, FakeReader
 
 NOWHERE = "http://127.0.0.1:9"
@@ -117,7 +120,7 @@ def test_a_call_to_the_model_carries_the_trace():
     assert header.split("-")[1] == trace_id
 
 
-def test_both_apps_trace_when_given_an_endpoint(drift_reference_path):
+def test_every_app_traces_when_given_an_endpoint(drift_reference_path):
     inference = create_inference_app(
         InferenceSettings(postgres_user="u", postgres_password="p", otel_exporter_otlp_endpoint=NOWHERE),
         reader=FakeReader(),
@@ -127,7 +130,14 @@ def test_both_apps_trace_when_given_an_endpoint(drift_reference_path):
         DriftSettings(reference_path=str(drift_reference_path), otel_exporter_otlp_endpoint=NOWHERE),
         redis=fakeredis.FakeAsyncRedis(decode_responses=True),
     )
-    for app in (inference, drift):
+    context = create_context_app(
+        ContextSettings(
+            postgres_user="u", postgres_password="p", pgvector_user="v", pgvector_password="w",
+            otel_exporter_otlp_endpoint=NOWHERE,
+        ),
+        stores=FakeStores(),
+    )
+    for app in (inference, drift, context):
         with TestClient(app) as client:
             assert client.get("/livez").status_code == 200
         assert app._is_instrumented_by_opentelemetry

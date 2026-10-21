@@ -1,0 +1,27 @@
+image:
+  repository: fraudstream-context
+secretName: context-api
+env:
+  OTEL_EXPORTER_OTLP_ENDPOINT: http://jaeger.observability.svc.cluster.local:4318
+  POSTGRES_HOST: postgres
+  POSTGRES_PORT: "5432"
+  POSTGRES_DB: fraudstream
+  REDIS_HOST: redis
+  REDIS_PORT: "6379"
+  PGVECTOR_HOST: pgvector
+  PGVECTOR_PORT: "5432"
+  PGVECTOR_DB: llm
+resources:
+  requests:
+    cpu: 500m
+    memory: 768Mi
+  limits:
+    cpu: "2"
+    memory: 1536Mi
+probes:
+  startup:
+    failureThreshold: 60
+ingress:
+  host: context.fraudstream.localhost
+autoscaling:
+  maxReplicas: 2

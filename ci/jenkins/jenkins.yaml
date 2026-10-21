@@ -39,6 +39,11 @@ credentials:
               id: "gateway"
               username: "${GATEWAY_USER}"
               password: "${GATEWAY_PASSWORD}"
+          - usernamePassword:
+              scope: GLOBAL
+              id: "pgvector"
+              username: "${PGVECTOR_USER}"
+              password: "${PGVECTOR_PASSWORD}"
 
 jobs:
   - script: |
