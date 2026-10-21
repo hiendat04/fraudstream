@@ -14,8 +14,9 @@ run_api()           { cd api && uv run --all-extras --group reference pytest -q 
 run_serving()       { cd serving && uv run pytest -q --cov; }
 run_monitoring()    { cd monitoring && uv run pytest -q --cov; }
 run_rag()           { cd rag && PYTHONPATH=src uv run python -m fraudstream_rag.embedding && uv run pytest -q --cov; }
+run_mcp_servers()   { cd mcp_servers && uv run pytest -q --cov; }
 
-all_suites=(root ml pipelines feature_store datahub api serving monitoring rag)
+all_suites=(root ml pipelines feature_store datahub api serving monitoring rag mcp_servers)
 suites=("${@:-${all_suites[@]}}")
 
 for suite in "${suites[@]}"; do
