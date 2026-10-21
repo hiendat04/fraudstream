@@ -72,6 +72,45 @@ pipeline {
       }
     }
 
+    stage('Context API') {
+      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
+      steps {
+        sh '''
+          docker build -f k8s/Dockerfile.context -t "fraudstream-context:$TAG" .
+          kind load docker-image "fraudstream-context:$TAG" --name fraudstream
+          kubectl create namespace fraudstream-apis --dry-run=client -o yaml | kubectl apply -f -
+        '''
+        withCredentials([usernamePassword(credentialsId: 'postgres',
+                                          usernameVariable: 'PGUSER',
+                                          passwordVariable: 'PGPASSWORD'),
+                         usernamePassword(credentialsId: 'pgvector',
+                                          usernameVariable: 'VECTOR_USER',
+                                          passwordVariable: 'VECTOR_PASSWORD')]) {
+          sh '''
+            kubectl -n fraudstream-apis create secret generic context-api \
+              --from-literal=POSTGRES_USER="$PGUSER" \
+              --from-literal=POSTGRES_PASSWORD="$PGPASSWORD" \
+              --from-literal=PGVECTOR_USER="$VECTOR_USER" \
+              --from-literal=PGVECTOR_PASSWORD="$VECTOR_PASSWORD" \
+              --dry-run=client -o yaml | kubectl apply -f -
+          '''
+        }
+        withCredentials([usernamePassword(credentialsId: 'gateway',
+                                          usernameVariable: 'GATEWAY_USER',
+                                          passwordVariable: 'GATEWAY_PASSWORD')]) {
+          sh '''
+            ./k8s/gateway/credentials.sh fraudstream-apis
+            helm upgrade --install context-api k8s/charts/fraudstream-api \
+              -n fraudstream-apis -f k8s/apis/context-api.yaml \
+              --set-string image.tag="$TAG" --rollback-on-failure --timeout 4m
+            ./ci/wait_for_version.sh context.fraudstream.localhost "$TAG"
+            ./ci/check_gateway.sh context.fraudstream.localhost \
+              || { helm rollback context-api -n fraudstream-apis --wait; exit 1; }
+          '''
+        }
+      }
+    }
+
     stage('Drift detection API') {
       when { expression { deploying('api/src api/reference k8s/Dockerfile.drift-detection k8s/apis/drift-detection.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
       steps {

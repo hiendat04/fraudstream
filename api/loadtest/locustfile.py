@@ -15,6 +15,8 @@ from pathlib import Path
 
 from locust import HttpUser, constant_throughput, events, task
 
+from sla import check_sla as report
+
 PAYMENT = json.loads((Path(__file__).parents[1] / "tools" / "transaction.json").read_text())
 SLA = {"p95_ms": 500, "p99_ms": 1000, "failure_ratio": 0.01}
 
@@ -36,17 +38,4 @@ class InferenceUser(HttpUser):
 
 @events.quitting.add_listener
 def check_sla(environment, **_):
-    total = environment.stats.total
-    measured = {
-        "p95_ms": total.get_response_time_percentile(0.95),
-        "p99_ms": total.get_response_time_percentile(0.99),
-        "failure_ratio": total.fail_ratio,
-    }
-    missed = [name for name, limit in SLA.items() if measured[name] > limit]
-    print(f"\n  requests {total.num_requests}  failures {total.num_failures}"
-          f"  rate {total.total_rps:.1f}/s  median {total.median_response_time} ms")
-    for name, limit in SLA.items():
-        print(f"  SLA {name:14s} {measured[name]:>8.3f}  limit {limit:<6} "
-              f"{'MISSED' if name in missed else 'met'}")
-    if missed:
-        environment.process_exit_code = 1
+    report(environment, SLA)

@@ -505,6 +505,8 @@ services:
       - GITHUB_TOKEN
       - GATEWAY_USER
       - GATEWAY_PASSWORD
+      - PGVECTOR_USER
+      - PGVECTOR_PASSWORD
     ports:
       - "${JENKINS_PORT:-18086}:8080"
     volumes:
@@ -538,6 +540,10 @@ secrets:
     environment: GATEWAY_USER
   GATEWAY_PASSWORD:
     environment: GATEWAY_PASSWORD
+  PGVECTOR_USER:
+    environment: PGVECTOR_USER
+  PGVECTOR_PASSWORD:
+    environment: PGVECTOR_PASSWORD
 
 networks:
   default:

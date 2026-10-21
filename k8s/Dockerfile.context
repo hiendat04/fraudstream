@@ -1,0 +1,45 @@
+# The context API. Carries Feast for online reads, and the pinned embedding model
+# so questions are embedded exactly as the RAG pipeline embeds documents.
+#
+# Build from the repository root:
+#   docker build -f k8s/Dockerfile.context -t fraudstream-context:v1 .
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir \
+        "feast[redis,postgres]==0.66.0" \
+        "fastapi==0.141.1" \
+        "uvicorn==0.53.0" \
+        "pydantic-settings==2.15.0" \
+        "pandas==2.3.3" \
+        "onnxruntime==1.31.0" \
+        "tokenizers==0.23.3" \
+        "pyyaml==6.0.3" \
+        "prometheus-client==0.24.1" \
+        "opentelemetry-api==1.45.0" \
+        "opentelemetry-sdk==1.45.0" \
+        "opentelemetry-exporter-otlp-proto-http==1.45.0" \
+        "opentelemetry-instrumentation-fastapi==0.66b0" \
+        "opentelemetry-instrumentation-httpx==0.66b0" \
+        "opentelemetry-instrumentation-redis==0.66b0"
+
+# Fetched and checked against its pinned hashes by the module that pins it.
+ENV FRAUDSTREAM_EMBEDDING_DIR=/opt/models/bge-base-en-v1.5
+COPY rag/src/fraudstream_rag/embedding.py /tmp/embedding.py
+RUN python /tmp/embedding.py "$FRAUDSTREAM_EMBEDDING_DIR" --check && rm /tmp/embedding.py
+
+COPY ml/src/fraudstream_ml /app/ml/src/fraudstream_ml
+COPY rag/src/fraudstream_rag /app/rag/src/fraudstream_rag
+COPY api/src /app/api/src
+COPY api/logging.json /app/logging.json
+
+ENV PYTHONPATH=/app/api/src:/app/ml/src:/app/rag/src
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV HOME=/tmp
+
+USER 10001
+WORKDIR /app
+EXPOSE 8080
+CMD ["uvicorn", "fraudstream_api.context.app:create_app", "--factory", \
+     "--host", "0.0.0.0", "--port", "8080", "--log-config", "/app/logging.json", \
+     "--timeout-graceful-shutdown", "20", "--timeout-keep-alive", "65"]
