@@ -1,0 +1,16 @@
+image:
+  repository: fraudstream-mcp
+env:
+  MCP_SERVER: risk
+  CONTEXT_API_URL: http://context-api.fraudstream-apis.svc.cluster.local
+  INFERENCE_API_URL: http://inference-api.fraudstream-apis.svc.cluster.local
+resources:
+  requests:
+    cpu: 50m
+    memory: 96Mi
+  limits:
+    cpu: 500m
+    memory: 256Mi
+autoscaling:
+  minReplicas: 2
+  maxReplicas: 3
