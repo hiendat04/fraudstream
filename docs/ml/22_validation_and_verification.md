@@ -1,15 +1,18 @@
 # Validating the Web APIs
 
-Five checks on the two APIs and the model behind them: coverage, boundary
-cases, mutation testing, properties, and a load test with a fixed SLA.
+Five checks on the APIs, the model behind them and the MCP servers in front of
+them: coverage, boundary cases, mutation testing, properties, and a load test with
+a fixed SLA. The context API and the MCP servers are covered in more detail in
+[31_context_api_and_mcp.md](../llm/31_context_api_and_mcp.md#validation).
 
 | Check | Result |
 |---|---|
-| Line and branch coverage | **100%** for `api/`, **100%** for `serving/` |
-| Tests | 140 in `api/`, 14 in `serving/` |
-| Mutation score | **86.2%** (594 of 689 mutants caught) |
-| Properties | 10, run by Hypothesis |
-| Load test | p95 200 ms, p99 920 ms at 48 req/s — **SLA met** |
+| Line and branch coverage | **100%** for `api/`, **100%** for `serving/`, **99%** for `mcp_servers/` |
+| Tests | 250 in `api/`, 14 in `serving/`, 59 in `mcp_servers/` |
+| Mutation score | **89.6%** (1,054 of 1,176) for `api/`; **91.5%** (173 of 189) for `mcp_servers/` |
+| Properties | 13, run by Hypothesis, 1 of them by CrossHair |
+| Load test, inference API | p95 200 ms, p99 920 ms at 48 req/s — **SLA met** |
+| Load test, context API | p95 5.0 s, p99 8.8 s at 12.6 req/s — **SLA missed** |
 
 Everything runs on a Mac with `uv`. No test needs a database or a cluster; the
 load test needs the deployed APIs.
@@ -74,10 +77,15 @@ test notices.
 
 ```bash
 cd api
-export PYTHONPATH=$(cd ../ml/src && pwd) OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-uv run mutmut run
-uv run mutmut results
+export PYTHONPATH=$(cd ../ml/src && pwd):$(cd ../rag/src && pwd) OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+uv run --all-extras --group reference mutmut run
+uv run --all-extras --group reference mutmut results
+cd ../mcp_servers && uv run mutmut run && uv run mutmut results
 ```
+
+mutmut runs the tests from a copy in `mutants/`, where relative paths such as
+`../ml/src` no longer point anywhere, hence the absolute `PYTHONPATH`. The tools the
+tests import are copied in with `also_copy`.
 
 Before, 114 mutants survived:
 
@@ -188,7 +196,12 @@ so it is the first thing that would need scaling. Since the gateway, one client 
 60 requests a second is refused with 429, so this step-up test now measures that limit
 past 60 users.
 
-Both reports are in [reports/](../../reports).
+The context API's load test missed the same SLA: p95 5.0 s, p99 8.8 s, 4 failures in
+3,800, at 12.6 of the intended 20 requests a second. Searches embed each question on
+the CPU and reached p95 9.2 s; the feature lookups sharing the pod reached 1.9 s. See
+[31_context_api_and_mcp.md](../llm/31_context_api_and_mcp.md#load-test).
+
+All three reports are in [reports/](../../reports).
 
 ## Things worth knowing
 
@@ -207,9 +220,11 @@ command rather than in `addopts`.
 ## Running everything
 
 ```bash
-cd api && uv run pytest --cov            # 140 tests, coverage gate at 90%
+cd api && uv run pytest --cov            # 250 tests, coverage gate at 90%
 cd serving && uv run pytest --cov        # 14 tests
 
-cd api && export PYTHONPATH=$(cd ../ml/src && pwd) OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
-uv run mutmut run && uv run mutmut results
+cd api && export PYTHONPATH=$(cd ../ml/src && pwd):$(cd ../rag/src && pwd) OBJC_DISABLE_INITIALIZE_FORK_SAFETY=YES
+uv run --all-extras --group reference mutmut run && uv run --all-extras --group reference mutmut results
+cd mcp_servers && uv run pytest --cov            # 59 tests
+cd mcp_servers && uv run mutmut run && uv run mutmut results
 ```

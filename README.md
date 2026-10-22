@@ -84,6 +84,18 @@ flowchart LR
     jenkins -.-> train
 ```
 
+## How the ML and LLM layers work together
+
+The ML layer decides; the LLM layer explains. The fraud detection model scores every
+payment, and nothing in the LLM layer can change that score. The LLM layer is an analyst
+copilot built on the same data. When an analyst asks why a payment was flagged, an agent
+calls MCP tools. The tools read the Feast features the model saw (through the context
+API) and the model's own score (through the inference API). They also search the
+handbook and model cards that the RAG pipeline embeds into Feast's pgvector store. The
+agent answers with those facts and cites its sources. Both layers share one feature
+store and send their metrics and traces to the same Prometheus and Jaeger. The tools and
+the data behind them are built; the agents are next.
+
 ## What's inside
 
 | Area | What it does | Docs                                                                                                                                                                                      |
@@ -109,7 +121,10 @@ flowchart LR
 | Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/ml/25_infrastructure_as_code.md)                                                                                                                         |
 | Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/ml/26_observability.md) |
 | A/B testing | A new model runs as a KServe canary next to the served one, compared on real traffic without labels, and stepped up, promoted or rolled back by commits, by hand or by a Jenkins job | [27_ab_testing.md](docs/ml/27_ab_testing.md) |
-| **LLM layer** | An analyst copilot on top of the ML platform: LLM serving, RAG, MCP tools and agents. In progress | [llm/](docs/llm/README.md) |
+| **LLM layer** | | |
+| LLM inference platform | Qwen3 on llama.cpp behind llm-d and agentgateway: keys, limits, PII masking, telemetry, benchmark | [29_llm_inference_platform.md](docs/llm/29_llm_inference_platform.md) |
+| RAG data pipeline | The handbook, model cards and feature dictionary, chunked and embedded daily into Iceberg and Feast's pgvector store, checked and governed | [30_rag_pipeline.md](docs/llm/30_rag_pipeline.md) |
+| Context API and MCP servers | Features, chunks and search by id; two MCP servers behind agentgateway with a key and tool policy per agent | [31_context_api_and_mcp.md](docs/llm/31_context_api_and_mcp.md) |
 
 ## Quick start
 

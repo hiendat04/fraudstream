@@ -11,6 +11,7 @@ import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from fraudstream_api.inference import app as inference_app
 from fraudstream_api.inference.app import create_app
 from fraudstream_api.inference.drift_feed import DriftFeed
 from fraudstream_api.inference.features import OnlineFeatures
@@ -305,3 +306,10 @@ def test_a_model_server_without_a_threshold_leaves_the_decision_open(inference_s
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def test_traces_name_the_inference_api_and_its_version(inference_settings, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(inference_app, "enable_tracing", lambda app, **options: seen.update(options))
+    create_app(inference_settings, reader=FakeReader(), model=FakeModel())
+    assert (seen["service"], seen["version"]) == ("inference-api", "test")

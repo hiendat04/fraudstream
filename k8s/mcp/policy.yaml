@@ -1,0 +1,64 @@
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: mcp-gateway
+  namespace: mcp
+spec:
+  targetRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: mcp-gateway
+  traffic:
+    apiKeyAuthentication:
+      mode: Strict
+      secretRef:
+        name: mcp-api-keys
+    rateLimit:
+      local:
+        - {requests: 120, unit: Minutes, key: apiKey.consumer}
+  frontend:
+    metrics:
+      attributes:
+        add:
+          - name: consumer
+            expression: apiKey.consumer
+    tracing:
+      backendRef:
+        name: jaeger
+        namespace: observability
+        port: 4317
+      protocol: GRPC
+      randomSampling: "true"
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayPolicy
+metadata:
+  name: fraud-detection-tools
+  namespace: mcp
+spec:
+  targetRefs:
+    - group: agentgateway.dev
+      kind: AgentgatewayBackend
+      name: fraud-detection-tools
+  backend:
+    mcp:
+      authorization:
+        action: Allow
+        policy:
+          matchExpressions:
+            - mcp.tool.target in apiKey.servers
+---
+apiVersion: gateway.networking.k8s.io/v1beta1
+kind: ReferenceGrant
+metadata:
+  name: mcp-gateway-traces
+  namespace: observability
+spec:
+  from:
+    - group: agentgateway.dev
+      kind: AgentgatewayPolicy
+      namespace: mcp
+  to:
+    - group: ""
+      kind: Service
+      name: jaeger

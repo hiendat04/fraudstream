@@ -11,6 +11,7 @@ from unittest.mock import AsyncMock, MagicMock
 import fakeredis
 import psycopg
 import pytest
+from psycopg.conninfo import conninfo_to_dict
 
 from fraudstream_ml.dataset import BATCH_FEATURE_VIEWS
 
@@ -70,7 +71,13 @@ def feast(monkeypatch) -> dict:
 @pytest.fixture
 def redis_server(monkeypatch) -> fakeredis.FakeServer:
     server = fakeredis.FakeServer()
-    monkeypatch.setattr(stores.aioredis, "Redis", lambda **_: fakeredis.FakeAsyncRedis(server=server))
+    server.options = {}
+
+    def connect(**options):
+        server.options = options
+        return fakeredis.FakeAsyncRedis(server=server)
+
+    monkeypatch.setattr(stores.aioredis, "Redis", connect)
     return server
 
 
@@ -107,6 +114,45 @@ def test_the_chunks_come_from_the_rag_project_in_pgvector(context, feast):
     )
 
 
+def test_both_projects_share_one_cached_sql_registry_in_postgres(context, feast):
+    for call in stores.FeatureStore.call_args_list:
+        config = call.kwargs["config"]
+        assert (config.provider, config.entity_key_serialization_version) == ("local", 3)
+        registry = config.registry
+        assert (registry.registry_type, registry.path, registry.cache_ttl_seconds, registry.cache_mode) == (
+            "sql", "postgresql+psycopg://u:p@postgres:5432/fraudstream", 60, "thread"
+        )
+
+
+def test_the_rag_store_logs_in_to_pgvector_without_tls(context, feast):
+    rag = next(
+        call.kwargs["config"].online_store
+        for call in stores.FeatureStore.call_args_list
+        if call.kwargs["config"].project == "fraudstream_rag"
+    )
+    assert (rag.port, rag.user, rag.password, rag.sslmode) == (5432, "v", "w", "disable")
+
+
+def test_the_readiness_clients_give_up_after_one_second(context, redis_server, pgvector):
+    assert redis_server.options == {"host": "redis", "port": 6379, "socket_timeout": 1, "socket_connect_timeout": 1}
+    asyncio.run(context.is_ready())
+    assert conninfo_to_dict(pgvector.call_args.args[0]) == {
+        "host": "pgvector", "port": "5432", "dbname": "llm", "user": "v", "password": "w", "connect_timeout": "1",
+    }
+
+
+@pytest.mark.parametrize("hangs", ["redis", "pgvector"])
+def test_not_ready_when_a_store_hangs(context, pgvector, monkeypatch, hangs):
+    async def forever(*_):
+        await asyncio.sleep(60)
+
+    if hangs == "redis":
+        monkeypatch.setattr(context._redis, "ping", forever)
+    else:
+        pgvector.side_effect = forever
+    assert asyncio.run(context.is_ready()) is False
+
+
 @pytest.mark.parametrize(
     ("read", "key", "views"),
     [("customer", "customer_id", CUSTOMER_VIEWS), ("merchant", "merchant_id", MERCHANT_VIEWS)],
@@ -121,6 +167,8 @@ def test_an_entity_read_asks_for_its_own_views_by_its_own_key(context, feast, re
 
     call = store.get_online_features_async.call_args.kwargs
     assert call["entity_rows"] == [{key: "id_1"}]
+    # The view times come from the event timestamps, so they must be asked for.
+    store.get_online_features_async.return_value.to_dict.assert_called_once_with(include_event_timestamps=True)
     assert {ref.split(":")[0] for ref in call["features"]} == set(views)
     assert set(answer) == set(views)
 
@@ -136,8 +184,10 @@ def test_a_chunk_is_read_by_its_id(context, feast):
         "chunk_id": CHUNK_ID, "doc_id": "handbook/typology-card-testing",
         "title": "Card testing", "heading": "Signs", "text": "Many small payments.",
     }
-    assert feast["fraudstream_rag"].get_online_features_async.call_args.kwargs["entity_rows"] == [
-        {"chunk_id": CHUNK_ID}
+    call = feast["fraudstream_rag"].get_online_features_async.call_args.kwargs
+    assert call["entity_rows"] == [{"chunk_id": CHUNK_ID}]
+    assert call["features"] == [
+        f"document_chunks:{name}" for name in ("doc_id", "title", "heading", "text")
     ]
 
 

@@ -1,0 +1,24 @@
+# The MCP servers fraud-context and fraud-risk; MCP_SERVER picks which one runs.
+#
+# Build from the repository root:
+#   docker build -f k8s/Dockerfile.mcp -t fraudstream-mcp:v1 .
+FROM python:3.12-slim
+
+RUN pip install --no-cache-dir \
+        "mcp==2.3.0" \
+        "httpx==0.28.1" \
+        "uvicorn==0.53.0" \
+        "pydantic-settings==2.15.0" \
+        "prometheus-client==0.24.1"
+
+COPY mcp_servers/src /app/src
+
+ENV PYTHONPATH=/app/src
+ENV PYTHONDONTWRITEBYTECODE=1
+ENV PYTHONUNBUFFERED=1
+ENV HOME=/tmp
+
+USER 10001
+WORKDIR /app
+EXPOSE 8080
+CMD ["python", "-m", "fraudstream_mcp"]
