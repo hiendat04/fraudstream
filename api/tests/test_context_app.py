@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 from redis.exceptions import ConnectionError as RedisConnectionError
 
+from fraudstream_api.context import app as context_app
 from fraudstream_api.context.app import create_app
 
 CHUNK = {
@@ -89,6 +90,7 @@ def test_redis_down_is_a_503(context_settings):
     with client_for(context_settings, FakeStores(error=RedisConnectionError("down"))) as client:
         response = client.get("/v1/customers/cust_1")
     assert response.status_code == 503
+    assert response.json()["detail"] == "the online store cannot be reached"
 
 
 def test_a_chunk_id_with_a_hash_and_slashes_is_found(context_client, fake_stores):
@@ -147,3 +149,10 @@ def test_the_metrics_port_opens_with_the_app_and_closes_after(context_settings):
     with TestClient(app):
         assert app.state.metrics_server.server_port > 0
     assert app.state.metrics_server.socket.fileno() == -1
+
+
+def test_traces_name_the_context_api_and_its_version(context_settings, monkeypatch):
+    seen = {}
+    monkeypatch.setattr(context_app, "enable_tracing", lambda app, **options: seen.update(options))
+    create_app(context_settings, stores=FakeStores())
+    assert (seen["service"], seen["version"]) == ("context-api", context_settings.app_version)

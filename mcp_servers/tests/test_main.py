@@ -40,12 +40,48 @@ def test_the_service_name_as_host_and_no_session_id_are_answered(server, tools):
     assert {tool["name"] for tool in response.json()["result"]["tools"]} == tools
 
 
+@pytest.mark.parametrize(
+    ("server", "down", "reason"),
+    [
+        ("context", "context", "the context API does not answer"),
+        ("risk", "context", "the context API does not answer"),
+        ("risk", "inference", "the inference API does not answer"),
+    ],
+)
+def test_a_server_is_not_ready_while_an_api_behind_its_tools_is_down(server, down, reason):
+    def handle(request):
+        return httpx.Response(503 if request.url.host == f"{down}-api.fraudstream-apis.svc.cluster.local" else 200)
+
+    app = entry.create_app(Settings(mcp_server=server), transport=httpx.MockTransport(handle))
+    with TestClient(app) as client:
+        assert client.get("/readyz", headers={"Host": "localhost"}).json()["reason"] == reason
+        assert client.get("/readyz").status_code == 503
+
+
+@pytest.mark.parametrize("server", ["context", "risk"])
+def test_a_server_is_ready_when_its_apis_are(server):
+    with TestClient(entry.create_app(Settings(mcp_server=server), transport=ready_api())) as client:
+        assert client.get("/readyz").status_code == 200
+
+
+@pytest.mark.parametrize("server", ["context", "risk"])
+def test_each_server_introduces_itself_with_its_name_and_instructions(server):
+    app = entry.create_app(Settings(mcp_server=server), transport=ready_api())
+    with TestClient(app) as client:
+        result = client.post("/mcp", json=INITIALIZE, headers=HEADERS).json()["result"]
+    assert result["serverInfo"]["name"] == f"fraud-{server}"
+    assert result["instructions"]
+
+
 def test_main_serves_metrics_and_the_app(monkeypatch):
     started, ran = [], []
     monkeypatch.setenv("MCP_SERVER", "context")
     monkeypatch.setenv("METRICS_PORT", "9000")
     monkeypatch.setattr(entry, "start_http_server", started.append)
-    monkeypatch.setattr(entry.uvicorn, "run", lambda app, **options: ran.append(options))
+    monkeypatch.setattr(entry.uvicorn, "run", lambda app, **options: ran.append((app, options)))
     entry.main()
     assert started == [9000]
-    assert ran[0]["port"] == 8080 and ran[0]["host"] == "0.0.0.0"
+    app, options = ran[0]
+    assert app is not None
+    # Under the chart's 30 s grace period, so open calls finish before the pod is killed.
+    assert (options["host"], options["port"], options["timeout_graceful_shutdown"]) == ("0.0.0.0", 8080, 20)

@@ -68,6 +68,14 @@ def test_outcome_partitions_status_codes(status, expected):
             id="a-validation-error-as-field-and-message",
         ),
         pytest.param({"other": 1}, "{'other': 1}", id="no-detail-gives-the-body"),
+        pytest.param(
+            {"detail": [{"loc": ["body", "payment", "amount"], "msg": "too big"}, {"loc": ["body", "city"], "msg": "missing"}]},
+            "payment.amount: too big; city: missing",
+            id="every-validation-error-with-its-nested-field",
+        ),
+        pytest.param({"detail": [{"msg": "no field"}]}, ": no field", id="a-validation-error-without-a-field"),
+        pytest.param({"detail": [{"loc": ["body", "city"]}]}, "city: ", id="a-validation-error-without-a-message"),
+        pytest.param({"detail": "x" * 300}, "x" * 200, id="a-long-detail-is-cut-to-200"),
     ],
 )
 def test_detail_is_one_line_the_model_can_read(body, expected):
@@ -78,11 +86,21 @@ def test_detail_of_a_body_that_is_not_json_is_its_text():
     assert detail(httpx.Response(502, text="bad gateway")) == "bad gateway"
 
 
+def test_a_long_body_that_is_not_json_is_cut_to_200():
+    assert detail(httpx.Response(502, text="x" * 300)) == "x" * 200
+
+
+def test_the_api_client_gives_up_after_its_timeout():
+    # Not 5 s, which is httpx's own default and would pass with no timeout given.
+    assert Api("context API", "http://context", 7)._http.timeout == httpx.Timeout(7)
+
+
 async def test_a_2xx_answer_is_the_tool_result():
     seen = []
     api = api_answering(200, {"hits": []}, seen=seen)
     assert await api.get("/v1/chunks", chunk_id="a#b") == {"hits": []}
     assert seen[0].url.params["chunk_id"] == "a#b"
+    assert seen[0].method == "GET"
 
 
 async def test_a_post_sends_its_body():
@@ -114,6 +132,13 @@ async def test_an_unreachable_api_is_a_failed_call():
 @pytest.mark.parametrize(("api", "ready"), [(api_answering(200), True), (api_answering(503), False)])
 async def test_ready_only_when_the_api_says_it_is(api, ready):
     assert await api.is_ready() is ready
+
+
+async def test_readiness_asks_the_apis_own_probe_and_waits_one_second():
+    seen = []
+    await api_answering(200, seen=seen).is_ready()
+    assert seen[0].url.path == "/readyz"
+    assert seen[0].extensions["timeout"]["read"] == 1.0
 
 
 async def test_not_ready_when_the_api_cannot_be_reached():
