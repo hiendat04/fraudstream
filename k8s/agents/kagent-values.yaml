@@ -1,0 +1,46 @@
+providers:
+  default: openAI
+  openAI:
+    provider: OpenAI
+    model: qwen3-4b
+    apiKeySecretRef: kagent-llm-key
+    apiKeySecretKey: key
+    config:
+      baseUrl: http://llm-gateway.llm.svc.cluster.local:8080/v1
+      temperature: "0"
+      maxTokens: 512
+      timeout: 120
+otel:
+  tracing:
+    enabled: true
+    exporter:
+      otlp:
+        endpoint: http://jaeger.observability.svc.cluster.local:4317
+        protocol: grpc
+        insecure: true
+kmcp:
+  enabled: false
+kagent-tools:
+  enabled: false
+grafana-mcp:
+  enabled: false
+k8s-agent:
+  enabled: false
+kgateway-agent:
+  enabled: false
+istio-agent:
+  enabled: false
+promql-agent:
+  enabled: false
+observability-agent:
+  enabled: false
+argo-rollouts-agent:
+  enabled: false
+helm-agent:
+  enabled: false
+cilium-policy-agent:
+  enabled: false
+cilium-manager-agent:
+  enabled: false
+cilium-debug-agent:
+  enabled: false
