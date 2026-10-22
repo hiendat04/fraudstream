@@ -1,0 +1,85 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: mcp
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayParameters
+metadata:
+  name: mcp-gateway
+  namespace: mcp
+spec:
+  resources:
+    requests:
+      cpu: 50m
+      memory: 64Mi
+    limits:
+      memory: 256Mi
+  service:
+    spec:
+      type: ClusterIP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: Gateway
+metadata:
+  name: mcp-gateway
+  namespace: mcp
+spec:
+  gatewayClassName: agentgateway
+  infrastructure:
+    parametersRef:
+      group: agentgateway.dev
+      kind: AgentgatewayParameters
+      name: mcp-gateway
+  listeners:
+    - name: mcp
+      port: 8080
+      protocol: HTTP
+      allowedRoutes:
+        namespaces:
+          from: Same
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayBackend
+metadata:
+  name: fraud-detection-tools
+  namespace: mcp
+spec:
+  mcp:
+    sessionRouting: Stateless
+    failureMode: FailOpen
+    prefixMode: Never
+    targets:
+      - name: fraud-context
+        static:
+          backendRef:
+            name: fraud-context
+          port: 80
+          path: /mcp
+          protocol: StreamableHTTP
+      - name: fraud-risk
+        static:
+          backendRef:
+            name: fraud-risk
+          port: 80
+          path: /mcp
+          protocol: StreamableHTTP
+---
+apiVersion: gateway.networking.k8s.io/v1
+kind: HTTPRoute
+metadata:
+  name: fraud-detection-tools
+  namespace: mcp
+spec:
+  parentRefs:
+    - name: mcp-gateway
+      sectionName: mcp
+  rules:
+    - matches:
+        - path:
+            type: PathPrefix
+            value: /mcp
+      backendRefs:
+        - group: agentgateway.dev
+          kind: AgentgatewayBackend
+          name: fraud-detection-tools
