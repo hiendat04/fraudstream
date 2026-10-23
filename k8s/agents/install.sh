@@ -3,7 +3,9 @@
 # config reaches Qwen3-4B through the LLM gateway, and the context agent, with its
 # prompt from MLflow, its own key to the MCP gateway, and KEDA scaling it on calls
 # in flight; then agentregistry, with the context agent and its MCP server
-# published to it. Safe to run again.
+# published to it; and both UIs behind NGINX with HTTPS and the gateway login.
+# Safe to run again. Run k8s/gateway/credentials.sh for kagent and agentregistry
+# once first, so the login exists.
 #   ./k8s/agents/install.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -68,5 +70,8 @@ trap 'kill $forward 2>/dev/null' EXIT
 for _ in $(seq 30); do curl -sf localhost:18121/health >/dev/null && break; sleep 1; done
 "$arctl" --registry-url http://127.0.0.1:18121 apply -f k8s/agents/registry.yaml
 
-echo "kagent UI: kubectl -n kagent port-forward svc/kagent-ui 18084:8080"
-echo "registry UI: kubectl -n agentregistry port-forward svc/agentregistry 18121:12121"
+echo "==> the UIs behind NGINX"
+kubectl apply -f k8s/agents/ingress.yaml >/dev/null
+
+echo "kagent UI:   https://kagent.fraudstream.localhost (gateway password)"
+echo "registry UI: https://agentregistry.fraudstream.localhost (gateway password)"

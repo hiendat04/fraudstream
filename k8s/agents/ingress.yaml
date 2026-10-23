@@ -1,0 +1,84 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kagent-ui
+  namespace: kagent
+  annotations:
+    cert-manager.io/cluster-issuer: local-ca
+    nginx.org/http-redirect-code: "308"
+    nginx.org/basic-auth-secret: gateway-htpasswd
+    nginx.org/basic-auth-realm: fraudstream
+    nginx.org/limit-req-rate: "30r/s"
+    nginx.org/limit-req-burst: "100"
+    nginx.org/limit-req-no-delay: "true"
+    nginx.org/limit-req-reject-code: "429"
+    nginx.org/proxy-read-timeout: "300s"
+    nginx.org/proxy-buffering: "false"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - kagent.fraudstream.localhost
+      secretName: kagent-ui-tls
+  rules:
+    - host: kagent.fraudstream.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: kagent-ui
+                port:
+                  number: 8080
+---
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: agentregistry
+  namespace: agentregistry
+  annotations:
+    cert-manager.io/cluster-issuer: local-ca
+    nginx.org/http-redirect-code: "308"
+    nginx.org/basic-auth-secret: gateway-htpasswd
+    nginx.org/basic-auth-realm: fraudstream
+    nginx.org/limit-req-rate: "30r/s"
+    nginx.org/limit-req-burst: "100"
+    nginx.org/limit-req-no-delay: "true"
+    nginx.org/limit-req-reject-code: "429"
+spec:
+  ingressClassName: nginx
+  tls:
+    - hosts:
+        - agentregistry.fraudstream.localhost
+      secretName: agentregistry-tls
+  rules:
+    - host: agentregistry.fraudstream.localhost
+      http:
+        paths:
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: agentregistry
+                port:
+                  number: 12121
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agentregistry
+  namespace: agentregistry
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agentregistry
+      app.kubernetes.io/component: server
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: nginx-ingress
+      ports:
+        - port: 8080
