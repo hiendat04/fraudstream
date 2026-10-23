@@ -12,6 +12,13 @@ data:
           receivers: [otlp]
           processors: [batch]
           exporters: [jaeger_storage_exporter]
+        traces/agent-calls:
+          receivers: [otlp]
+          processors: [filter/agent-calls]
+          exporters: [spanmetrics]
+        metrics/agent-calls:
+          receivers: [spanmetrics]
+          exporters: [prometheus]
     extensions:
       healthcheckv2:
         use_v2: true
@@ -34,9 +41,26 @@ data:
             endpoint: 0.0.0.0:4318
     processors:
       batch: {}
+      filter/agent-calls:
+        error_mode: ignore
+        traces:
+          span:
+            - name != "invoke_agent" or resource.attributes["service.name"] != "kagent-controller"
+    connectors:
+      spanmetrics:
+        namespace: agent
+        dimensions:
+          - name: gen_ai.agent.name
+        histogram:
+          unit: s
+          explicit:
+            buckets: [1s, 5s, 15s, 30s, 60s, 120s, 300s]
+        metrics_flush_interval: 15s
     exporters:
       jaeger_storage_exporter:
         trace_storage: memstore
+      prometheus:
+        endpoint: 0.0.0.0:8889
 ---
 apiVersion: apps/v1
 kind: Deployment
@@ -68,6 +92,8 @@ spec:
               containerPort: 16686
             - name: health
               containerPort: 13133
+            - name: metrics
+              containerPort: 8889
           readinessProbe:
             httpGet:
               path: /status

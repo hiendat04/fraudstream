@@ -64,3 +64,20 @@ spec:
     - targetPort: 15020
       path: /metrics
       interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: jaeger-span-metrics
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - observability
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: jaeger
+  podMetricsEndpoints:
+    - port: metrics
+      path: /metrics
+      interval: 15s

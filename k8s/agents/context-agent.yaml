@@ -118,3 +118,28 @@ spec:
               app.kubernetes.io/name: jaeger
       ports:
         - port: 4317
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: context-agent
+  namespace: kagent
+spec:
+  scaleTargetRef:
+    name: context-agent
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 120
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
+        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="context-agent"}[2m])) or vector(0)
+        threshold: "1"

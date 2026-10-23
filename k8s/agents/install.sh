@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs the agent platform on the kind cluster: kagent, whose one global model
 # config reaches Qwen3-4B through the LLM gateway, and the context agent, with its
-# prompt from MLflow and its own key to the MCP gateway. Safe to run again.
+# prompt from MLflow, its own key to the MCP gateway, and KEDA scaling it on calls
+# in flight. Safe to run again.
 #   ./k8s/agents/install.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -36,5 +37,9 @@ prompts render context-agent | kubectl apply -f - >/dev/null
 echo "==> the context agent"
 kubectl apply -f k8s/agents/context-agent.yaml >/dev/null
 kubectl -n kagent wait agent/context-agent --for=condition=Ready --timeout=5m
+
+echo "==> agent telemetry and the Agents dashboard"
+kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
+kubectl -n kagent wait scaledobject/context-agent --for=condition=Ready --timeout=2m
 
 echo "kagent UI: kubectl -n kagent port-forward svc/kagent-ui 18084:8080"

@@ -9,7 +9,7 @@ providers:
       baseUrl: http://llm-gateway.llm.svc.cluster.local:8080/v1
       temperature: "0"
       maxTokens: 512
-      timeout: 120
+      timeout: 300
 otel:
   tracing:
     enabled: true

@@ -2,8 +2,10 @@
 # Checks the agent platform end to end: the global model config, that ids and
 # dates reach the model unmasked through the LLM gateway's PII guard with
 # thinking off, that the context agent sees only its own tools, that it answers
-# with numbers from the store, and that the gateway counted its tool calls.
-#   ./k8s/agents/check.sh
+# with numbers from the store, that the gateway counted its tool calls, that KEDA
+# keeps two replicas, and that Jaeger counted the calls to the agent.
+#   ./k8s/agents/check.sh            the checks
+#   ./k8s/agents/check.sh --load 3   three questions at once, to watch KEDA add a replica
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
@@ -21,6 +23,17 @@ expect() {
 forwards=()
 trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done' EXIT
 forward() { kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
+
+ask() {
+  forward kagent kagent-controller 18083:8083
+  forward fraudstream-apis context-api 18093:80
+  PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py \
+    --controller http://127.0.0.1:18083/api/a2a/kagent/context-agent/ --context-api http://127.0.0.1:18093 "$@"
+}
+if [ "${1:-}" = --load ]; then
+  ask "$@"
+  exit
+fi
 
 echo "==> the global model config"
 expect "model and where it is reached" "qwen3-4b http://llm-gateway.llm.svc.cluster.local:8080/v1" \
@@ -46,10 +59,13 @@ expect "tools it sees" "get_chunk get_customer_features get_merchant_features" \
   "$(kubectl -n kagent get remotemcpserver fraud-context-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
 
     echo "==> questions to the context agent"
-forward kagent kagent-controller 18083:8083
-forward fraudstream-apis context-api 18093:80
-PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py \
-  --controller http://127.0.0.1:18083/api/a2a/kagent/context-agent/ --context-api http://127.0.0.1:18093 || failed=1
+ask || failed=1
+
+echo "==> replicas"
+expect "the scaler" True \
+  "$(kubectl -n kagent get scaledobject context-agent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+expect "at least two ready" yes \
+  "$([ "$(kubectl -n kagent get deploy context-agent -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
 
 echo "==> the counters"
 # Prometheus scrapes every 15 seconds.
@@ -66,7 +82,15 @@ for item in series:
 tools = {item["metric"].get("resource") for item in series}
 ok = {"get_customer_features", "get_merchant_features"} <= tools
 print(("  ok    " if ok else "  FAIL  ") + f"tool calls counted for context-agent: {sorted(t for t in tools if t)}")
-sys.exit(0 if ok else 1)
+query = "sum by (gen_ai_agent_name, status_code) (agent_calls_total)"
+url = sys.argv[1] + "?query=" + urllib.parse.quote(query)
+out = json.loads(subprocess.run(["kubectl", "--context", "kind-fraudstream", "get", "--raw", url], capture_output=True, text=True, check=True).stdout)
+calls = out["data"]["result"]
+for item in calls:
+    print(f"        {item['metric']} {item['value'][1]}")
+counted = any(item["metric"].get("gen_ai_agent_name") == "context-agent" for item in calls)
+print(("  ok    " if counted else "  FAIL  ") + "calls to context-agent counted from the controller's spans")
+sys.exit(0 if ok and counted else 1)
 PY
 
 exit $failed
