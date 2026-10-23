@@ -19,6 +19,7 @@ class FakeRegistry:
         self.versions: dict[str, list[str]] = {}
         self.aliases: dict[tuple[str, str], int] = {}
         self.loads: list[dict] = []
+        self.commit_messages: list[str | None] = []
 
     def load_prompt(self, name_or_uri, allow_missing=False, cache_ttl_seconds=None):
         self.loads.append({"allow_missing": allow_missing, "cache_ttl_seconds": cache_ttl_seconds})
@@ -32,6 +33,7 @@ class FakeRegistry:
         return SimpleNamespace(template=templates[version - 1], version=version)
 
     def register_prompt(self, name, template, commit_message=None):
+        self.commit_messages.append(commit_message)
         self.versions.setdefault(name, []).append(template)
         return SimpleNamespace(template=template, version=len(self.versions[name]))
 

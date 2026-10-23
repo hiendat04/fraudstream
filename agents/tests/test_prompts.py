@@ -47,13 +47,26 @@ def test_a_prompt_is_accepted_only_when_it_fits_and_has_no_template_syntax(templ
 
 
 @pytest.mark.parametrize(("template", "message"), [
-    pytest.param("", "blank", id="blank"),
-    pytest.param("x" * (MAX_PROMPT_CHARS + 1), "4000", id="too-long"),
-    pytest.param("Hello {{ name }}", "{{", id="template-syntax"),
+    pytest.param("", "the prompt is blank", id="blank"),
+    pytest.param("x" * (MAX_PROMPT_CHARS + 1), "the prompt has 4001 characters, more than 4000", id="too-long"),
+    pytest.param("Hello {{ name }}", "the prompt contains {{, which MLflow and kagent read as a template variable",
+                 id="template-syntax"),
 ])
 def test_a_refusal_says_what_is_wrong(template, message):
-    with pytest.raises(ValueError, match=message):
+    with pytest.raises(ValueError) as error:
         check("context-agent", template)
+    assert str(error.value) == message
+
+
+def test_a_version_says_where_its_text_came_from(registry):
+    register(registry, "context-agent", "v1 text")
+    assert registry.commit_messages == ["from agents/prompts/context-agent.md"]
+
+
+def test_main_needs_a_command(registry):
+    with pytest.raises(SystemExit) as error:
+        main([], registry=registry)
+    assert error.value.code == 2
 
 
 def test_the_first_registration_makes_version_1(registry):

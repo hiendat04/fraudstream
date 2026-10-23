@@ -113,6 +113,25 @@ Jaeger.
 | Who was refused, and why? | `agentgateway_requests_total{status}` (401, 403, 404, 429) |
 | How busy is each model server? | `llamacpp:requests_processing`, `llamacpp:requests_deferred`, `llamacpp:tokens_predicted_total` |
 
+## The agents
+
+kagent counts nothing itself, so calls to an agent are counted from traces. Every
+call passes kagent's controller, which opens one `invoke_agent` span named after the
+agent. A second pipeline in Jaeger keeps only those spans and turns them into
+metrics with its `spanmetrics` connector; the pipeline that stores traces is
+unchanged.
+
+| Question | Metric |
+|---|---|
+| How often is each agent called, and how often does a call fail? | `agent_calls_total{gen_ai_agent_name,status_code}` |
+| How long do calls take, and how many are in flight? | `agent_duration_seconds` |
+| How often is each MCP tool called, and how does each call end? | `mcp_tool_calls_total{server,tool,outcome}` |
+| Which agent called which tool? | `agentgateway_mcp_requests_total{consumer,resource}` |
+
+The dashboard **FraudStream · Agents** shows them, with calls in flight against the
+agent's replicas, which KEDA scales on. More in
+[32_agents.md](../llm/32_agents.md#telemetry).
+
 ## The drift pipeline
 
 ```mermaid
@@ -413,8 +432,8 @@ refused before its key is read (401) is counted without one.
 | Prometheus, Grafana, data sources | `k8s/observability/prometheus-values.yaml` |
 | Pushgateway | `k8s/observability/pushgateway-values.yaml` |
 | What Prometheus scrapes beyond the charts | `k8s/observability/servicemonitors.yaml` |
-| Dashboards | `k8s/observability/dashboards/{web-apis,compute,model-drift,llm}.yaml` |
-| Jaeger | `k8s/observability/jaeger.yaml` |
+| Dashboards | `k8s/observability/dashboards/{web-apis,compute,model-drift,llm,agents}.yaml` |
+| Jaeger, and agent calls from its spans | `k8s/observability/jaeger.yaml` |
 | Elasticsearch, Kibana, Fluent Bit | `k8s/observability/logging.yaml`, `logging-setup.yaml`, `fluent-bit-values.yaml` |
 | UIs behind the gateway | `k8s/observability/ingress.yaml`, `k8s/gateway/pipelines.yaml` |
 | Request metrics | `api/src/fraudstream_api/metrics.py` |

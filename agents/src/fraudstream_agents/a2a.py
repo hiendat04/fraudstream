@@ -77,14 +77,16 @@ def numbers(text: str) -> list[float]:
     return [float(found.replace(",", "")) for found in NUMBER.findall(text)]
 
 
+def close(number: float, value: float) -> bool:
+    """Whether a number in an answer is within 1% of the tool's value."""
+
+    # Multiplied out, so the 1% boundary is exact for whole numbers instead of depending on float rounding.
+    return abs(number - value) * 100 <= TOLERANCE_PERCENT * abs(value)
+
+
 def grounded(answer: str, values: Iterable[float | int]) -> bool:
     """Whether the answer quotes at least one of the tool's values of 1 or more, within 1%."""
 
     # Values below 1, such as rates, are too easy to match by chance.
     quoted = numbers(answer)
-    return any(
-        abs(number - value) * 100 <= TOLERANCE_PERCENT * abs(value)
-        for value in values
-        if abs(value) >= 1
-        for number in quoted
-    )
+    return any(close(number, value) for value in values if abs(value) >= 1 for number in quoted)

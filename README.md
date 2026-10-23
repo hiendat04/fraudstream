@@ -125,6 +125,7 @@ the data behind them are built; the agents are next.
 | LLM inference platform | Qwen3 on llama.cpp behind llm-d and agentgateway: keys, limits, PII masking, telemetry, benchmark | [29_llm_inference_platform.md](docs/llm/29_llm_inference_platform.md) |
 | RAG data pipeline | The handbook, model cards and feature dictionary, chunked and embedded daily into Iceberg and Feast's pgvector store, checked and governed | [30_rag_pipeline.md](docs/llm/30_rag_pipeline.md) |
 | Context API and MCP servers | Features, chunks and search by id; two MCP servers behind agentgateway with a key and tool policy per agent | [31_context_api_and_mcp.md](docs/llm/31_context_api_and_mcp.md) |
+| Agents | kagent with one global model config, the context agent with its prompt from MLflow, KEDA on calls in flight, agentregistry, both UIs behind NGINX | [32_agents.md](docs/llm/32_agents.md) |
 
 ## Quick start
 
@@ -171,6 +172,8 @@ job, or `--flink-ui` to the Flink job, to watch it run. Stop the services with
 | DataHub | `http://localhost:9002` |
 | Inference API | `https://inference.fraudstream.localhost` (gateway password) |
 | Drift detection API | `https://drift-detection.fraudstream.localhost` (gateway password) |
+| kagent UI, to ask the agents | `https://kagent.fraudstream.localhost` (gateway password) |
+| Agent registry | `https://agentregistry.fraudstream.localhost` (gateway password) |
 | PostgreSQL | `localhost:5432`, database `fraudstream` |
 
 Credentials are local-development defaults (`fraudstream` / `fraudstream_local_password`).
@@ -189,6 +192,7 @@ The API suites, mutation tests and load test are covered in
 
 ```text
 fraudstream/
+├── agents/                   # Isolated Python 3.12 agent prompts for MLflow, and the A2A check
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
 ├── api/                      # Isolated Python 3.12 web APIs: fraud inference and drift detection
 │   └── loadtest/             # Locust load test and its SLA check
@@ -209,6 +213,7 @@ fraudstream/
 │   ├── terraform/            # Terraform modules and one stack per piece of the GCP setup
 │   └── session.sh            # Start, end and check a cloud session
 ├── k8s/                      # kind cluster bootstrap, service images, pipeline RBAC
+│   ├── agents/               # kagent, the context agent, agentregistry, and their UIs
 │   ├── apis/                 # Helm values for the inference and drift detection releases
 │   ├── gke/                  # Platform, deploy scripts and manifests for GKE
 │   ├── charts/               # One Helm chart shared by both web APIs

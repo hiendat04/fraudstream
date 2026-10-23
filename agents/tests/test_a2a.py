@@ -28,6 +28,11 @@ def test_the_request_is_a_blocking_message_send():
                  "boom", id="no-artifacts-the-status-message"),
     pytest.param({"kind": "message", "parts": [{"kind": "text", "text": "hello"}]}, "hello", id="a-plain-message"),
     pytest.param({"kind": "task", "status": {"state": "completed"}}, "", id="nothing-to-read"),
+    pytest.param({"kind": "message", "parts": [{"kind": "text", "text": "a"}, {"kind": "text", "text": "b"}]},
+                 "a\nb", id="a-messages-parts-joined"),
+    pytest.param({"kind": "message"}, "", id="a-message-without-parts"),
+    pytest.param({"kind": "task", "status": {"state": "completed"}, "artifacts": [{}]}, "", id="an-artifact-without-parts"),
+    pytest.param({"kind": "task", "artifacts": []}, "", id="a-task-without-a-status"),
 ])
 def test_the_answer_is_the_text_the_agent_sent(result, text):
     assert answer_text(result) == text
@@ -74,12 +79,15 @@ async def test_each_question_gets_its_own_id():
 @pytest.mark.parametrize(("response", "message"), [
     pytest.param(httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "error": {"code": -32001, "message": "agent not found"}}),
                  "agent not found", id="a-json-rpc-error"),
+    pytest.param(httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "error": {"code": -32603}}),
+                 "{'code': -32603}", id="a-json-rpc-error-without-a-message"),
     pytest.param(httpx.Response(502, text="bad gateway"), "502: bad gateway", id="an-http-error"),
 ])
 async def test_ask_raises_what_went_wrong(response, message):
     async with httpx.AsyncClient(transport=httpx.MockTransport(lambda request: response)) as client:
-        with pytest.raises(A2AError, match=message):
+        with pytest.raises(A2AError) as error:
             await ask(client, "http://c/", "q")
+    assert str(error.value) == message
 
 
 async def test_a_long_error_body_is_cut_to_200():
