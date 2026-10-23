@@ -3,7 +3,8 @@
 # dates reach the model unmasked through the LLM gateway's PII guard with
 # thinking off, that the context agent sees only its own tools, that it answers
 # with numbers from the store, that the gateway counted its tool calls, that KEDA
-# keeps two replicas, and that Jaeger counted the calls to the agent.
+# keeps two replicas, that Jaeger counted the calls to the agent, and that the
+# registry holds the agent and its MCP server.
 #   ./k8s/agents/check.sh            the checks
 #   ./k8s/agents/check.sh --load 3   three questions at once, to watch KEDA add a replica
 set -euo pipefail
@@ -66,6 +67,12 @@ expect "the scaler" True \
   "$(kubectl -n kagent get scaledobject context-agent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
 expect "at least two ready" yes \
   "$([ "$(kubectl -n kagent get deploy context-agent -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
+
+echo "==> the registry"
+forward agentregistry agentregistry 18121:12121
+expect "the context agent's record" yes \
+  "$(curl -s localhost:18121/v0/agents/contextagent | grep -q '"Context agent"' && echo yes || echo no)"
+expect "the fraud-context record" 200 "$(curl -s -o /dev/null -w '%{http_code}' localhost:18121/v0/mcpservers/fraud-context)"
 
 echo "==> the counters"
 # Prometheus scrapes every 15 seconds.

@@ -2,7 +2,8 @@
 # Installs the agent platform on the kind cluster: kagent, whose one global model
 # config reaches Qwen3-4B through the LLM gateway, and the context agent, with its
 # prompt from MLflow, its own key to the MCP gateway, and KEDA scaling it on calls
-# in flight. Safe to run again.
+# in flight; then agentregistry, with the context agent and its MCP server
+# published to it. Safe to run again.
 #   ./k8s/agents/install.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -42,4 +43,30 @@ echo "==> agent telemetry and the Agents dashboard"
 kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
 kubectl -n kagent wait scaledobject/context-agent --for=condition=Ready --timeout=2m
 
+echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
+kubectl create namespace agentregistry --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+helm --kube-context kind-fraudstream upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
+  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml --wait --timeout 5m >/dev/null
+
+# arctl, the registry's command line, fetched once and checked against its release's checksum.
+echo "==> arctl ${AGENTREGISTRY_VERSION}"
+arctl=${XDG_CACHE_HOME:-$HOME/.cache}/fraudstream/arctl-$AGENTREGISTRY_VERSION
+if [ ! -x "$arctl" ]; then
+  asset=arctl-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
+  release=https://github.com/agentregistry-dev/agentregistry/releases/download/v$AGENTREGISTRY_VERSION
+  mkdir -p "$(dirname "$arctl")"
+  curl -fsSL -o "$arctl.download" "$release/$asset"
+  [ "$(shasum -a 256 "$arctl.download" | cut -d' ' -f1)" = "$(curl -fsSL "$release/$asset.sha256" | cut -d' ' -f1)" ] \
+    || { echo "arctl's checksum does not match its release" >&2; rm -f "$arctl.download"; exit 1; }
+  chmod +x "$arctl.download" && mv "$arctl.download" "$arctl"
+fi
+
+echo "==> the registry records"
+kubectl -n agentregistry port-forward svc/agentregistry 18121:12121 >/dev/null &
+forward=$!
+trap 'kill $forward 2>/dev/null' EXIT
+for _ in $(seq 30); do curl -sf localhost:18121/health >/dev/null && break; sleep 1; done
+"$arctl" --registry-url http://127.0.0.1:18121 apply -f k8s/agents/registry.yaml
+
 echo "kagent UI: kubectl -n kagent port-forward svc/kagent-ui 18084:8080"
+echo "registry UI: kubectl -n agentregistry port-forward svc/agentregistry 18121:12121"
