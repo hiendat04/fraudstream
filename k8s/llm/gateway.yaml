@@ -72,11 +72,11 @@ spec:
     promptGuard:
       request:
         - regex:
-            builtins: [CreditCard, Email, PhoneNumber]
+            builtins: [CreditCard, Email]
             action: Mask
       response:
         - regex:
-            builtins: [CreditCard, Email, PhoneNumber]
+            builtins: [CreditCard, Email]
             action: Mask
 ---
 apiVersion: agentgateway.dev/v1alpha1
@@ -109,9 +109,9 @@ spec:
     promptGuard:
       request:
         - regex:
-            builtins: [CreditCard, Email, PhoneNumber]
+            builtins: [CreditCard, Email]
             action: Mask
       response:
         - regex:
-            builtins: [CreditCard, Email, PhoneNumber]
+            builtins: [CreditCard, Email]
             action: Mask

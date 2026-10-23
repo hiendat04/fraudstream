@@ -3,8 +3,8 @@
 The analyst copilot's agents need a language model to read facts and explain them. This
 is that model's endpoint inside the cluster: one OpenAI-compatible address,
 `http://llm-gateway.llm.svc.cluster.local:8080/v1`. Every request needs a key, may use
-only the models its key allows, is rate limited, and has card numbers, emails and phone
-numbers masked before the model sees them. Every request is measured too: tokens, time to
+only the models its key allows, is rate limited, and has card numbers and emails masked
+before the model sees them. Every request is measured too: tokens, time to
 the first token, round trip and PII guard catches. The fraud model still makes every fraud
 decision. The LLM only explains.
 
@@ -60,8 +60,9 @@ One request, `POST /v1/chat/completions` with `"model": "qwen3-4b"`:
 3. **Allowlist.** The key lists the models its consumer may use. `agents` asking for
    `qwen3-1.7b`: 403.
 4. **Limits.** Requests and tokens per minute, per consumer. Over the limit: 429.
-5. **Masking.** Card numbers (Luhn-checked), emails and phone numbers in the prompt are
-   replaced before the model sees them.
+5. **Masking.** Card numbers (Luhn-checked) and emails in the prompt are replaced before
+   the model sees them. Phone numbers were masked too, until the agents showed that the
+   guard reads every date, such as `2026-06-23`, as one.
 6. **Picker.** agentgateway asks the model's llm-d picker which pod should answer. The
    picker prefers a pod that already holds the prompt's prefix in cache, then the least
    busy one.
@@ -101,7 +102,7 @@ Qwen's chat template, which handles tool calls.
 | Model exists | only declared `AgentgatewayModel`s match | 404 |
 | Model allowed | `"<model>" in apiKey.models`, per model | 403 |
 | Request and token limits | `rateLimit` per consumer, from the key | 429 |
-| PII guard | `promptGuard`, built-ins `CreditCard`, `Email`, `PhoneNumber`, action `Mask`, on request and reply | masked, not refused |
+| PII guard | `promptGuard`, built-ins `CreditCard`, `Email`, action `Mask`, on request and reply | masked, not refused |
 
 | Consumer | Models | Requests | Tokens |
 |---|---|---|---|

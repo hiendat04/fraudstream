@@ -7,10 +7,10 @@ a fixed SLA. The context API and the MCP servers are covered in more detail in
 
 | Check | Result |
 |---|---|
-| Line and branch coverage | **100%** for `api/`, **100%** for `serving/`, **99%** for `mcp_servers/` |
-| Tests | 250 in `api/`, 14 in `serving/`, 59 in `mcp_servers/` |
-| Mutation score | **89.6%** (1,054 of 1,176) for `api/`; **91.5%** (173 of 189) for `mcp_servers/` |
-| Properties | 13, run by Hypothesis, 1 of them by CrossHair |
+| Line and branch coverage | **100%** for `api/`, **100%** for `serving/`, **99%** for `mcp_servers/`, **98%** for `agents/` |
+| Tests | 250 in `api/`, 14 in `serving/`, 59 in `mcp_servers/`, 69 in `agents/` |
+| Mutation score | **89.6%** (1,054 of 1,176) for `api/`; **91.5%** (173 of 189) for `mcp_servers/`; **95.0%** (364 of 383) for `agents/` |
+| Properties | 17, run by Hypothesis, 3 of them by CrossHair |
 | Load test, inference API | p95 200 ms, p99 920 ms at 48 req/s — **SLA met** |
 | Load test, context API | p95 5.0 s, p99 8.8 s at 12.6 req/s — **SLA missed** |
 
@@ -81,6 +81,7 @@ export PYTHONPATH=$(cd ../ml/src && pwd):$(cd ../rag/src && pwd) OBJC_DISABLE_IN
 uv run --all-extras --group reference mutmut run
 uv run --all-extras --group reference mutmut results
 cd ../mcp_servers && uv run mutmut run && uv run mutmut results
+cd ../agents && uv run mutmut run && uv run mutmut results
 ```
 
 mutmut runs the tests from a copy in `mutants/`, where relative paths such as

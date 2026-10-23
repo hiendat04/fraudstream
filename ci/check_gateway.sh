@@ -4,6 +4,7 @@
 
 #   set -a && . ./.env && set +a
 #   GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh inference.fraudstream.localhost
+#   GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh kagent.fraudstream.localhost /health
 
 # Needs GATEWAY_USER and GATEWAY_PASSWORD. From the local computer, add GATEWAY_ADDRESS=127.0.0.1.
 set -euo pipefail
@@ -11,7 +12,9 @@ cd "$(dirname "$0")/.."
 . ci/gateway.sh
 
 host=$1
-url="https://$host/livez"
+# The APIs answer /livez; the UIs have their own health path.
+path=${2:-/livez}
+url="https://$host$path"
 
 expect() {
   if [ "$3" = "$2" ]; then
@@ -30,8 +33,8 @@ burst() {
     --connect-to "::$gateway_address:" --cacert "$gateway_ca" -u "$1" "$url" | sort | uniq -c
 }
 
-expect "plain HTTP is redirected, method kept" "308 https://$host:443/livez" \
-  "$(gateway_curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://$host/livez")"
+expect "plain HTTP is redirected, method kept" "308 https://$host:443$path" \
+  "$(gateway_curl -s -o /dev/null -w '%{http_code} %{redirect_url}' "http://$host$path")"
 expect "no password" 401 "$(status)"
 expect "wrong password" 401 "$(status -u "$GATEWAY_USER:wrong")"
 expect "right password, certificate trusted" 200 "$(status -u "$GATEWAY_USER:$GATEWAY_PASSWORD")"

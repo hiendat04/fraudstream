@@ -1,0 +1,40 @@
+[project]
+name = "fraudstream-agents"
+version = "0.1.0"
+description = "The agents' system prompts in MLflow's Prompt Registry, and the checks that ask the agents questions"
+requires-python = ">=3.12,<3.13"
+dependencies = [
+    "mlflow-skinny==3.16.0",
+    "httpx==0.28.1",
+]
+
+[dependency-groups]
+dev = [
+    "pytest==9.1.1",
+    "pytest-cov==7.1.0",
+    "mutmut==3.8.0",
+    "hypothesis==6.168.0",
+    "hypothesis-crosshair==0.0.30",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+pythonpath = ["src", "."]
+testpaths = ["tests"]
+
+[tool.coverage.run]
+branch = true
+source = ["src/fraudstream_agents"]
+
+[tool.coverage.report]
+show_missing = true
+exclude_also = ["if __name__ == .__main__.:"]
+fail_under = 90
+
+[tool.mutmut]
+source_paths = ["src/fraudstream_agents"]
+# The prompt tests read agents/prompts/, which mutmut would otherwise leave out of mutants/.
+also_copy = ["prompts"]
+pytest_add_cli_args_test_selection = ["tests"]

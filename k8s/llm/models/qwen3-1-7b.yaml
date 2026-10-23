@@ -5,6 +5,8 @@ metadata:
   namespace: llm
 spec:
   replicas: 0
+  strategy:
+    type: Recreate
   selector:
     matchLabels:
       app: qwen3-1-7b
@@ -23,6 +25,8 @@ spec:
             - --alias
             - qwen3-1.7b
             - --jinja
+            - --reasoning
+            - "off"
             - --threads
             - "4"
             - --parallel

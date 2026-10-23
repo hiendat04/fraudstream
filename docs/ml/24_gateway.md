@@ -4,7 +4,7 @@ Every service people open goes through one door: NGINX on port 443. Each service
 its own name under `fraudstream.localhost`. NGINX speaks HTTPS with a certificate from
 the local CA, asks for a username and password, and limits how fast one client can call.
 That covers the two web APIs, the monitoring UIs (Grafana, Kibana, Jaeger and the
-Pushgateway) and the Kubeflow Pipelines UI.
+Pushgateway), the Kubeflow Pipelines UI, the kagent UI and the agent registry.
 
 ## Who goes through the gateway
 
@@ -38,7 +38,10 @@ flowchart LR
 
         KFP["Kubeflow Pipelines UI<br/>namespace kubeflow"]
 
-        MODEL["KServe fraud model"]
+        KAG["kagent UI<br/>namespace kagent"]
+        AR["agent registry<br/>namespace agentregistry"]
+
+        MODEL["KServe fraud model<br/>namespace kserve-models"]
     end
 
     B & T & J & A -- "HTTPS + password" --> GW
@@ -46,6 +49,8 @@ flowchart LR
     GW -- "drift-detection.fraudstream.localhost" --> DRIFT
     GW -- "grafana · kibana · jaeger<br/>pushgateway .fraudstream.localhost" --> MON
     GW -- "pipelines.fraudstream.localhost" --> KFP
+    GW -- "kagent.fraudstream.localhost" --> KAG
+    GW -- "agentregistry.fraudstream.localhost" --> AR
     INF -- "inside the cluster,<br/>no gateway" --> DRIFT
     INF -- "inside the cluster" --> MODEL
 
@@ -66,6 +71,8 @@ Service names, with no password.
 | `jaeger.fraudstream.localhost` | Jaeger | behind the gateway |
 | `pushgateway.fraudstream.localhost` | Pushgateway, pushed to by Airflow | behind the gateway |
 | `pipelines.fraudstream.localhost` | Kubeflow Pipelines, called by Airflow | behind the gateway |
+| `kagent.fraudstream.localhost` | kagent UI, to ask the agents | behind the gateway |
+| `agentregistry.fraudstream.localhost` | agent registry, UI and API | behind the gateway; the registry also refuses any caller but NGINX |
 
 `*.localhost` always points at your own machine, so these names work with no DNS server
 and no hosts file.

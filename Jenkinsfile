@@ -36,6 +36,7 @@ pipeline {
         stage('monitoring')    { steps { sh './ci/test.sh monitoring' } }
         stage('rag')           { steps { sh './ci/test.sh rag' } }
         stage('mcp_servers')   { steps { sh './ci/test.sh mcp_servers' } }
+        stage('agents')        { steps { sh './ci/test.sh agents' } }
       }
     }
 
