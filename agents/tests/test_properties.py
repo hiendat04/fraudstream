@@ -1,12 +1,13 @@
 """Properties that must hold for any input Hypothesis invents.
 
-CrossHair drives the prompt-length rule, an integer comparison it solves at the
-boundaries instead of guessing them. Registration takes any text at all, which
-random search covers better.
+CrossHair drives the prompt-length rule and the 1% rule for quoted numbers,
+integer comparisons it solves at the boundaries instead of guessing them.
+Registration takes any text at all, which random search covers better.
 """
 
 from hypothesis import given, settings, strategies as st
 
+from fraudstream_agents.a2a import grounded
 from fraudstream_agents.prompts import MAX_PROMPT_CHARS, check, register
 from tests.conftest import FakeRegistry
 
@@ -29,3 +30,9 @@ def test_registering_the_same_text_twice_is_idempotent(template):
     second = register(registry, "context-agent", template)
     assert second == (first[0], False)
     assert len(registry.versions["context-agent"]) == 1
+
+
+@settings(backend="crosshair", max_examples=50, deadline=None)
+@given(value=st.integers(min_value=1, max_value=10**6), offset=st.integers(min_value=-(10**6), max_value=10**6))
+def test_a_quoted_number_counts_exactly_when_it_is_within_1_percent(value, offset):
+    assert grounded(f"the tool said {value + offset}", [value]) == (abs(offset) * 100 <= value)

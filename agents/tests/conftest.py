@@ -42,3 +42,8 @@ class FakeRegistry:
 @pytest.fixture
 def registry():
     return FakeRegistry()
+
+
+@pytest.fixture
+def anyio_backend():
+    return "asyncio"

@@ -1,0 +1,120 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: fraud-context-tools
+  namespace: kagent
+spec:
+  description: The fraud-context tools through the MCP gateway, with the context agent's key
+  protocol: STREAMABLE_HTTP
+  url: http://mcp-gateway.mcp.svc.cluster.local:8080/mcp
+  timeout: 40s
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: mcp-key-context-agent
+        key: authorization
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: context-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: Answers what the platform knows about a customer, a merchant or a handbook section, from the online feature store and the RAG index.
+  declarative:
+    modelConfig: default-model-config
+    systemMessageFrom:
+      type: ConfigMap
+      name: context-agent-prompt
+      key: system-message
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: fraud-context-tools
+          toolNames:
+            - get_customer_features
+            - get_merchant_features
+            - get_chunk
+    a2aConfig:
+      skills:
+        - id: platform-context
+          name: Platform context
+          description: A customer's or merchant's recent activity from the online feature store, or a handbook section by its chunk id.
+          tags: [fraud, features, handbook]
+          examples:
+            - What has customer cust_00090571 been doing recently?
+            - How risky is merchant merch_00011503 right now?
+    deployment:
+      resources:
+        requests:
+          cpu: 100m
+          memory: 256Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: context-agent
+  namespace: kagent
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: context-agent
+  policyTypes: [Ingress, Egress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - port: 8080
+  egress:
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - {port: 53, protocol: UDP}
+        - {port: 53, protocol: TCP}
+    - to:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/component: controller
+      ports:
+        - port: 8083
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: llm
+          podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: llm-gateway
+      ports:
+        - port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: mcp
+          podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: mcp-gateway
+      ports:
+        - port: 8080
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: observability
+          podSelector:
+            matchLabels:
+              app.kubernetes.io/name: jaeger
+      ports:
+        - port: 4317
