@@ -146,11 +146,24 @@ def test_main_render_without_a_production_version_fails_plainly(registry, capsys
     assert "context-agent has no production version" in capsys.readouterr().err
 
 
-def test_the_context_agent_prompt_in_git_passes_the_checks():
-    check("context-agent", (PROMPTS_DIR / "context-agent.md").read_text())
+CONTEXT_TOOLS = ("get_customer_features", "get_merchant_features", "get_chunk")
+RISK_TOOLS = ("score_payment", "search_handbook")
+AGENT_TOOLS = ("kagent__NS__context_agent", "kagent__NS__risk_agent")
+PROMPT_TOOLS = {
+    "context-agent": CONTEXT_TOOLS,
+    "risk-agent": RISK_TOOLS,
+    "coordinator-agent": AGENT_TOOLS,
+}
 
 
-def test_the_context_agent_prompt_names_its_tools_and_no_others():
-    text = (PROMPTS_DIR / "context-agent.md").read_text()
-    assert all(tool in text for tool in ("get_customer_features", "get_merchant_features", "get_chunk"))
-    assert not any(tool in text for tool in ("score_payment", "search_handbook"))
+@pytest.mark.parametrize("name", PROMPT_TOOLS)
+def test_each_prompt_in_git_passes_the_checks(name):
+    check(name, (PROMPTS_DIR / f"{name}.md").read_text())
+
+
+@pytest.mark.parametrize(("name", "tools"), PROMPT_TOOLS.items())
+def test_each_prompt_names_its_tools_and_no_others(name, tools):
+    text = (PROMPTS_DIR / f"{name}.md").read_text()
+    others = [tool for tool in CONTEXT_TOOLS + RISK_TOOLS + AGENT_TOOLS if tool not in tools]
+    assert all(tool in text for tool in tools)
+    assert not any(tool in text for tool in others)

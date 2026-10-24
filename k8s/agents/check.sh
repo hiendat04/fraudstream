@@ -6,7 +6,7 @@
 # keeps two replicas, that Jaeger counted the calls to the agent, and that the
 # registry holds the agent and its MCP server.
 #   ./k8s/agents/check.sh            the checks
-#   ./k8s/agents/check.sh --load 3   three questions at once, to watch KEDA add a replica
+#   ./k8s/agents/check.sh --load 3 --agent context-agent   three questions at once, to watch KEDA add a replica
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
@@ -28,8 +28,9 @@ forward() { kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($
 ask() {
   forward kagent kagent-controller 18083:8083
   forward fraudstream-apis context-api 18093:80
-  PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py \
-    --controller http://127.0.0.1:18083/api/a2a/kagent/context-agent/ --context-api http://127.0.0.1:18093 "$@"
+  forward fraudstream-apis inference-api 18092:80
+  PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
+    --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 "$@"
 }
 if [ "${1:-}" = --load ]; then
   ask "$@"
@@ -59,8 +60,8 @@ echo "==> the context agent's tools"
 expect "tools it sees" "get_chunk get_customer_features get_merchant_features" \
   "$(kubectl -n kagent get remotemcpserver fraud-context-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
 
-    echo "==> questions to the context agent"
-ask || failed=1
+echo "==> questions to the context agent"
+ask --agent context-agent || failed=1
 
 echo "==> replicas"
 expect "the scaler" True \

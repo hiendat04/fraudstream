@@ -2,11 +2,13 @@
 
 kagent's controller serves every agent's A2A endpoint at /api/a2a/<namespace>/<agent>/.
 A question is a JSON-RPC message/send; with blocking set, the answer comes back
-once the agent has finished, as a task whose artifacts hold the text.
+once the agent has finished, as a task whose artifacts hold the text and whose
+history holds the messages it sent on the way, tool calls among them.
 """
 
 import re
 from collections.abc import Iterable
+from typing import NamedTuple
 from uuid import uuid4
 
 import httpx
@@ -20,6 +22,14 @@ NUMBER = re.compile(r"(?<![\w.])-?\d{1,3}(?:,\d{3})+(?:\.\d+)?|(?<![\w.,])-?\d+(
 
 class A2AError(Exception):
     """The agent could not be asked: an HTTP error or a JSON-RPC error."""
+
+
+class Answer(NamedTuple):
+    """How the agent's answer ended, its text, and the tools it called on the way, in order."""
+
+    state: str
+    text: str
+    tools: list[str]
 
 
 def message_request(text: str, request_id: str) -> dict:
@@ -59,8 +69,25 @@ def task_state(result: dict) -> str:
     return result["status"]["state"]
 
 
-async def ask(client: httpx.AsyncClient, url: str, text: str) -> tuple[str, str]:
-    """Ask the agent at url one question; the answer's state and its text."""
+def _is_call(part: dict) -> bool:
+    metadata = part.get("metadata") or {}
+    return part.get("kind") == "data" and "function_call" in (metadata.get("kagent_type"), metadata.get("adk_type"))
+
+
+def tool_calls(result: dict) -> list[str]:
+    """The tools the agent called, in order and with repeats: from its history, then its status message."""
+
+    if result.get("kind") == "message":
+        messages = [result]
+    else:
+        messages = [*result.get("history", []), result.get("status", {}).get("message", {})]
+    return [part["data"]["name"]
+            for message in messages
+            for part in message.get("parts", []) if _is_call(part)]
+
+
+async def ask(client: httpx.AsyncClient, url: str, text: str) -> Answer:
+    """Ask the agent at url one question; how the answer ended, its text and its tool calls."""
 
     response = await client.post(url, json=message_request(text, uuid4().hex))
     if response.status_code != 200:
@@ -68,7 +95,8 @@ async def ask(client: httpx.AsyncClient, url: str, text: str) -> tuple[str, str]
     body = response.json()
     if "error" in body:
         raise A2AError(body["error"].get("message", str(body["error"])))
-    return task_state(body["result"]), answer_text(body["result"])
+    result = body["result"]
+    return Answer(task_state(result), answer_text(result), tool_calls(result))
 
 
 def numbers(text: str) -> list[float]:
