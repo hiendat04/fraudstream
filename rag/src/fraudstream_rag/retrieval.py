@@ -44,20 +44,27 @@ def search(
 ) -> list[dict[str, Any]]:
     """The top_k nearest chunks, nearest first, each with its cosine distance."""
 
+    features = [f"{FEATURE_VIEW}:{name}" for name in RETURNED]
     response = store.retrieve_online_documents_v2(
-        features=[f"{FEATURE_VIEW}:{name}" for name in RETURNED],
+        features=features,
         query=embed_texts([question])[0].tolist(),
         top_k=top_k,
         distance_metric="cosine",
     ).to_dict()
-    hits = [
-        {
-            "chunk_id": chunk_id,
-            **{name: response[name][index] for name in RETURNED},
-            "distance": float(response["distance"][index]),
-        }
-        for index, chunk_id in enumerate(response[JOIN_KEY])
-    ]
+    if not response[JOIN_KEY]:
+        return []
+    # Feast 0.66 sorts the chunk ids apart from the other columns, so each hit is paired
+    # with its id again by looking the ids up, the way a single chunk is read.
+    stored = store.get_online_features(
+        features=features, entity_rows=[{JOIN_KEY: chunk_id} for chunk_id in response[JOIN_KEY]]
+    ).to_dict()
+    id_of = {tuple(stored[name][index] for name in RETURNED): chunk_id for index, chunk_id in enumerate(stored[JOIN_KEY])}
+    hits = []
+    for index in range(len(response[JOIN_KEY])):
+        fields = tuple(response[name][index] for name in RETURNED)
+        # A chunk rewritten between the two reads has no id to cite, so it is left out.
+        if fields in id_of:
+            hits.append({"chunk_id": id_of[fields], **dict(zip(RETURNED, fields)), "distance": float(response["distance"][index])})
     return sorted(hits, key=lambda hit: hit["distance"])
 
 
