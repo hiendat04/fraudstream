@@ -119,6 +119,8 @@ async def problems(client: httpx.AsyncClient, golden_question: GoldenQuestion, a
         truth.raise_for_status()
         if not score_reported(answer.text, truth.json()):
             found.append(f"does not report the model's decision and threshold for {PAYMENT['transaction_id']}")
+    elif decision(answer.text) is not None:
+        found.append("gives a model decision, but no payment was scored")
     if golden_question.handbook is not None:
         found += await _citation_problems(client, cited_chunks(answer.text), golden_question.handbook, context_api)
     return found

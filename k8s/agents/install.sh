@@ -1,9 +1,10 @@
 #!/usr/bin/env bash
 # Installs the agent platform on the kind cluster: kagent, whose one global model
-# config reaches Qwen3-4B through the LLM gateway, and the context agent, with its
-# prompt from MLflow, its own key to the MCP gateway, and KEDA scaling it on calls
-# in flight; then agentregistry, with the context agent and its MCP server
-# published to it; and both UIs behind NGINX with HTTPS and the gateway login.
+# config reaches Qwen3-4B through the LLM gateway, and the context and risk agents,
+# each with its prompt from MLflow, its own key to the MCP gateway, and KEDA
+# scaling it on calls in flight, all under one NetworkPolicy; then agentregistry,
+# with the agents and their MCP servers published to it; and both UIs behind
+# NGINX with HTTPS and the gateway login.
 # Safe to run again. Run k8s/gateway/credentials.sh for kagent and agentregistry
 # once first, so the login exists.
 #   ./k8s/agents/install.sh
@@ -26,24 +27,31 @@ helm --kube-context kind-fraudstream upgrade --install kagent-crds oci://ghcr.io
 helm --kube-context kind-fraudstream upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
   --version "$KAGENT_VERSION" -n kagent -f k8s/agents/kagent-values.yaml --wait --timeout 10m >/dev/null
 
-echo "==> the context agent's MCP key"
-kubectl -n kagent create secret generic mcp-key-context-agent \
-  --from-literal=authorization="Bearer $(kubectl -n mcp get secret mcp-key-context-agent -o jsonpath='{.data.key}' | base64 -d)" \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+agents=(context-agent risk-agent)
+
+echo "==> the agents' MCP keys"
+for agent in "${agents[@]}"; do
+  kubectl -n kagent create secret generic "mcp-key-$agent" \
+    --from-literal=authorization="Bearer $(kubectl -n mcp get secret "mcp-key-$agent" -o jsonpath='{.data.key}' | base64 -d)" \
+    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+done
 
 # Until the agents have CI/CD, the prompt in git is promoted as it is registered.
-echo "==> the context agent's prompt"
+echo "==> the agents' prompts"
 prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://localhost:18085} uv run python -m fraudstream_agents.prompts "$@"); }
-prompts register context-agent --promote
-prompts render context-agent | kubectl apply -f - >/dev/null
+for agent in "${agents[@]}"; do
+  prompts register "$agent" --promote
+  prompts render "$agent" | kubectl apply -f - >/dev/null
+done
 
-echo "==> the context agent"
-kubectl apply -f k8s/agents/context-agent.yaml >/dev/null
-kubectl -n kagent wait agent/context-agent --for=condition=Ready --timeout=5m
+echo "==> the agents"
+kubectl apply -f k8s/agents/network.yaml >/dev/null
+for agent in "${agents[@]}"; do kubectl apply -f "k8s/agents/$agent.yaml" >/dev/null; done
+for agent in "${agents[@]}"; do kubectl -n kagent wait "agent/$agent" --for=condition=Ready --timeout=5m; done
 
 echo "==> agent telemetry and the Agents dashboard"
 kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
-kubectl -n kagent wait scaledobject/context-agent --for=condition=Ready --timeout=2m
+for agent in "${agents[@]}"; do kubectl -n kagent wait "scaledobject/$agent" --for=condition=Ready --timeout=2m; done
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
 kubectl create namespace agentregistry --dry-run=client -o yaml | kubectl apply -f - >/dev/null

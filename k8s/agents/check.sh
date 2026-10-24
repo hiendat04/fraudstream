@@ -1,12 +1,13 @@
 #!/usr/bin/env bash
 # Checks the agent platform end to end: the global model config, that ids and
 # dates reach the model unmasked through the LLM gateway's PII guard with
-# thinking off, that the context agent sees only its own tools, that it answers
-# with numbers from the store, that the gateway counted its tool calls, that KEDA
-# keeps two replicas, that Jaeger counted the calls to the agent, and that the
-# registry holds the agent and its MCP server.
+# thinking off, that each agent sees only its own tools, that the context and risk
+# agents answer their eval questions with the right tool calls and the stores'
+# and the model's numbers, that the gateway counted each agent's tool calls, that
+# KEDA keeps two replicas of each, that Jaeger counted the calls at each agent,
+# and that the registry holds the agents and their MCP servers.
 #   ./k8s/agents/check.sh            the checks
-#   ./k8s/agents/check.sh --load 3 --agent context-agent   three questions at once, to watch KEDA add a replica
+#   ./k8s/agents/check.sh --load 3 --agent risk-agent   three questions at once, to watch KEDA add a replica
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
@@ -56,24 +57,32 @@ expect "merchant id unmasked" yes "$([[ $reply == *merch_00011503* ]] && echo ye
 expect "date unmasked" yes "$([[ $reply == *2026-06-22* ]] && echo yes || echo no)"
 expect "no thinking in the reply" yes "$([[ $reply != *"<think>"* ]] && echo yes || echo no)"
 
-echo "==> the context agent's tools"
-expect "tools it sees" "get_chunk get_customer_features get_merchant_features" \
+echo "==> each agent's tools"
+expect "fraud-context-tools" "get_chunk get_customer_features get_merchant_features" \
   "$(kubectl -n kagent get remotemcpserver fraud-context-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
+expect "fraud-risk-tools" "score_payment search_handbook" \
+  "$(kubectl -n kagent get remotemcpserver fraud-risk-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
 
-echo "==> questions to the context agent"
-ask --agent context-agent || failed=1
+echo "==> questions to the agents"
+ask --agent context-agent --agent risk-agent || failed=1
 
 echo "==> replicas"
-expect "the scaler" True \
-  "$(kubectl -n kagent get scaledobject context-agent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
-expect "at least two ready" yes \
-  "$([ "$(kubectl -n kagent get deploy context-agent -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
+for agent in context-agent risk-agent; do
+  expect "$agent's scaler" True \
+    "$(kubectl -n kagent get scaledobject "$agent" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+  expect "$agent at least two ready" yes \
+    "$([ "$(kubectl -n kagent get deploy "$agent" -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
+done
 
 echo "==> the registry"
 forward agentregistry agentregistry 18121:12121
 expect "the context agent's record" yes \
   "$(curl -s localhost:18121/v0/agents/contextagent | grep -q '"Context agent"' && echo yes || echo no)"
-expect "the fraud-context record" 200 "$(curl -s -o /dev/null -w '%{http_code}' localhost:18121/v0/mcpservers/fraud-context)"
+expect "the risk agent's record" yes \
+  "$(curl -s localhost:18121/v0/agents/riskagent | grep -q '"Risk agent"' && echo yes || echo no)"
+for server in fraud-context fraud-risk; do
+  expect "the $server record" 200 "$(curl -s -o /dev/null -w '%{http_code}' "localhost:18121/v0/mcpservers/$server")"
+done
 
 echo "==> the counters"
 # Prometheus scrapes every 15 seconds.
@@ -81,24 +90,30 @@ sleep 30
 prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
 python3 - "$prom" <<'PY' || failed=1
 import json, subprocess, sys, urllib.parse
-query = 'sum by (consumer, resource) (agentgateway_mcp_requests_total{method="tools/call", consumer="context-agent"})'
-url = sys.argv[1] + "?query=" + urllib.parse.quote(query)
-out = json.loads(subprocess.run(["kubectl", "--context", "kind-fraudstream", "get", "--raw", url], capture_output=True, text=True, check=True).stdout)
-series = out["data"]["result"]
-for item in series:
-    print(f"        {item['metric']} {item['value'][1]}")
-tools = {item["metric"].get("resource") for item in series}
-ok = {"get_customer_features", "get_merchant_features"} <= tools
-print(("  ok    " if ok else "  FAIL  ") + f"tool calls counted for context-agent: {sorted(t for t in tools if t)}")
-query = "sum by (gen_ai_agent_name, status_code) (agent_calls_total)"
-url = sys.argv[1] + "?query=" + urllib.parse.quote(query)
-out = json.loads(subprocess.run(["kubectl", "--context", "kind-fraudstream", "get", "--raw", url], capture_output=True, text=True, check=True).stdout)
-calls = out["data"]["result"]
-for item in calls:
-    print(f"        {item['metric']} {item['value'][1]}")
-counted = any(item["metric"].get("gen_ai_agent_name") == "context-agent" for item in calls)
-print(("  ok    " if counted else "  FAIL  ") + "calls to context-agent counted from the controller's spans")
-sys.exit(0 if ok and counted else 1)
+
+
+def query(promql):
+    url = sys.argv[1] + "?query=" + urllib.parse.quote(promql)
+    out = subprocess.run(["kubectl", "--context", "kind-fraudstream", "get", "--raw", url], capture_output=True, text=True, check=True)
+    series = json.loads(out.stdout)["data"]["result"]
+    for item in series:
+        print(f"        {item['metric']} {item['value'][1]}")
+    return series
+
+
+ok = True
+for consumer, wanted in (("context-agent", {"get_customer_features", "get_merchant_features"}),
+                         ("risk-agent", {"score_payment", "search_handbook"})):
+    series = query(f'sum by (consumer, resource) (agentgateway_mcp_requests_total{{method="tools/call", consumer="{consumer}"}})')
+    tools = {item["metric"].get("resource") for item in series}
+    passed = wanted <= tools
+    ok &= passed
+    print(("  ok    " if passed else "  FAIL  ") + f"tool calls counted for {consumer}: {sorted(t for t in tools if t)}")
+agents = {item["metric"].get("gen_ai_agent_name") for item in query("sum by (gen_ai_agent_name, status_code) (agent_calls_total)")}
+for agent in ("context_agent", "risk_agent"):
+    ok &= agent in agents
+    print(("  ok    " if agent in agents else "  FAIL  ") + f"calls to {agent} counted from its own spans")
+sys.exit(0 if ok else 1)
 PY
 
 exit $failed

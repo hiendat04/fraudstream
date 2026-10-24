@@ -146,6 +146,13 @@ async def test_only_what_the_question_asks_is_checked():
 
 
 @pytest.mark.anyio
+@pytest.mark.parametrize("line", ["Model decision: not flagged", "model decision: FLAGGED"])
+async def test_a_decision_without_a_payment(line):
+    golden = GoldenQuestion("risk-agent", "q", frozenset(), handbook="")
+    assert await found(answer(f"[model-cards/m#a]\n{line}"), golden) == ["gives a model decision, but no payment was scored"]
+
+
+@pytest.mark.anyio
 @pytest.mark.parametrize("broken", ["/v1/customers/cust_00090571", "/v1/predict", "/v1/chunks"])
 async def test_a_truth_request_that_fails_raises(broken):
     def serve(request):
