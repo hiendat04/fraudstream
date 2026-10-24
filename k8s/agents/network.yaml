@@ -42,12 +42,9 @@ spec:
       ports:
         - port: 8080
     - to:
-        - namespaceSelector:
+        - podSelector:
             matchLabels:
-              kubernetes.io/metadata.name: mcp
-          podSelector:
-            matchLabels:
-              gateway.networking.k8s.io/gateway-name: mcp-gateway
+              gateway.networking.k8s.io/gateway-name: a2a-gateway
       ports:
         - port: 8080
     - to:
@@ -59,3 +56,23 @@ spec:
               app.kubernetes.io/name: jaeger
       ports:
         - port: 4317
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: specialists
+  namespace: kagent
+spec:
+  podSelector:
+    matchExpressions:
+      - key: app.kubernetes.io/name
+        operator: In
+        values: [context-agent, risk-agent]
+  policyTypes: [Ingress]
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              gateway.networking.k8s.io/gateway-name: a2a-gateway
+      ports:
+        - port: 8080

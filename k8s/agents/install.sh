@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-# Installs the agent platform on the kind cluster: kagent, whose one global model
-# config reaches Qwen3-4B through the LLM gateway, and the context and risk agents,
-# each with its prompt from MLflow, its own key to the MCP gateway, and KEDA
-# scaling it on calls in flight, all under one NetworkPolicy; then agentregistry,
-# with the agents and their MCP servers published to it; and both UIs behind
-# NGINX with HTTPS and the gateway login.
+# Installs the agent platform on the kind cluster: the A2A gateway, which every
+# call an agent makes inside the cluster goes through, with a key, an allow-list
+# and a rate limit for calls between agents; kagent, whose one global model config
+# reaches Qwen3-4B through the LLM gateway, and the context and risk agents, each
+# with its prompt from MLflow, its own key to the MCP gateway, and KEDA scaling it
+# on calls in flight, all under one NetworkPolicy; then agentregistry, with the
+# agents and their MCP servers published to it; and both UIs behind NGINX with
+# HTTPS and the gateway login.
 # Safe to run again. Run k8s/gateway/credentials.sh for kagent and agentregistry
 # once first, so the login exists.
 #   ./k8s/agents/install.sh
@@ -20,6 +22,29 @@ echo "==> the agents' LLM key"
 kubectl -n kagent create secret generic kagent-llm-key \
   --from-literal=key="$(kubectl -n llm get secret llm-key-agents -o jsonpath='{.data.key}' | base64 -d)" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+# A key is made once per caller and kept. The gateway stores only its hash, with
+# the caller's name and the agents it may call.
+echo "==> the A2A keys"
+entry() {
+  local consumer=$1 agents=$2 key hash
+  kubectl -n kagent get secret "a2a-key-$consumer" >/dev/null 2>&1 \
+    || kubectl -n kagent create secret generic "a2a-key-$consumer" \
+      --from-literal=authorization="Bearer $(openssl rand -hex 24)" >/dev/null
+  key=$(kubectl -n kagent get secret "a2a-key-$consumer" -o jsonpath='{.data.authorization}' | base64 -d)
+  hash=$(printf %s "${key#Bearer }" | shasum -a 256 | cut -d' ' -f1)
+  printf '{"keyHash":"sha256:%s","metadata":{"consumer":"%s","agents":%s}}' "$hash" "$consumer" "$agents"
+}
+kubectl -n kagent create secret generic a2a-api-keys \
+  --from-literal=coordinator-agent="$(entry coordinator-agent '["context-agent.kagent","risk-agent.kagent"]')" \
+  --from-literal=a2a-check="$(entry a2a-check '["context-agent.kagent"]')" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+
+# Before kagent, whose proxy setting sends the agents' calls to it.
+echo "==> the A2A gateway and its policy"
+kubectl apply -f k8s/agents/a2a-gateway.yaml >/dev/null
+kubectl -n kagent wait --for=condition=Programmed gateway/a2a-gateway --timeout=3m
+kubectl apply -f k8s/agents/a2a-policy.yaml -f k8s/agents/network.yaml >/dev/null
 
 echo "==> kagent ${KAGENT_VERSION}"
 helm --kube-context kind-fraudstream upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
@@ -45,7 +70,6 @@ for agent in "${agents[@]}"; do
 done
 
 echo "==> the agents"
-kubectl apply -f k8s/agents/network.yaml >/dev/null
 for agent in "${agents[@]}"; do kubectl apply -f "k8s/agents/$agent.yaml" >/dev/null; done
 for agent in "${agents[@]}"; do kubectl -n kagent wait "agent/$agent" --for=condition=Ready --timeout=5m; done
 

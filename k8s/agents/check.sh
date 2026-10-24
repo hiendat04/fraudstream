@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Checks the agent platform end to end: the global model config, that ids and
 # dates reach the model unmasked through the LLM gateway's PII guard with
-# thinking off, that each agent sees only its own tools, that the context and risk
+# thinking off, that each agent sees only its own tools, that the agents' calls go
+# through the A2A gateway, which refuses a caller without a key or outside its
+# allow-list and hands out agent cards with its own address, that the context and risk
 # agents answer their eval questions with the right tool calls and the stores'
 # and the model's numbers, that the gateway counted each agent's tool calls, that
 # KEDA keeps two replicas of each, that Jaeger counted the calls at each agent,
@@ -23,7 +25,8 @@ expect() {
   fi
 }
 forwards=()
-trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done' EXIT
+card=$(mktemp)
+trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done; rm -f "$card"' EXIT
 forward() { kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
 
 ask() {
@@ -62,6 +65,21 @@ expect "fraud-context-tools" "get_chunk get_customer_features get_merchant_featu
   "$(kubectl -n kagent get remotemcpserver fraud-context-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
 expect "fraud-risk-tools" "score_payment search_handbook" \
   "$(kubectl -n kagent get remotemcpserver fraud-risk-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
+
+echo "==> the A2A gateway"
+gateway=http://a2a-gateway.kagent.svc.cluster.local:8080
+expect "kagent's proxy" "$gateway" "$(kubectl -n kagent get configmap kagent-controller -o jsonpath='{.data.PROXY_URL}')"
+expect "the context agent's tools through it" "$gateway/mcp" \
+  "$(kubectl -n kagent get secret context-agent -o jsonpath='{.data.config\.json}' | base64 -d |
+    python3 -c 'import json, sys; print(json.load(sys.stdin)["http_tools"][0]["params"]["url"])')"
+forward kagent a2a-gateway 18095:8080
+a2a_key=$(kubectl -n kagent get secret a2a-key-a2a-check -o jsonpath='{.data.authorization}' | base64 -d)
+status() { curl -s -o "$card" -w '%{http_code}' localhost:18095/.well-known/agent-card.json -H "x-kagent-host: $1" "${@:2}"; }
+expect "no key" 401 "$(status context-agent.kagent)"
+expect "a key, an agent off its list" 403 "$(status risk-agent.kagent -H "Authorization: $a2a_key")"
+expect "a key, an agent on its list" 200 "$(status context-agent.kagent -H "Authorization: $a2a_key")"
+expect "the card points at the gateway" yes \
+  "$(grep -q 'localhost:18095' "$card" && ! grep -q 'context-agent.kagent:8080' "$card" && echo yes || echo no)"
 
 echo "==> questions to the agents"
 ask --agent context-agent --agent risk-agent || failed=1

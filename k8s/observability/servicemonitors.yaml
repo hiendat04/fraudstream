@@ -68,6 +68,23 @@ spec:
 apiVersion: monitoring.coreos.com/v1
 kind: PodMonitor
 metadata:
+  name: a2a-gateway
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - kagent
+  selector:
+    matchLabels:
+      gateway.networking.k8s.io/gateway-name: a2a-gateway
+  podMetricsEndpoints:
+    - targetPort: 15020
+      path: /metrics
+      interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
   name: jaeger-span-metrics
   namespace: observability
 spec:
