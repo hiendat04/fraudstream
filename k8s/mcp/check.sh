@@ -11,7 +11,8 @@ kubectl() { command kubectl --context kind-fraudstream "$@"; }
 kubectl -n mcp wait --for=condition=Programmed gateway/mcp-gateway --timeout=60s >/dev/null
 
 key() { kubectl -n mcp get secret "mcp-key-$1" -o jsonpath='{.data.key}' | base64 -d; }
-kubectl -n mcp port-forward svc/mcp-gateway 18090:8080 >/dev/null &
+# The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
+command kubectl --context kind-fraudstream -n mcp port-forward svc/mcp-gateway 18090:8080 >/dev/null &
 forward=$!
 trap 'kill $forward' EXIT
 sleep 2

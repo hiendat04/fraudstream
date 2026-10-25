@@ -31,7 +31,8 @@ expect() {
 forwards=()
 card=$(mktemp)
 trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done; rm -f "$card"' EXIT
-forward() { kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
+# The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
+forward() { command kubectl --context kind-fraudstream -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
 prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
 promql() {
   kubectl get --raw "$prom?query=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1")" |

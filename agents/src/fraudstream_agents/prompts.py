@@ -2,12 +2,13 @@
 
 The text lives in git, one file per agent under agents/prompts/. register makes a
 new MLflow version only when that text changed and can point an alias at it,
-promote moves the version one alias holds to another, and render writes the
-ConfigMap the kagent Agent reads its system prompt from.
+promote moves the version one alias holds to another, unalias drops an alias,
+and render writes the ConfigMap the kagent Agent reads its system prompt from.
 
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --promote
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --alias candidate
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts promote context-agent --from candidate
+    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts unalias context-agent --alias candidate
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts render context-agent | kubectl apply -f -
 """
 
@@ -72,7 +73,7 @@ def configmap(name: str, version: int, template: str, namespace: str = "kagent")
 
 
 def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMPTS_DIR) -> int:
-    """register, promote or render one agent's prompt; 0 when done, 1 when the alias read has no version."""
+    """register, promote, unalias or render one agent's prompt; 0 when done, 1 when the alias read has no version."""
 
     parser = argparse.ArgumentParser(prog="python -m fraudstream_agents.prompts")
     commands = parser.add_subparsers(dest="command", required=True)
@@ -85,6 +86,9 @@ def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMP
     promote_command.add_argument("name")
     promote_command.add_argument("--from", required=True, dest="source")
     promote_command.add_argument("--to", default="production", dest="target")
+    unalias_command = commands.add_parser("unalias", help="drop one alias")
+    unalias_command.add_argument("name")
+    unalias_command.add_argument("--alias", required=True)
     render_command = commands.add_parser("render", help="print the ConfigMap of one alias")
     render_command.add_argument("name")
     render_command.add_argument("--alias", default="production")
@@ -104,6 +108,11 @@ def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMP
         print(line)
         return 0
 
+    if args.command == "unalias":
+        registry.delete_prompt_alias(args.name, args.alias)
+        print(f"{args.name}: {args.alias} removed")
+        return 0
+
     source = args.source if args.command == "promote" else args.alias
     prompt = registry.load_prompt(f"prompts:/{args.name}@{source}", allow_missing=True, cache_ttl_seconds=0)
     if prompt is None:
@@ -111,7 +120,7 @@ def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMP
         return 1
     if args.command == "promote":
         promote(registry, args.name, int(prompt.version), alias=args.target)
-        # A candidate left behind marks a version under test or one that failed, never one that passed.
+        # The candidate alias lives only while a deploy is checking it.
         registry.delete_prompt_alias(args.name, args.source)
         print(f"{args.name}: version {prompt.version}, {args.target}")
         return 0

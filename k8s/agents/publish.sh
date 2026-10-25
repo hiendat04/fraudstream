@@ -23,7 +23,8 @@ if [ ! -x "$arctl" ]; then
 fi
 
 echo "==> the registry records"
-kubectl -n agentregistry port-forward svc/agentregistry 18121:12121 >/dev/null &
+# The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
+command kubectl --context kind-fraudstream -n agentregistry port-forward svc/agentregistry 18121:12121 >/dev/null &
 forward=$!
 trap 'kill $forward 2>/dev/null' EXIT
 for _ in $(seq 30); do curl -sf localhost:18121/health >/dev/null && break; sleep 1; done

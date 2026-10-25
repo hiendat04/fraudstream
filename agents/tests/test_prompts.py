@@ -225,3 +225,12 @@ def test_promote_from_a_missing_alias_fails_plainly(registry, capsys):
     assert main(["promote", "context-agent", "--from", "candidate"], registry=registry) == 1
     assert "context-agent has no candidate version" in capsys.readouterr().err
     assert registry.aliases == {("context-agent", "production"): 1}
+
+
+def test_unalias_drops_only_that_alias(registry, capsys):
+    register(registry, "context-agent", "v1 text")
+    promote(registry, "context-agent", 1)
+    promote(registry, "context-agent", 1, alias="candidate")
+    assert main(["unalias", "context-agent", "--alias", "candidate"], registry=registry) == 0
+    assert capsys.readouterr().out.strip() == "context-agent: candidate removed"
+    assert registry.aliases == {("context-agent", "production"): 1}
