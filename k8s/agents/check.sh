@@ -3,13 +3,16 @@
 # dates reach the model unmasked through the LLM gateway's PII guard with
 # thinking off, that each agent sees only its own tools, that the agents' calls go
 # through the A2A gateway, which refuses a caller without a key or outside its
-# allow-list and hands out agent cards with its own address, that the context and risk
-# agents answer their eval questions with the right tool calls and the stores'
-# and the model's numbers, that the gateway counted each agent's tool calls, that
-# KEDA keeps two replicas of each, that Jaeger counted the calls at each agent,
-# and that the registry holds the agents and their MCP servers.
+# allow-list and hands out agent cards with its own address, that the coordinator
+# reaches both specialists through it in fresh sessions, that every agent answers
+# its eval questions with the right tool calls and the stores' and the model's
+# numbers, that the coordinator's questions are counted at the risk agent and at
+# the A2A gateway and make one trace through both, that the MCP gateway counted
+# each specialist's tool calls, that KEDA keeps two replicas of each agent, that
+# Jaeger counted the calls at each agent, and that the registry holds the agents
+# and their MCP servers.
 #   ./k8s/agents/check.sh            the checks
-#   ./k8s/agents/check.sh --load 3 --agent risk-agent   three questions at once, to watch KEDA add a replica
+#   ./k8s/agents/check.sh --load 3 --agent coordinator-agent   three questions at once, to watch KEDA add a replica
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
@@ -28,11 +31,20 @@ forwards=()
 card=$(mktemp)
 trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done; rm -f "$card"' EXIT
 forward() { kubectl -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
+prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
+promql() {
+  kubectl get --raw "$prom?query=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1")" |
+    python3 -c 'import json, sys; print(sum(float(r["value"][1]) for r in json.load(sys.stdin)["data"]["result"]))'
+}
 
+asked=
 ask() {
-  forward kagent kagent-controller 18083:8083
-  forward fraudstream-apis context-api 18093:80
-  forward fraudstream-apis inference-api 18092:80
+  if [ -z "$asked" ]; then
+    forward kagent kagent-controller 18083:8083
+    forward fraudstream-apis context-api 18093:80
+    forward fraudstream-apis inference-api 18092:80
+    asked=1
+  fi
   PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
     --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 "$@"
 }
@@ -72,6 +84,11 @@ expect "kagent's proxy" "$gateway" "$(kubectl -n kagent get configmap kagent-con
 expect "the context agent's tools through it" "$gateway/mcp" \
   "$(kubectl -n kagent get secret context-agent -o jsonpath='{.data.config\.json}' | base64 -d |
     python3 -c 'import json, sys; print(json.load(sys.stdin)["http_tools"][0]["params"]["url"])')"
+# A pod that started while the proxy was switched on can keep the old URL with the same config hash.
+for pod in $(kubectl -n kagent get pods -l 'app.kubernetes.io/name in (context-agent,risk-agent)' -o name); do
+  expect "${pod#pod/} loaded its tools through it" "$gateway/mcp" \
+    "$(kubectl -n kagent logs "$pod" | grep '"Adding HTTP MCP tool"' | tail -1 | python3 -c 'import json, sys; print(json.loads(sys.stdin.read() or "{}").get("url"))')"
+done
 forward kagent a2a-gateway 18095:8080
 a2a_key=$(kubectl -n kagent get secret a2a-key-a2a-check -o jsonpath='{.data.authorization}' | base64 -d)
 status() { curl -s -o "$card" -w '%{http_code}' localhost:18095/.well-known/agent-card.json -H "x-kagent-host: $1" "${@:2}"; }
@@ -81,11 +98,48 @@ expect "a key, an agent on its list" 200 "$(status context-agent.kagent -H "Auth
 expect "the card points at the gateway" yes \
   "$(grep -q 'localhost:18095' "$card" && ! grep -q 'context-agent.kagent:8080' "$card" && echo yes || echo no)"
 
+echo "==> the coordinator"
+expect "the agents it calls" "context-agent risk-agent" \
+  "$(kubectl -n kagent get agent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].agent.name}')"
+expect "a fresh session per call" "true true" \
+  "$(kubectl -n kagent get agent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].isolateSessions}')"
+expect "through the A2A gateway" "$gateway $gateway" \
+  "$(kubectl -n kagent get secret coordinator-agent -o jsonpath='{.data.config\.json}' | base64 -d |
+    python3 -c 'import json, sys; print(*(agent["url"] for agent in json.load(sys.stdin)["remote_agents"]))')"
+
 echo "==> questions to the agents"
 ask --agent context-agent --agent risk-agent || failed=1
+# Prometheus scrapes every 15 seconds, and a call is counted once its span ends.
+sleep 30
+before=$(promql 'sum(agent_calls_total{gen_ai_agent_name="risk_agent"})')
+ask --agent coordinator-agent || failed=1
+sleep 45
+after=$(promql 'sum(agent_calls_total{gen_ai_agent_name="risk_agent"})')
+expect "the coordinator's questions counted at the risk agent" yes \
+  "$(python3 -c 'import sys; print("yes" if float(sys.argv[2]) - float(sys.argv[1]) >= 2 else "no")' "$before" "$after")"
+expect "the coordinator's calls counted at the A2A gateway" yes \
+  "$(python3 -c 'import sys; print("yes" if float(sys.argv[1]) > 0 else "no")' \
+    "$(promql 'sum(agentgateway_requests_total{gateway="kagent/a2a-gateway", protocol="a2a", consumer="coordinator-agent"})')")"
+
+echo "==> one trace from the coordinator to the risk agent"
+forward observability jaeger 18096:16686
+python3 - <<'PY' || failed=1
+import json, urllib.request
+
+traces = json.load(urllib.request.urlopen("http://localhost:18096/api/traces?service=coordinator_agent&limit=20"))["data"]
+best = max(traces, key=lambda trace: len({process["serviceName"] for process in trace["processes"].values()}), default=None)
+services = {process["serviceName"] for process in best["processes"].values()} if best else set()
+risk = {span["operationName"] for span in best["spans"] if best["processes"][span["processID"]]["serviceName"] == "risk_agent"} if best else set()
+print(f"        services: {sorted(services)}")
+print(f"        risk agent's operations: {sorted(risk)}")
+ok = ({"coordinator_agent", "a2a-gateway", "risk_agent"} <= services and "execute_tool score_payment" in risk
+      and any(name.startswith("generate_content") for name in risk))
+print(("  ok    " if ok else "  FAIL  ") + "coordinator, A2A gateway and risk agent in one trace")
+raise SystemExit(0 if ok else 1)
+PY
 
 echo "==> replicas"
-for agent in context-agent risk-agent; do
+for agent in context-agent risk-agent coordinator-agent; do
   expect "$agent's scaler" True \
     "$(kubectl -n kagent get scaledobject "$agent" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
   expect "$agent at least two ready" yes \
@@ -98,14 +152,13 @@ expect "the context agent's record" yes \
   "$(curl -s localhost:18121/v0/agents/contextagent | grep -q '"Context agent"' && echo yes || echo no)"
 expect "the risk agent's record" yes \
   "$(curl -s localhost:18121/v0/agents/riskagent | grep -q '"Risk agent"' && echo yes || echo no)"
+expect "the coordinator's record" yes \
+  "$(curl -s localhost:18121/v0/agents/coordinatoragent | grep -q '"Coordinator agent"' && echo yes || echo no)"
 for server in fraud-context fraud-risk; do
   expect "the $server record" 200 "$(curl -s -o /dev/null -w '%{http_code}' "localhost:18121/v0/mcpservers/$server")"
 done
 
 echo "==> the counters"
-# Prometheus scrapes every 15 seconds.
-sleep 30
-prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
 python3 - "$prom" <<'PY' || failed=1
 import json, subprocess, sys, urllib.parse
 
@@ -128,7 +181,7 @@ for consumer, wanted in (("context-agent", {"get_customer_features", "get_mercha
     ok &= passed
     print(("  ok    " if passed else "  FAIL  ") + f"tool calls counted for {consumer}: {sorted(t for t in tools if t)}")
 agents = {item["metric"].get("gen_ai_agent_name") for item in query("sum by (gen_ai_agent_name, status_code) (agent_calls_total)")}
-for agent in ("context_agent", "risk_agent"):
+for agent in ("context_agent", "risk_agent", "coordinator_agent"):
     ok &= agent in agents
     print(("  ok    " if agent in agents else "  FAIL  ") + f"calls to {agent} counted from its own spans")
 sys.exit(0 if ok else 1)

@@ -2,9 +2,10 @@
 # Installs the agent platform on the kind cluster: the A2A gateway, which every
 # call an agent makes inside the cluster goes through, with a key, an allow-list
 # and a rate limit for calls between agents; kagent, whose one global model config
-# reaches Qwen3-4B through the LLM gateway, and the context and risk agents, each
-# with its prompt from MLflow, its own key to the MCP gateway, and KEDA scaling it
-# on calls in flight, all under one NetworkPolicy; then agentregistry, with the
+# reaches Qwen3-4B through the LLM gateway, the context and risk agents, each with
+# its own key to the MCP gateway, and the coordinator over them, with its key to
+# the A2A gateway; every agent with its prompt from MLflow and KEDA scaling it on
+# calls in flight, all under one NetworkPolicy; then agentregistry, with the
 # agents and their MCP servers published to it; and both UIs behind NGINX with
 # HTTPS and the gateway login.
 # Safe to run again. Run k8s/gateway/credentials.sh for kagent and agentregistry
@@ -64,7 +65,7 @@ done
 # Until the agents have CI/CD, the prompt in git is promoted as it is registered.
 echo "==> the agents' prompts"
 prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://localhost:18085} uv run python -m fraudstream_agents.prompts "$@"); }
-for agent in "${agents[@]}"; do
+for agent in "${agents[@]}" coordinator-agent; do
   prompts register "$agent" --promote
   prompts render "$agent" | kubectl apply -f - >/dev/null
 done
@@ -72,10 +73,13 @@ done
 echo "==> the agents"
 for agent in "${agents[@]}"; do kubectl apply -f "k8s/agents/$agent.yaml" >/dev/null; done
 for agent in "${agents[@]}"; do kubectl -n kagent wait "agent/$agent" --for=condition=Ready --timeout=5m; done
+# After the specialists are Ready: kagent refuses an Agent tool whose agent does not exist yet.
+kubectl apply -f k8s/agents/coordinator-agent.yaml >/dev/null
+kubectl -n kagent wait agent/coordinator-agent --for=condition=Ready --timeout=5m
 
 echo "==> agent telemetry and the Agents dashboard"
 kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
-for agent in "${agents[@]}"; do kubectl -n kagent wait "scaledobject/$agent" --for=condition=Ready --timeout=2m; done
+for agent in "${agents[@]}" coordinator-agent; do kubectl -n kagent wait "scaledobject/$agent" --for=condition=Ready --timeout=2m; done
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
 kubectl create namespace agentregistry --dry-run=client -o yaml | kubectl apply -f - >/dev/null

@@ -1,0 +1,68 @@
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: coordinator-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: The fraud analysts' entry point. Asks the context agent and the risk agent through the A2A gateway and puts their answers together.
+  declarative:
+    modelConfig: default-model-config
+    systemMessageFrom:
+      type: ConfigMap
+      name: coordinator-agent-prompt
+      key: system-message
+    tools:
+      - type: Agent
+        agent:
+          name: context-agent
+        isolateSessions: true
+        headersFrom:
+          - name: Authorization
+            valueFrom:
+              type: Secret
+              name: a2a-key-coordinator-agent
+              key: authorization
+      - type: Agent
+        agent:
+          name: risk-agent
+        isolateSessions: true
+        headersFrom:
+          - name: Authorization
+            valueFrom:
+              type: Secret
+              name: a2a-key-coordinator-agent
+              key: authorization
+    deployment:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: coordinator-agent
+  namespace: kagent
+spec:
+  scaleTargetRef:
+    name: coordinator-agent
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 120
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
+        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="coordinator_agent"}[5m])) or vector(0)
+        threshold: "1"
