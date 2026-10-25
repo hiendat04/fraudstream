@@ -167,3 +167,61 @@ def test_each_prompt_names_its_tools_and_no_others(name, tools):
     others = [tool for tool in CONTEXT_TOOLS + RISK_TOOLS + AGENT_TOOLS if tool not in tools]
     assert all(tool in text for tool in tools)
     assert not any(tool in text for tool in others)
+
+
+def test_register_points_another_alias_at_the_version(registry, tmp_path, capsys):
+    (tmp_path / "context-agent.md").write_text("v1 text")
+    assert main(["register", "context-agent", "--alias", "candidate"], registry=registry, prompts_dir=tmp_path) == 0
+    assert capsys.readouterr().out.strip() == "context-agent: version 1 (new), candidate"
+    assert registry.aliases == {("context-agent", "candidate"): 1}
+
+
+def test_register_with_an_alias_leaves_production_alone(registry, tmp_path):
+    (tmp_path / "context-agent.md").write_text("v1 text")
+    main(["register", "context-agent", "--promote"], registry=registry, prompts_dir=tmp_path)
+    (tmp_path / "context-agent.md").write_text("v2 text")
+    main(["register", "context-agent", "--alias", "candidate"], registry=registry, prompts_dir=tmp_path)
+    assert registry.aliases == {("context-agent", "production"): 1, ("context-agent", "candidate"): 2}
+
+
+def test_promote_and_alias_together_are_refused(registry, tmp_path):
+    (tmp_path / "context-agent.md").write_text("v1 text")
+    with pytest.raises(SystemExit) as error:
+        main(["register", "context-agent", "--promote", "--alias", "candidate"], registry=registry, prompts_dir=tmp_path)
+    assert error.value.code == 2
+    assert registry.versions == {}
+
+
+def test_the_same_text_with_an_alias_makes_no_new_version(registry, tmp_path, capsys):
+    (tmp_path / "context-agent.md").write_text("v1 text")
+    main(["register", "context-agent", "--alias", "candidate"], registry=registry, prompts_dir=tmp_path)
+    capsys.readouterr()
+    main(["register", "context-agent", "--alias", "candidate"], registry=registry, prompts_dir=tmp_path)
+    assert capsys.readouterr().out.strip() == "context-agent: version 1 (unchanged), candidate"
+    assert registry.versions["context-agent"] == ["v1 text"]
+
+
+def test_promote_moves_the_version_of_one_alias_to_another(registry, capsys):
+    register(registry, "context-agent", "v1 text")
+    promote(registry, "context-agent", 1)
+    register(registry, "context-agent", "v2 text")
+    promote(registry, "context-agent", 2, alias="candidate")
+    assert main(["promote", "context-agent", "--from", "candidate"], registry=registry) == 0
+    assert capsys.readouterr().out.strip() == "context-agent: version 2, production"
+    assert registry.aliases == {("context-agent", "production"): 2}
+    assert registry.loads[-1] == {"allow_missing": True, "cache_ttl_seconds": 0}
+
+
+def test_promote_to_another_alias(registry):
+    register(registry, "context-agent", "v1 text")
+    promote(registry, "context-agent", 1, alias="candidate")
+    assert main(["promote", "context-agent", "--from", "candidate", "--to", "canary"], registry=registry) == 0
+    assert registry.aliases == {("context-agent", "canary"): 1}
+
+
+def test_promote_from_a_missing_alias_fails_plainly(registry, capsys):
+    register(registry, "context-agent", "v1 text")
+    promote(registry, "context-agent", 1)
+    assert main(["promote", "context-agent", "--from", "candidate"], registry=registry) == 1
+    assert "context-agent has no candidate version" in capsys.readouterr().err
+    assert registry.aliases == {("context-agent", "production"): 1}

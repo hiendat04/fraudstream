@@ -1,11 +1,13 @@
 """The agents' system prompts in MLflow's Prompt Registry.
 
 The text lives in git, one file per agent under agents/prompts/. register makes a
-new MLflow version only when that text changed, promote points an alias at a
-version, and render writes the ConfigMap the kagent Agent reads its system
-prompt from.
+new MLflow version only when that text changed and can point an alias at it,
+promote moves the version one alias holds to another, and render writes the
+ConfigMap the kagent Agent reads its system prompt from.
 
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --promote
+    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --alias candidate
+    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts promote context-agent --from candidate
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts render context-agent | kubectl apply -f -
 """
 
@@ -70,13 +72,19 @@ def configmap(name: str, version: int, template: str, namespace: str = "kagent")
 
 
 def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMPTS_DIR) -> int:
-    """register or render one agent's prompt; 0 when done, 1 when the alias has no version."""
+    """register, promote or render one agent's prompt; 0 when done, 1 when the alias read has no version."""
 
     parser = argparse.ArgumentParser(prog="python -m fraudstream_agents.prompts")
     commands = parser.add_subparsers(dest="command", required=True)
     register_command = commands.add_parser("register", help="make a version from agents/prompts/<name>.md")
     register_command.add_argument("name")
-    register_command.add_argument("--promote", action="store_true", help="point production at it")
+    point = register_command.add_mutually_exclusive_group()
+    point.add_argument("--promote", action="store_const", const="production", dest="alias", help="point production at it")
+    point.add_argument("--alias", help="point this alias at it")
+    promote_command = commands.add_parser("promote", help="move the version one alias holds to another")
+    promote_command.add_argument("name")
+    promote_command.add_argument("--from", required=True, dest="source")
+    promote_command.add_argument("--to", default="production", dest="target")
     render_command = commands.add_parser("render", help="print the ConfigMap of one alias")
     render_command.add_argument("name")
     render_command.add_argument("--alias", default="production")
@@ -90,16 +98,23 @@ def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMP
     if args.command == "register":
         version, created = register(registry, args.name, (prompts_dir / f"{args.name}.md").read_text())
         line = f"{args.name}: version {version} ({'new' if created else 'unchanged'})"
-        if args.promote:
-            promote(registry, args.name, version)
-            line += ", production"
+        if args.alias:
+            promote(registry, args.name, version, alias=args.alias)
+            line += f", {args.alias}"
         print(line)
         return 0
 
-    prompt = registry.load_prompt(f"prompts:/{args.name}@{args.alias}", allow_missing=True, cache_ttl_seconds=0)
+    source = args.source if args.command == "promote" else args.alias
+    prompt = registry.load_prompt(f"prompts:/{args.name}@{source}", allow_missing=True, cache_ttl_seconds=0)
     if prompt is None:
-        print(f"{args.name} has no {args.alias} version", file=sys.stderr)
+        print(f"{args.name} has no {source} version", file=sys.stderr)
         return 1
+    if args.command == "promote":
+        promote(registry, args.name, int(prompt.version), alias=args.target)
+        # A candidate left behind marks a version under test or one that failed, never one that passed.
+        registry.delete_prompt_alias(args.name, args.source)
+        print(f"{args.name}: version {prompt.version}, {args.target}")
+        return 0
     print(json.dumps(configmap(args.name, int(prompt.version), prompt.template, args.namespace), indent=2))
     return 0
 

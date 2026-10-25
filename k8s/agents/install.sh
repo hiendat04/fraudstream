@@ -62,7 +62,8 @@ for agent in "${agents[@]}"; do
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 
-# Until the agents have CI/CD, the prompt in git is promoted as it is registered.
+# By hand the prompt in git is promoted as it is registered; ci/deploy_agent.sh promotes
+# it only after the agent's eval questions pass.
 echo "==> the agents' prompts"
 prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://localhost:18085} uv run python -m fraudstream_agents.prompts "$@"); }
 for agent in "${agents[@]}" coordinator-agent; do
@@ -86,25 +87,7 @@ kubectl create namespace agentregistry --dry-run=client -o yaml | kubectl apply 
 helm --kube-context kind-fraudstream upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
   --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml --wait --timeout 5m >/dev/null
 
-# arctl, the registry's command line, fetched once and checked against its release's checksum.
-echo "==> arctl ${AGENTREGISTRY_VERSION}"
-arctl=${XDG_CACHE_HOME:-$HOME/.cache}/fraudstream/arctl-$AGENTREGISTRY_VERSION
-if [ ! -x "$arctl" ]; then
-  asset=arctl-$(uname -s | tr '[:upper:]' '[:lower:]')-$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/')
-  release=https://github.com/agentregistry-dev/agentregistry/releases/download/v$AGENTREGISTRY_VERSION
-  mkdir -p "$(dirname "$arctl")"
-  curl -fsSL -o "$arctl.download" "$release/$asset"
-  [ "$(shasum -a 256 "$arctl.download" | cut -d' ' -f1)" = "$(curl -fsSL "$release/$asset.sha256" | cut -d' ' -f1)" ] \
-    || { echo "arctl's checksum does not match its release" >&2; rm -f "$arctl.download"; exit 1; }
-  chmod +x "$arctl.download" && mv "$arctl.download" "$arctl"
-fi
-
-echo "==> the registry records"
-kubectl -n agentregistry port-forward svc/agentregistry 18121:12121 >/dev/null &
-forward=$!
-trap 'kill $forward 2>/dev/null' EXIT
-for _ in $(seq 30); do curl -sf localhost:18121/health >/dev/null && break; sleep 1; done
-"$arctl" --registry-url http://127.0.0.1:18121 apply -f k8s/agents/registry.yaml
+./k8s/agents/publish.sh
 
 echo "==> the UIs behind NGINX"
 kubectl apply -f k8s/agents/ingress.yaml >/dev/null
