@@ -11,7 +11,7 @@ from hypothesis import given, settings, strategies as st
 
 from fraudstream_agents.a2a import close, grounded
 from fraudstream_agents.evals import cited_chunks, decision
-from fraudstream_agents.prompts import MAX_PROMPT_CHARS, check, register
+from fraudstream_agents.prompts import MAX_PROMPT_CHARS, check, main, register
 from tests.conftest import FakeRegistry
 
 
@@ -60,3 +60,15 @@ chunk_ids = st.from_regex(r"[a-z][a-z0-9./-]{0,20}#[a-z0-9.-]{1,10}", fullmatch=
 def test_the_cited_chunks_are_the_bracketed_ids(ids, filler):
     text = filler.join(f"[{chunk}]" for chunk in ids)
     assert cited_chunks(text) == list(dict.fromkeys(ids))
+
+
+@given(texts=st.lists(st.text(alphabet="abc xyz", min_size=1, max_size=20).filter(str.strip), min_size=1, max_size=5))
+def test_promoting_copies_exactly_one_alias(texts, tmp_path_factory):
+    registry = FakeRegistry()
+    prompts_dir = tmp_path_factory.mktemp("prompts")
+    for text in texts:
+        (prompts_dir / "context-agent.md").write_text(text)
+        main(["register", "context-agent", "--alias", "candidate"], registry=registry, prompts_dir=prompts_dir)
+    main(["promote", "context-agent", "--from", "candidate"], registry=registry)
+    changes = 1 + sum(1 for before, after in zip(texts, texts[1:]) if before != after)
+    assert registry.aliases == {("context-agent", "candidate"): changes, ("context-agent", "production"): changes}

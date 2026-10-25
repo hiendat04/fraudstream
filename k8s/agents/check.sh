@@ -13,6 +13,7 @@
 # and their MCP servers.
 #   ./k8s/agents/check.sh            the checks
 #   ./k8s/agents/check.sh --load 3 --agent coordinator-agent   three questions at once, to watch KEDA add a replica
+#   ./k8s/agents/check.sh --agent coordinator-agent            only that agent's eval questions
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
@@ -48,10 +49,9 @@ ask() {
   PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
     --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 "$@"
 }
-if [ "${1:-}" = --load ]; then
-  ask "$@"
-  exit
-fi
+case "${1:-}" in
+  --load|--agent) ask "$@"; exit ;;
+esac
 
 echo "==> the global model config"
 expect "model and where it is reached" "qwen3-4b http://llm-gateway.llm.svc.cluster.local:8080/v1" \
