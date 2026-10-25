@@ -63,7 +63,7 @@ def test_the_cited_chunks_are_the_bracketed_ids(ids, filler):
 
 
 @given(texts=st.lists(st.text(alphabet="abc xyz", min_size=1, max_size=20).filter(str.strip), min_size=1, max_size=5))
-def test_promoting_copies_exactly_one_alias(texts, tmp_path_factory):
+def test_promoting_moves_exactly_one_alias(texts, tmp_path_factory):
     registry = FakeRegistry()
     prompts_dir = tmp_path_factory.mktemp("prompts")
     for text in texts:
@@ -71,4 +71,4 @@ def test_promoting_copies_exactly_one_alias(texts, tmp_path_factory):
         main(["register", "context-agent", "--alias", "candidate"], registry=registry, prompts_dir=prompts_dir)
     main(["promote", "context-agent", "--from", "candidate"], registry=registry)
     changes = 1 + sum(1 for before, after in zip(texts, texts[1:]) if before != after)
-    assert registry.aliases == {("context-agent", "candidate"): changes, ("context-agent", "production"): changes}
+    assert registry.aliases == {("context-agent", "production"): changes}

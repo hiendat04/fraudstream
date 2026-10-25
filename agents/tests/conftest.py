@@ -40,6 +40,9 @@ class FakeRegistry:
     def set_prompt_alias(self, name, alias, version):
         self.aliases[(name, alias)] = version
 
+    def delete_prompt_alias(self, name, alias):
+        del self.aliases[(name, alias)]
+
 
 @pytest.fixture
 def registry():

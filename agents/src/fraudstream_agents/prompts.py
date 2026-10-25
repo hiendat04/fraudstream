@@ -2,7 +2,7 @@
 
 The text lives in git, one file per agent under agents/prompts/. register makes a
 new MLflow version only when that text changed and can point an alias at it,
-promote points one alias at the version another holds, and render writes the
+promote moves the version one alias holds to another, and render writes the
 ConfigMap the kagent Agent reads its system prompt from.
 
     PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --promote
@@ -81,7 +81,7 @@ def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMP
     point = register_command.add_mutually_exclusive_group()
     point.add_argument("--promote", action="store_const", const="production", dest="alias", help="point production at it")
     point.add_argument("--alias", help="point this alias at it")
-    promote_command = commands.add_parser("promote", help="point one alias at the version another holds")
+    promote_command = commands.add_parser("promote", help="move the version one alias holds to another")
     promote_command.add_argument("name")
     promote_command.add_argument("--from", required=True, dest="source")
     promote_command.add_argument("--to", default="production", dest="target")
@@ -111,6 +111,8 @@ def main(argv: list[str] | None = None, registry=None, prompts_dir: Path = PROMP
         return 1
     if args.command == "promote":
         promote(registry, args.name, int(prompt.version), alias=args.target)
+        # A candidate left behind marks a version under test or one that failed, never one that passed.
+        registry.delete_prompt_alias(args.name, args.source)
         print(f"{args.name}: version {prompt.version}, {args.target}")
         return 0
     print(json.dumps(configmap(args.name, int(prompt.version), prompt.template, args.namespace), indent=2))

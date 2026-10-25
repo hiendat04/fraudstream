@@ -201,14 +201,14 @@ def test_the_same_text_with_an_alias_makes_no_new_version(registry, tmp_path, ca
     assert registry.versions["context-agent"] == ["v1 text"]
 
 
-def test_promote_copies_the_version_of_one_alias_to_another(registry, capsys):
+def test_promote_moves_the_version_of_one_alias_to_another(registry, capsys):
     register(registry, "context-agent", "v1 text")
     promote(registry, "context-agent", 1)
     register(registry, "context-agent", "v2 text")
     promote(registry, "context-agent", 2, alias="candidate")
     assert main(["promote", "context-agent", "--from", "candidate"], registry=registry) == 0
     assert capsys.readouterr().out.strip() == "context-agent: version 2, production"
-    assert registry.aliases == {("context-agent", "production"): 2, ("context-agent", "candidate"): 2}
+    assert registry.aliases == {("context-agent", "production"): 2}
     assert registry.loads[-1] == {"allow_missing": True, "cache_ttl_seconds": 0}
 
 
@@ -216,8 +216,7 @@ def test_promote_to_another_alias(registry):
     register(registry, "context-agent", "v1 text")
     promote(registry, "context-agent", 1, alias="candidate")
     assert main(["promote", "context-agent", "--from", "candidate", "--to", "canary"], registry=registry) == 0
-    assert registry.aliases[("context-agent", "canary")] == 1
-    assert ("context-agent", "production") not in registry.aliases
+    assert registry.aliases == {("context-agent", "canary"): 1}
 
 
 def test_promote_from_a_missing_alias_fails_plainly(registry, capsys):
