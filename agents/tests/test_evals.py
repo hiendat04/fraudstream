@@ -6,7 +6,7 @@ import httpx
 import pytest
 
 from fraudstream_agents.a2a import Answer
-from fraudstream_agents.evals import GOLDEN_QUESTIONS, PAYMENT, GoldenQuestion, cited_chunks, decision, problems, score_reported
+from fraudstream_agents.evals import GOLDEN_QUESTIONS, PAYMENT, GoldenQuestion, cited_chunks, decision, problems, score_reported, stored_values
 from fraudstream_agents.prompts import PROMPTS_DIR
 
 
@@ -129,6 +129,12 @@ async def test_a_citation_that_does_not_exist():
 
 
 @pytest.mark.anyio
+async def test_every_citation_that_does_not_exist_is_named():
+    assert await found(answer(GOOD + " [handbook/x#y] [handbook/z#w]")) == [
+        "cites handbook/x#y, which does not exist", "cites handbook/z#w, which does not exist"]
+
+
+@pytest.mark.anyio
 async def test_nothing_under_the_prefix():
     assert await found(answer(GOOD.replace("handbook/review-policy#blocking-a-payment", "model-cards/m#a"))) == [
         "cites nothing under handbook/review-policy"]
@@ -175,3 +181,9 @@ def test_every_tool_a_golden_question_expects_is_named_in_its_agents_prompt(gold
 @pytest.mark.parametrize("golden", [golden for golden in GOLDEN_QUESTIONS if golden.payment], ids=lambda golden: golden.agent)
 def test_a_payment_question_writes_every_payment_value_as_the_tool_takes_it(golden):
     assert all(str(value) in golden.question for value in PAYMENT.values())
+
+
+def test_only_numbers_count_as_stored_values():
+    body = {"views": {"a": {"features": {"count": 17, "rate": 0.5, "category": "online", "flag": True, "missing": None}},
+                      "b": {"features": {"total": 489.01}}}}
+    assert stored_values(body) == [17, 0.5, 489.01]

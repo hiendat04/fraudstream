@@ -116,8 +116,8 @@ Jaeger.
 ## The agents
 
 kagent counts nothing itself, so calls to an agent are counted from traces. Every
-call passes kagent's controller, which opens one `invoke_agent` span named after the
-agent. A second pipeline in Jaeger keeps only those spans and turns them into
+agent pod opens one `invoke_agent` span for each call it runs, from a person or from
+another agent. A second pipeline in Jaeger keeps only those spans and turns them into
 metrics with its `spanmetrics` connector; the pipeline that stores traces is
 unchanged.
 
@@ -127,10 +127,12 @@ unchanged.
 | How long do calls take, and how many are in flight? | `agent_duration_seconds` |
 | How often is each MCP tool called, and how does each call end? | `mcp_tool_calls_total{server,tool,outcome}` |
 | Which agent called which tool? | `agentgateway_mcp_requests_total{consumer,resource}` |
+| Which agent called which agent, and was it allowed? | `agentgateway_requests_total{gateway="kagent/a2a-gateway",protocol="a2a",consumer,backend,status}` |
 
 The dashboard **FraudStream · Agents** shows them, with calls in flight against the
 agent's replicas, which KEDA scales on. More in
-[32_agents.md](../llm/32_agents.md#telemetry).
+[32_agent_platform_and_context_agent.md](../llm/32_agent_platform_and_context_agent.md#telemetry) and
+[33_risk_agent_and_coordinator.md](../llm/33_risk_agent_and_coordinator.md#telemetry).
 
 ## The drift pipeline
 

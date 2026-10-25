@@ -1,10 +1,10 @@
 # FraudStream
 
 **An end-to-end fraud detection platform that runs on a laptop.** Messy batch and
-streaming transactions go in. A tested, autoscaled, CI/CD-deployed fraud model comes
+streaming transactions go in. A tested, autoscaled, CI/CD-deployed fraud detection model comes
 out, with data quality, lineage and event-time correctness kept intact along the way.
 
-A fraud model is only as good as the pipelines feeding it. Real transaction data has
+A fraud detection model is only as good as the pipelines feeding it. Real transaction data has
 late records, duplicates, schema changes, spikes and skew, so this project generates
 those problems on purpose and builds the whole MLOps loop around handling them.
 
@@ -88,13 +88,13 @@ flowchart LR
 
 The ML layer decides; the LLM layer explains. The fraud detection model scores every
 payment, and nothing in the LLM layer can change that score. The LLM layer is an analyst
-copilot built on the same data. When an analyst asks why a payment was flagged, an agent
-calls MCP tools. The tools read the Feast features the model saw (through the context
+copilot built on the same data. When an analyst asks why a payment was flagged, the
+coordinator agent asks two specialists through the A2A gateway, and they call MCP tools. The tools read the Feast features the model saw (through the context
 API) and the model's own score (through the inference API). They also search the
 handbook and model cards that the RAG pipeline embeds into Feast's pgvector store. The
 agent answers with those facts and cites its sources. Both layers share one feature
-store and send their metrics and traces to the same Prometheus and Jaeger. The tools and
-the data behind them are built; the agents are next.
+store and send their metrics and traces to the same Prometheus and Jaeger. The coordinator is
+the analysts' one entry point, in the kagent UI.
 
 ## What's inside
 
@@ -125,7 +125,8 @@ the data behind them are built; the agents are next.
 | LLM inference platform | Qwen3 on llama.cpp behind llm-d and agentgateway: keys, limits, PII masking, telemetry, benchmark | [29_llm_inference_platform.md](docs/llm/29_llm_inference_platform.md) |
 | RAG data pipeline | The handbook, model cards and feature dictionary, chunked and embedded daily into Iceberg and Feast's pgvector store, checked and governed | [30_rag_pipeline.md](docs/llm/30_rag_pipeline.md) |
 | Context API and MCP servers | Features, chunks and search by id; two MCP servers behind agentgateway with a key and tool policy per agent | [31_context_api_and_mcp.md](docs/llm/31_context_api_and_mcp.md) |
-| Agents | kagent with one global model config, the context agent with its prompt from MLflow, KEDA on calls in flight, agentregistry, both UIs behind NGINX | [32_agents.md](docs/llm/32_agents.md) |
+| Agents | kagent with one global model config, the context agent with its prompt from MLflow, KEDA on calls in flight, agentregistry, both UIs behind NGINX | [32_agent_platform_and_context_agent.md](docs/llm/32_agent_platform_and_context_agent.md) |
+| Risk agent and coordinator | The risk agent scores a payment and cites the handbook; the coordinator delegates through agentgateway as the A2A gateway with a key, allow-list and rate limit; six eval questions | [33_risk_agent_and_coordinator.md](docs/llm/33_risk_agent_and_coordinator.md) |
 
 ## Quick start
 
@@ -213,12 +214,12 @@ fraudstream/
 │   ├── terraform/            # Terraform modules and one stack per piece of the GCP setup
 │   └── session.sh            # Start, end and check a cloud session
 ├── k8s/                      # kind cluster bootstrap, service images, pipeline RBAC
-│   ├── agents/               # kagent, the context agent, agentregistry, and their UIs
+│   ├── agents/               # kagent, the three agents, the A2A gateway, agentregistry, UIs
 │   ├── apis/                 # Helm values for the inference and drift detection releases
 │   ├── gke/                  # Platform, deploy scripts and manifests for GKE
 │   ├── charts/               # One Helm chart shared by both web APIs
 │   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
-│   ├── models/               # KServe InferenceService for the fraud model
+│   ├── models/               # KServe InferenceService for the fraud detection model
 │   ├── observability/        # Prometheus, Grafana, Jaeger, ELK, dashboards, and their routes
 │   └── smoke/                # Checks for ingress, HTTPS, KEDA, and Knative
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
@@ -226,7 +227,7 @@ fraudstream/
 ├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
 ├── rag/                      # Isolated Python 3.12 RAG pipeline, handbook, Feast project, golden questions
 ├── reports/                  # Generated human-readable reports and load test results
-├── serving/                  # Isolated Python 3.12 predictor that serves the fraud model on KServe
+├── serving/                  # Isolated Python 3.12 predictor that serves the fraud detection model on KServe
 ├── src/fraudstream/          # Python source code
 │   ├── generators/           # Offline and streaming generators
 │   ├── jobs/                 # Spark, Flink, and shared MinIO/PostgreSQL warehouse helpers

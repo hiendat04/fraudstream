@@ -15,10 +15,11 @@ flowchart LR
     KC -->|"2"| CA["<b>context agent</b><br/>2–3 replicas"]
     CA -->|"3 · chat completions<br/>key: agents"| LG["agentgateway<br/>llm-gateway"]
     LG --> LLM["llm-d · llama.cpp<br/>Qwen3-4B"]
-    CA -->|"4 · tools/call<br/>key: context-agent"| MG["agentgateway<br/>mcp-gateway"]
+    CA -->|"4 · tools/call<br/>key: context-agent"| AG["agentgateway<br/>A2A gateway"]
+    AG -->|"4 · passed on"| MG["agentgateway<br/>mcp-gateway"]
     MG --> MC["MCP server<br/>fraud-context"] --> CAPI["context API"]
     MLF[("MLflow<br/>prompt @production")] -->|"system prompt"| CA
-    KC -->|"invoke_agent spans"| JG["Jaeger<br/>spanmetrics"]
+    CA -->|"invoke_agent spans"| JG["Jaeger<br/>spanmetrics"]
     JG -->|"agent_calls_total"| PR[("Prometheus")]
     PR --> KEDA["KEDA"]
     KEDA -.->|"replicas"| CA
@@ -35,7 +36,9 @@ flowchart LR
    over A2A.
 3. The agent asks Qwen3-4B, through the LLM gateway, which tool to call.
 4. It calls the tool through the MCP gateway with its own key, then asks the
-   model again to write the answer from what the tool returned.
+   model again to write the answer from what the tool returned. The call passes the
+   A2A gateway first, which hands it on unchanged
+   ([33_risk_agent_and_coordinator.md](33_risk_agent_and_coordinator.md)).
 
 ## The platform
 
@@ -73,8 +76,8 @@ and emails stay masked
 
 ## The context agent
 
-[context-agent.yaml](../../k8s/agents/context-agent.yaml) holds the agent, its tools,
-its network rules and its scaler.
+[context-agent.yaml](../../k8s/agents/context-agent.yaml) holds the agent, its tools
+and its scaler.
 
 ### Its prompt comes from MLflow
 
@@ -108,9 +111,9 @@ and answers with the stored values and when they were computed:
 
 ### It can reach only the gateways
 
-A NetworkPolicy ([context-agent.yaml#L61](../../k8s/agents/context-agent.yaml#L61)) lets the agent's
-pods reach DNS, the kagent controller, the two gateways and Jaeger, and only the
-controller may call them. An agent is driven by text it reads, so a prompt
+A NetworkPolicy shared by every agent ([network.yaml](../../k8s/agents/network.yaml))
+lets the agent's pods reach DNS, the kagent controller, the LLM gateway, the A2A
+gateway and Jaeger, and only the controller and the A2A gateway may call them. An agent is driven by text it reads, so a prompt
 injection could make it try any address; this way the gateway's key and tool
 policy can't be gone around. Checked from a short-lived pod that carries the
 agent's label, so the same policy applies to it:
@@ -121,19 +124,19 @@ kubectl -n kagent run network-probe --rm -i --restart=Never --image="$img" \
   --labels=app.kubernetes.io/name=context-agent --command -- python -c "..."
 ```
 
-A direct call to `fraud-context` times out; the MCP gateway answers 401, since the
-probe sends no key.
+A direct call to `fraud-context` times out; so does one to the MCP gateway, which the
+agents now reach only through the A2A gateway.
 
 kagent 0.10 runs sandboxed agents only on Agent Substrate, which needs gVisor, so
 the sandbox runs on the GKE cluster with the agent fleet.
 
 ### Replicas and KEDA
 
-KEDA keeps two to three replicas ([context-agent.yaml#L123](../../k8s/agents/context-agent.yaml#L123)).
+KEDA keeps two to three replicas ([context-agent.yaml#L61](../../k8s/agents/context-agent.yaml#L61)).
 
 | Setting | Value | Why |
 |---|---|---|
-| Trigger | `sum(rate(agent_duration_seconds_sum[2m]))` | the seconds of calling per second is the average number of calls in progress. CPU says nothing: the agent waits on the model |
+| Trigger | `sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="context_agent"}[2m]))` | the seconds of calling per second is the average number of calls in progress. CPU says nothing: the agent waits on the model |
 | Target | 1 call in flight per replica | a third replica once more than two questions wait |
 | Fallback | 2 replicas after 3 failed reads | a Prometheus outage leaves the agent as it is |
 | Scale down | after 2 minutes | questions come in bursts |
@@ -184,7 +187,7 @@ Both are in [ingress.yaml](../../k8s/agents/ingress.yaml).
 | HTTPS | a certificate from the local CA, made by cert-manager | nothing crosses the network in clear | [ingress.yaml#L7](../../k8s/agents/ingress.yaml#L7) |
 | Login | the gateway's basic auth | kagent's own API runs without authentication | [ingress.yaml#L9](../../k8s/agents/ingress.yaml#L9) |
 | Rate limit | 30 requests a second, a burst of 100 | one page load is about 40 requests | [ingress.yaml#L11](../../k8s/agents/ingress.yaml#L11) |
-| Read timeout | 300 s, buffering off, kagent UI only | an answer streams for up to two minutes | [ingress.yaml#L15](../../k8s/agents/ingress.yaml#L15) |
+| Read timeout | 600 s, buffering off, kagent UI only | a coordinator answer waits on a specialist for minutes | [ingress.yaml#L15](../../k8s/agents/ingress.yaml#L15) |
 | Registry reachable only from NGINX | a NetworkPolicy on the registry's server pod | the open-source registry lets any caller write, so a pod inside the cluster could otherwise change the catalog without the login | [ingress.yaml#L68](../../k8s/agents/ingress.yaml#L68) |
 
 `ci/check_gateway.sh <host> /health` checks each: plain HTTP redirected, 401
@@ -200,20 +203,20 @@ Both ask for the login over HTTPS before anything loads:
 
 | Metric | From | Shows |
 |---|---|---|
-| `agent_calls_total{gen_ai_agent_name, status_code}` | Jaeger, from the controller's spans | calls per agent, and how many failed |
+| `agent_calls_total{gen_ai_agent_name, status_code}` | Jaeger, from each agent's own spans | calls per agent, and how many failed |
 | `agent_duration_seconds` | the same | how long calls take, and how many are in flight |
 | `mcp_tool_calls_total{server, tool, outcome}` | the MCP servers | calls per tool and failures per tool: `not_found`, `rejected`, `failed` |
 | `agentgateway_mcp_requests_total{consumer, resource}` | the MCP gateway | which agent called which tool |
 
 **Calls per agent come from spans** because kagent has no request metrics of its
 own: its controller exports only a build-info metric, and the agent pods only
-traces. Every call to an agent passes the controller, which opens one
-`invoke_agent` span named after the agent. Jaeger keeps a second pipeline next to
-the one that stores traces: it drops every span but those, and its `spanmetrics`
-connector turns them into the two metrics above
-([jaeger.yaml](../../k8s/observability/jaeger.yaml), [line 15](../../k8s/observability/jaeger.yaml#L15)).
-The agent's own `invoke_agent context_agent` span is dropped too, so each call is
-counted once.
+traces. Every agent pod opens one `invoke_agent` span for each call it runs, named
+after the agent with underscores, `context_agent`. Jaeger keeps a second pipeline
+next to the one that stores traces: it drops every span but those, and its
+`spanmetrics` connector turns them into the two metrics above
+([jaeger.yaml](../../k8s/observability/jaeger.yaml), [line 48](../../k8s/observability/jaeger.yaml#L48)).
+The controller's own `invoke_agent` span is dropped, so each call is counted once,
+and calls from other agents, which never pass the controller, are counted too.
 
 The dashboard **FraudStream · Agents** shows calls per agent, calls per minute by
 status, calls in flight against replicas, call time, calls and failures per tool,
@@ -257,7 +260,8 @@ More in [22_validation_and_verification.md](../ml/22_validation_and_verification
 | What | Where |
 |---|---|
 | kagent, the model config and the install | `k8s/agents/kagent-values.yaml`, `k8s/agents/install.sh` |
-| The context agent, its tools, network rules and scaler | `k8s/agents/context-agent.yaml` |
+| The context agent, its tools and scaler | `k8s/agents/context-agent.yaml` |
+| Network rules for every agent | `k8s/agents/network.yaml` |
 | Its prompt and the prompt tool | `agents/prompts/context-agent.md`, `agents/src/fraudstream_agents/prompts.py` |
 | The registry and its records | `k8s/agents/agentregistry-values.yaml`, `k8s/agents/registry.yaml` |
 | The UIs behind NGINX | `k8s/agents/ingress.yaml` |

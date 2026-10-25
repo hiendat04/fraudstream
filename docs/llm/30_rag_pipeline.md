@@ -148,7 +148,7 @@ kill running tasks, so a person does it:
 
 ## Testing
 
-- **125 tests, 99.7% coverage**, with 90% required.
+- **128 tests, 99.7% coverage**, with 90% required.
 - **Properties:** the change plan is checked with Hypothesis and CrossHair, for example
   "applying the plan always leaves exactly the current chunks".
 - **Mutation testing:** 1,660 mutants, about 1,345 killed and 195 survived, **87%**. The
@@ -188,8 +188,8 @@ for hit in search(FeatureStore(repo_path="feature_repo"), sys.argv[1], top_k=3):
 
 ```text
 0.232 handbook/review-policy#releasing-a-payment
-0.288 handbook/review-policy#review-queue
-0.313 handbook/review-policy#who-decides
+0.288 handbook/review-policy#who-decides
+0.313 handbook/review-policy#review-queue
 ```
 
 A smaller distance is a closer match.
