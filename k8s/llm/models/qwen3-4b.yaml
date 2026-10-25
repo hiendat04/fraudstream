@@ -33,6 +33,9 @@ spec:
             - "1"
             - --ctx-size
             - "8192"
+            # The prompt cache in RAM defaults to 8 GiB, past the memory limit.
+            - --cache-ram
+            - "512"
             - --metrics
             - --host
             - 0.0.0.0
