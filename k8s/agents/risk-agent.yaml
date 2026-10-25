@@ -1,0 +1,82 @@
+apiVersion: kagent.dev/v1alpha2
+kind: RemoteMCPServer
+metadata:
+  name: fraud-risk-tools
+  namespace: kagent
+spec:
+  description: The fraud-risk tools through the MCP gateway, with the risk agent's key
+  protocol: STREAMABLE_HTTP
+  url: http://mcp-gateway.mcp.svc.cluster.local:8080/mcp
+  timeout: 40s
+  headersFrom:
+    - name: Authorization
+      valueFrom:
+        type: Secret
+        name: mcp-key-risk-agent
+        key: authorization
+---
+apiVersion: kagent.dev/v1alpha2
+kind: Agent
+metadata:
+  name: risk-agent
+  namespace: kagent
+spec:
+  type: Declarative
+  description: Scores a payment with the fraud detection model, from the customer's and merchant's online features, and says what the fraud handbook says to do, citing its sections.
+  declarative:
+    modelConfig: default-model-config
+    systemMessageFrom:
+      type: ConfigMap
+      name: risk-agent-prompt
+      key: system-message
+    tools:
+      - type: McpServer
+        mcpServer:
+          apiGroup: kagent.dev
+          kind: RemoteMCPServer
+          name: fraud-risk-tools
+          toolNames:
+            - score_payment
+            - search_handbook
+    a2aConfig:
+      skills:
+        - id: payment-risk
+          name: Payment risk
+          description: The fraud detection model's score for a payment, and the handbook's steps for it.
+          tags: [fraud, model, handbook]
+          examples:
+            - "Payment txn_000000128913: customer cust_00090571, merchant merch_00011503, 2026-06-22T23:59:21Z, 143.92 USD, online, New York. What does the model say, and what should I do?"
+            - Who has to agree before a payment above 5,000 USD is blocked?
+    deployment:
+      resources:
+        requests:
+          cpu: 10m
+          memory: 64Mi
+        limits:
+          cpu: "1"
+          memory: 512Mi
+---
+apiVersion: keda.sh/v1alpha1
+kind: ScaledObject
+metadata:
+  name: risk-agent
+  namespace: kagent
+spec:
+  scaleTargetRef:
+    name: risk-agent
+  minReplicaCount: 2
+  maxReplicaCount: 3
+  fallback:
+    failureThreshold: 3
+    replicas: 2
+  advanced:
+    horizontalPodAutoscalerConfig:
+      behavior:
+        scaleDown:
+          stabilizationWindowSeconds: 120
+  triggers:
+    - type: prometheus
+      metadata:
+        serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
+        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="risk_agent"}[2m])) or vector(0)
+        threshold: "1"

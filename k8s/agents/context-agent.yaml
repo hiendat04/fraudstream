@@ -51,73 +51,11 @@ spec:
     deployment:
       resources:
         requests:
-          cpu: 100m
-          memory: 256Mi
+          cpu: 10m
+          memory: 64Mi
         limits:
           cpu: "1"
           memory: 512Mi
----
-apiVersion: networking.k8s.io/v1
-kind: NetworkPolicy
-metadata:
-  name: context-agent
-  namespace: kagent
-spec:
-  podSelector:
-    matchLabels:
-      app.kubernetes.io/name: context-agent
-  policyTypes: [Ingress, Egress]
-  ingress:
-    - from:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: controller
-      ports:
-        - port: 8080
-  egress:
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: kube-system
-          podSelector:
-            matchLabels:
-              k8s-app: kube-dns
-      ports:
-        - {port: 53, protocol: UDP}
-        - {port: 53, protocol: TCP}
-    - to:
-        - podSelector:
-            matchLabels:
-              app.kubernetes.io/component: controller
-      ports:
-        - port: 8083
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: llm
-          podSelector:
-            matchLabels:
-              gateway.networking.k8s.io/gateway-name: llm-gateway
-      ports:
-        - port: 8080
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: mcp
-          podSelector:
-            matchLabels:
-              gateway.networking.k8s.io/gateway-name: mcp-gateway
-      ports:
-        - port: 8080
-    - to:
-        - namespaceSelector:
-            matchLabels:
-              kubernetes.io/metadata.name: observability
-          podSelector:
-            matchLabels:
-              app.kubernetes.io/name: jaeger
-      ports:
-        - port: 4317
 ---
 apiVersion: keda.sh/v1alpha1
 kind: ScaledObject
@@ -141,5 +79,5 @@ spec:
     - type: prometheus
       metadata:
         serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
-        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="context-agent"}[2m])) or vector(0)
+        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="context_agent"}[2m])) or vector(0)
         threshold: "1"

@@ -44,3 +44,5 @@ cilium-manager-agent:
   enabled: false
 cilium-debug-agent:
   enabled: false
+proxy:
+  url: http://a2a-gateway.kagent.svc.cluster.local:8080

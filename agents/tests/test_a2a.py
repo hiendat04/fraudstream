@@ -5,7 +5,7 @@ import json
 import httpx
 import pytest
 
-from fraudstream_agents.a2a import A2AError, answer_text, ask, grounded, message_request, numbers, task_state
+from fraudstream_agents.a2a import A2AError, Answer, answer_text, ask, grounded, message_request, numbers, task_state, tool_calls
 
 pytestmark = pytest.mark.anyio
 
@@ -46,6 +46,29 @@ def test_the_state_of_an_answer(result, state):
     assert task_state(result) == state
 
 
+def call(name, key="kagent_type"):
+    return {"kind": "data", "data": {"id": "c1", "name": name, "args": {}}, "metadata": {key: "function_call"}}
+
+
+@pytest.mark.parametrize(("result", "calls"), [
+    pytest.param({"kind": "task", "history": [{"role": "agent", "parts": [call("get_chunk")]}]}, ["get_chunk"], id="a-call-in-the-history"),
+    pytest.param({"kind": "task", "history": [{"parts": [call("score_payment"), call("search_handbook")]}, {"parts": [call("score_payment")]}]},
+                 ["score_payment", "search_handbook", "score_payment"], id="in-order-with-repeats"),
+    pytest.param({"kind": "task", "history": [{"parts": [call("get_chunk", key="adk_type")]}]}, ["get_chunk"], id="adk-metadata"),
+    pytest.param({"kind": "task", "history": [{"parts": [{"kind": "data", "data": {"name": "x"}, "metadata": {"kagent_type": "function_response"}}]}]},
+                 [], id="a-response-is-not-a-call"),
+    pytest.param({"kind": "task", "history": [{"parts": [{"kind": "text", "text": "get_chunk"}]}]}, [], id="text-is-not-a-call"),
+    pytest.param({"kind": "task", "status": {"state": "completed", "message": {"parts": [call("get_chunk")]}}}, ["get_chunk"], id="the-status-message"),
+    pytest.param({"kind": "task", "history": [{"parts": [call("a")]}], "status": {"state": "completed", "message": {"parts": [call("b")]}}},
+                 ["a", "b"], id="history-then-status"),
+    pytest.param({"kind": "task", "status": {"state": "completed"}}, [], id="no-history"),
+    pytest.param({"kind": "message", "parts": [call("get_chunk")]}, ["get_chunk"], id="a-plain-message"),
+    pytest.param({"kind": "task", "history": [{"parts": [{"kind": "data", "data": {"name": "x"}}]}]}, [], id="a-data-part-without-metadata"),
+])
+def test_the_tool_calls_an_answer_made(result, calls):
+    assert tool_calls(result) == calls
+
+
 async def test_ask_posts_the_question_and_reads_the_answer():
     seen = {}
 
@@ -56,7 +79,7 @@ async def test_ask_posts_the_question_and_reads_the_answer():
             "artifacts": [{"parts": [{"kind": "text", "text": "42 payments"}]}]}})
 
     async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
-        assert await ask(client, "http://c/api/a2a/kagent/context-agent/", "how many?") == ("completed", "42 payments")
+        assert await ask(client, "http://c/api/a2a/kagent/context-agent/", "how many?") == Answer("completed", "42 payments", [])
     assert seen["url"] == "http://c/api/a2a/kagent/context-agent/"
     assert seen["body"]["method"] == "message/send"
     assert seen["body"]["params"]["message"]["parts"][0]["text"] == "how many?"

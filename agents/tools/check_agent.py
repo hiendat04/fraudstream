@@ -1,11 +1,13 @@
-"""Asks the context agent about a customer and a merchant, through port-forwards, and wants numbers from the store.
+"""Asks the agents their golden questions through port-forwards, and checks the tool calls and the answers.
 
-    python tools/check_agent.py --controller http://127.0.0.1:18083/api/a2a/kagent/context-agent/ --context-api http://127.0.0.1:18093
-    python tools/check_agent.py --controller ... --context-api ... --load 6
+    python tools/check_agent.py --controller http://127.0.0.1:18083 --context-api http://127.0.0.1:18093 \
+        --inference-api http://127.0.0.1:18092 [--agent risk-agent]...
+    python tools/check_agent.py --controller ... --context-api ... --inference-api ... --agent context-agent --load 3
 
-Each answer passes when the agent finished and quotes at least one of the values
-the context API holds for that id. --load sends the customer question that many
-times at once, to watch KEDA add a replica. Exits 1 if any check fails.
+Every agent's questions are asked when no --agent is given. An answer passes when
+the agent finished, made the tool calls the question needs, and its answer holds
+what the stores and the fraud detection model say. --load sends one agent's first
+question that many times at once, to watch KEDA add a replica. Exits 1 if any check fails.
 """
 
 import argparse
@@ -15,56 +17,51 @@ import time
 
 import httpx
 
-from fraudstream_agents.a2a import A2AError, ask, grounded
+from fraudstream_agents.a2a import A2AError, Answer, ask
+from fraudstream_agents.evals import GOLDEN_QUESTIONS, GoldenQuestion, problems
 
-QUESTIONS = [
-    ("What has customer cust_00090571 been doing recently?", "/v1/customers/cust_00090571"),
-    ("How risky is merchant merch_00011503 right now?", "/v1/merchants/merch_00011503"),
-]
-# The model has one slot, so questions sent together queue behind each other.
-ANSWER_TIMEOUT_SECONDS = 600
+# The model has one slot, so questions sent together queue behind each other, and the
+# coordinator's question waits for two specialists in turn.
+ANSWER_TIMEOUT_SECONDS = 900
 
 
-def stored_values(body: dict) -> list[float]:
-    """Every numeric feature value the context API returned, in all views."""
+async def ask_and_check(client: httpx.AsyncClient, args: argparse.Namespace, golden: GoldenQuestion, judge: bool
+) -> bool:
+    """Ask one golden question, print the line and any problems; whether it passed. Without judge, only the state counts."""
 
-    return [
-        value
-        for view in body["views"].values()
-        for value in view["features"].values()
-        if isinstance(value, int | float) and not isinstance(value, bool)
-    ]
-
-
-async def one(client: httpx.AsyncClient, controller: str, question: str, values: list[float] | None) -> bool:
     started = time.perf_counter()
     try:
-        state, text = await ask(client, controller, question)
+        answer = await ask(client, f"{args.controller}/api/a2a/kagent/{golden.agent}/", golden.question)
     except (A2AError, httpx.HTTPError) as error:
-        state, text = "error", repr(error)
+        answer = Answer("error", repr(error), [])
     seconds = time.perf_counter() - started
-    ok = state == "completed" and (values is None or grounded(text, values))
-    print(f"  {'ok  ' if ok else 'FAIL'}  {seconds:5.1f} s  {state}  {question}")
-    print("        " + text[:300].replace("\n", " "))
-    return ok
+    found = await problems(client, golden, answer, args.context_api, args.inference_api) if judge else []
+    if not judge and answer.state != "completed":
+        found = [f"the answer ended {answer.state}"]
+    print(f"  {'FAIL' if found else 'ok  '}  {seconds:5.1f} s  {answer.state}  [{', '.join(answer.tools)}]  {golden.question}")
+    print("        " + answer.text[:300].replace("\n", " "))
+    for problem in found:
+        print(f"        - {problem}")
+    return not found
 
 
 async def main() -> int:
     parser = argparse.ArgumentParser()
-    parser.add_argument("--controller", required=True, help="the agent's A2A URL on kagent's controller")
+    parser.add_argument("--controller", required=True, help="kagent's controller, which serves every agent's A2A endpoint")
     parser.add_argument("--context-api", required=True)
-    parser.add_argument("--load", type=int, default=0, help="ask the customer question this many times at once")
+    parser.add_argument("--inference-api", required=True)
+    parser.add_argument("--agent", action="append", choices=sorted({golden.agent for golden in GOLDEN_QUESTIONS}))
+    parser.add_argument("--load", type=int, default=0, help="ask the agent's first question this many times at once")
     args = parser.parse_args()
+    if args.load and len(args.agent or []) != 1:
+        parser.error("--load needs exactly one --agent")
+    chosen = [golden for golden in GOLDEN_QUESTIONS if not args.agent or golden.agent in args.agent]
 
     async with httpx.AsyncClient(timeout=ANSWER_TIMEOUT_SECONDS) as client:
         if args.load:
-            results = await asyncio.gather(*(one(client, args.controller, QUESTIONS[0][0], None) for _ in range(args.load)))
-            return 0 if all(results) else 1
-        results = []
-        for question, path in QUESTIONS:
-            truth = await client.get(args.context_api + path)
-            truth.raise_for_status()
-            results.append(await one(client, args.controller, question, stored_values(truth.json())))
+            results = await asyncio.gather(*(ask_and_check(client, args, chosen[0], judge=False) for _ in range(args.load)))
+        else:
+            results = [await ask_and_check(client, args, golden, judge=True) for golden in chosen]
     return 0 if all(results) else 1
 
 

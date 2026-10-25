@@ -45,7 +45,7 @@ data:
         error_mode: ignore
         traces:
           span:
-            - name != "invoke_agent" or resource.attributes["service.name"] != "kagent-controller"
+            - attributes["gen_ai.operation.name"] != "invoke_agent" or resource.attributes["service.name"] == "kagent-controller"
     connectors:
       spanmetrics:
         namespace: agent
