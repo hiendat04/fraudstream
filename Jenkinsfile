@@ -1,9 +1,15 @@
+// Globals, not def: the when expressions run in another scope and could not read a local.
+MCP_PATHS = 'mcp_servers/src mcp_servers/pyproject.toml mcp_servers/uv.lock k8s/Dockerfile.mcp k8s/mcp k8s/charts'
+AGENT_PATHS = 'agents/src agents/tools agents/pyproject.toml agents/uv.lock k8s/agents/registry.yaml k8s/agents/check.sh k8s/agents/publish.sh ci/deploy_agent.sh'
+CONTEXT_AGENT_PATHS = 'agents/prompts/context-agent.md k8s/agents/context-agent.yaml'
+RISK_AGENT_PATHS = 'agents/prompts/risk-agent.md k8s/agents/risk-agent.yaml'
+
 pipeline {
   agent any
 
   options {
     timestamps()
-    timeout(time: 45, unit: 'MINUTES')
+    timeout(time: 90, unit: 'MINUTES')
     disableConcurrentBuilds()
     buildDiscarder(logRotator(numToKeepStr: '20'))
   }
@@ -278,6 +284,51 @@ pipeline {
             test "$(docker inspect -f '{{.State.Running}} {{.RestartCount}}' fraudstream-feast-stream-push)" = "true 0" \
               || { docker logs --tail 30 fraudstream-feast-stream-push; exit 1; }
           '''
+        }
+      }
+    }
+
+    stage('MCP servers') {
+      when { expression { deploying(MCP_PATHS) } }
+      steps {
+        sh 'TAG="$TAG" ./k8s/mcp/install.sh && ./k8s/mcp/check.sh'
+      }
+    }
+
+    stage('Context agent') {
+      when { expression { deploying("${AGENT_PATHS} ${CONTEXT_AGENT_PATHS} ${MCP_PATHS}") } }
+      environment {
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
+        ROLLBACK_COMMIT = "${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}"
+      }
+      steps {
+        sh './ci/deploy_agent.sh context-agent'
+      }
+    }
+
+    stage('Risk agent') {
+      when { expression { deploying("${AGENT_PATHS} ${RISK_AGENT_PATHS} ${MCP_PATHS}") } }
+      environment {
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
+        ROLLBACK_COMMIT = "${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}"
+      }
+      steps {
+        sh './ci/deploy_agent.sh risk-agent'
+      }
+    }
+
+    stage('Coordinator agent') {
+      when { expression { deploying("${AGENT_PATHS} agents/prompts/coordinator-agent.md k8s/agents/coordinator-agent.yaml ${CONTEXT_AGENT_PATHS} ${RISK_AGENT_PATHS} ${MCP_PATHS}") } }
+      environment {
+        MLFLOW_TRACKING_URI = 'http://mlflow:5000'
+        ROLLBACK_COMMIT = "${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}"
+      }
+      steps {
+        sh './ci/deploy_agent.sh coordinator-agent'
+        withCredentials([usernamePassword(credentialsId: 'gateway',
+                                          usernameVariable: 'GATEWAY_USER',
+                                          passwordVariable: 'GATEWAY_PASSWORD')]) {
+          sh './ci/check_gateway.sh kagent.fraudstream.localhost /health'
         }
       }
     }

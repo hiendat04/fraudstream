@@ -23,7 +23,7 @@ CONTEXT_AGENT_KEY=$(key context-agent) RISK_AGENT_KEY=$(key risk-agent) MCP_CHEC
 # Prometheus scrapes every 15 seconds.
 sleep 30
 prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
-python3 - "$prom" <<'PY'
+uv run --project mcp_servers python - "$prom" <<'PY'
 import json, subprocess, sys, urllib.parse
 bad = 0
 for query in ("sum by (consumer) (agentgateway_mcp_requests_total)",
