@@ -5,7 +5,7 @@
 # onto both, and asks the agent's eval questions. When they pass, it points
 # production at the candidate and publishes to agentregistry. When anything from
 # the deploy on fails, it renders the production prompt back, applies the Agent
-# from ROLLBACK_COMMIT when that commit has it, and exits 1.
+# from ROLLBACK_COMMIT when that commit has it, drops the candidate alias and exits 1.
 #   ./ci/deploy_agent.sh coordinator-agent                                     in Jenkins
 #   MLFLOW_TRACKING_URI=http://localhost:18085 ./ci/deploy_agent.sh context-agent   by hand
 set -euo pipefail
@@ -73,6 +73,7 @@ rollback() {
     git show "$ROLLBACK_COMMIT:k8s/agents/$agent.yaml" | kubectl apply -f - >/dev/null
   fi
   rolled || true
+  prompts unalias "$agent" --alias candidate
   echo "rolled back $agent to its production prompt"
   exit 1
 }
