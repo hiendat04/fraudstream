@@ -488,7 +488,7 @@ services:
 
   jenkins:
     build:
-      context: ci/jenkins
+      context: cicd/jenkins
     container_name: fraudstream-jenkins
     user: root
     restart: unless-stopped
@@ -511,7 +511,7 @@ services:
       - "${JENKINS_PORT:-18086}:8080"
     volumes:
       - jenkins-home:/var/jenkins_home
-      - ./ci/jenkins/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
+      - ./cicd/jenkins/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${AIRFLOW_PROJECT_DIR:-.}:/deploy
     networks:

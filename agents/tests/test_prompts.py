@@ -234,3 +234,10 @@ def test_unalias_drops_only_that_alias(registry, capsys):
     assert main(["unalias", "context-agent", "--alias", "candidate"], registry=registry) == 0
     assert capsys.readouterr().out.strip() == "context-agent: candidate removed"
     assert registry.aliases == {("context-agent", "production"): 1}
+
+
+@pytest.mark.parametrize("argv", [["promote", "context-agent"], ["unalias", "context-agent"]])
+def test_an_alias_command_without_its_alias_is_refused(registry, argv):
+    with pytest.raises(SystemExit):
+        main(argv, registry=registry)
+    assert registry.aliases == {}

@@ -323,7 +323,7 @@ merchant. So the model, the registry and the features in the cloud are the lapto
 ```bash
 . k8s/gke/env.sh
 export GATEWAY_ADDRESS=$GATEWAY_IP
-. ci/gateway.sh
+. cicd/gateway.sh
 gateway_curl -s -u "$GATEWAY_USER:$GATEWAY_PASSWORD" -H 'Content-Type: application/json' \
   -d @api/tools/transaction.json "https://inference.$GATEWAY_IP.sslip.io/v1/predict"
 ```

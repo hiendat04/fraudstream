@@ -6,8 +6,8 @@
 # production at the candidate and publishes to agentregistry. When anything from
 # the deploy on fails, it renders the production prompt back, applies the Agent
 # from ROLLBACK_COMMIT when that commit has it, drops the candidate alias and exits 1.
-#   ./ci/deploy_agent.sh coordinator-agent                                     in Jenkins
-#   MLFLOW_TRACKING_URI=http://localhost:18085 ./ci/deploy_agent.sh context-agent   by hand
+#   ./cicd/deploy_agent.sh coordinator-agent                                     in Jenkins
+#   MLFLOW_TRACKING_URI=http://localhost:18085 ./cicd/deploy_agent.sh context-agent   by hand
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.

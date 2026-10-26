@@ -217,7 +217,7 @@ instead, because they change first. It never reads the label table.
 ```bash
 set -a && . ./.env && set +a
 ./k8s/observability/install.sh                      # Prometheus, Grafana, Jaeger, ELK, routes
-./ci/sync_airflow.sh "$AIRFLOW_PROJECT_DIR"         # the drift DAG and its code
+./cicd/sync_airflow.sh "$AIRFLOW_PROJECT_DIR"         # the drift DAG and its code
 docker compose --profile orchestration up -d --build
 docker exec fraudstream-airflow-scheduler airflow dags unpause fraudstream_drift_monitoring
 ```
@@ -272,7 +272,7 @@ the cluster, on port 9000, the counters are there. An unknown path is counted as
 `route="unmatched"`, so random URLs from a scanner can't create new series.
 
 ```bash
-GATEWAY_ADDRESS=127.0.0.1 . ci/gateway.sh
+GATEWAY_ADDRESS=127.0.0.1 . cicd/gateway.sh
 gateway_curl -s -o /dev/null -w "through the gateway: %{http_code}\n" -u "$GATEWAY_USER:$GATEWAY_PASSWORD" \
   https://inference.fraudstream.localhost/metrics
 kubectl --context kind-fraudstream -n fraudstream-apis port-forward svc/inference-api 9000:9000 >/dev/null & pf=$!; sleep 2

@@ -167,7 +167,7 @@ kill running tasks, so a person does it:
 ## How to run it
 
 ```bash
-./ci/run_dag.sh fraudstream_rag_index          # run it and wait; exit 0 only on success
+./cicd/run_dag.sh fraudstream_rag_index          # run it and wait; exit 0 only on success
 ```
 
 Search from a laptop terminal, against the running stores:
@@ -230,5 +230,5 @@ previous step's files from the run folder.
 | Image and settings | `airflow/Dockerfile`, `docker-compose.yml`, `airflow/config/variables.json` |
 | pgvector extension | `infra/pgvector/init/001_enable_vector.sql` |
 | DataHub contract and checks | `datahub/contracts/rag_index.contract.yaml`, `datahub/src/fraudstream_datahub/model.py` |
-| CI/CD | `Jenkinsfile`, `ci/run_dag.sh`, `ci/sync_airflow.sh` |
+| CI/CD | `Jenkinsfile`, `cicd/run_dag.sh`, `cicd/sync_airflow.sh` |
 | Screenshots | `images/rag/` |

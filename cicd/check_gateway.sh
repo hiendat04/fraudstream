@@ -3,13 +3,13 @@
 # certificate from the local CA, the right password, and a rate limit.
 
 #   set -a && . ./.env && set +a
-#   GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh inference.fraudstream.localhost
-#   GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh kagent.fraudstream.localhost /health
+#   GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_gateway.sh inference.fraudstream.localhost
+#   GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_gateway.sh kagent.fraudstream.localhost /health
 
 # Needs GATEWAY_USER and GATEWAY_PASSWORD. From the local computer, add GATEWAY_ADDRESS=127.0.0.1.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-. ci/gateway.sh
+. cicd/gateway.sh
 
 host=$1
 # The APIs answer /livez; the UIs have their own health path.

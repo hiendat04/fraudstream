@@ -190,7 +190,7 @@ Both are in [ingress.yaml](../../k8s/agents/ingress.yaml).
 | Read timeout | 600 s, buffering off, kagent UI only | a coordinator answer waits on a specialist for minutes | [ingress.yaml#L15](../../k8s/agents/ingress.yaml#L15) |
 | Registry reachable only from NGINX | a NetworkPolicy on the registry's server pod | the open-source registry lets any caller write, so a pod inside the cluster could otherwise change the catalog without the login | [ingress.yaml#L68](../../k8s/agents/ingress.yaml#L68) |
 
-`ci/check_gateway.sh <host> /health` checks each: plain HTTP redirected, 401
+`cicd/check_gateway.sh <host> /health` checks each: plain HTTP redirected, 401
 without or with a wrong password, 200 with the right one, and 429 in a burst.
 
 Both ask for the login over HTTPS before anything loads:
@@ -268,6 +268,6 @@ More in [22_validation_and_verification.md](../ml/22_validation_and_verification
 | Agent call metrics and the dashboard | `k8s/observability/jaeger.yaml`, `k8s/observability/servicemonitors.yaml`, `k8s/observability/dashboards/agents.yaml` |
 | The model servers and the PII guard | `k8s/llm/models/`, `k8s/llm/gateway.yaml` |
 | The end-to-end check | `k8s/agents/check.sh`, `agents/tools/check_agent.py`, `agents/src/fraudstream_agents/a2a.py` |
-| Gateway check | `ci/check_gateway.sh` |
+| Gateway check | `cicd/check_gateway.sh` |
 | Tests | `agents/tests/` |
 | Screenshots | `images/agents/` |

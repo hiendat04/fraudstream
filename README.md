@@ -39,8 +39,9 @@ those problems on purpose and builds the whole MLOps loop around handling them.
   for a person when it behaves differently. Every step is a commit.
 - **Tested with numbers.** 100% line and branch coverage on both APIs, 86% mutation score,
   property-based tests, and a load test judged against an SLA fixed in advance.
-- **CI/CD.** Jenkins tests every branch and deploys the deploy branch. Every image is
-  tagged with its commit, and secrets never leave Jenkins.
+- **CI/CD.** Jenkins tests every branch and deploys the deploy branch, the MCP servers and
+  the agents included. Every image is tagged with its commit, an agent's prompt reaches
+  production only after its eval questions pass, and secrets never leave Jenkins.
 - **Measured, not claimed.** Spark AQE and Flink chaining experiments are captured from
   the runtime UIs, with before and after numbers.
 
@@ -116,7 +117,7 @@ the analysts' one entry point, in the kagent UI.
 | Kubernetes platform | Ingress with HTTPS, KEDA, Knative, and KServe | [20_local_k8s_platform.md](docs/ml/20_local_k8s_platform.md)                                                                                                                                 |
 | Web APIs | Inference and drift detection, with Helm rollout and rollback | [21_web_apis.md](docs/ml/21_web_apis.md)                                                                                                                                                     |
 | Testing | Coverage, mutation, property-based and load testing | [22_validation_and_verification.md](docs/ml/22_validation_and_verification.md)                                                                                                               |
-| CI/CD | Jenkins pipeline with a before and after of a real deploy | [23_ci_cd.md](docs/ml/23_ci_cd.md)                                                                                                                                                           |
+| CI/CD | Jenkins pipeline with a before and after of a real deploy, and the agents deployed through their eval questions | [23_ci_cd.md](docs/ml/23_ci_cd.md)                                                                                                                                                           |
 | Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/ml/24_gateway.md)                                                                                                                                                       |
 | Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/ml/25_infrastructure_as_code.md)                                                                                                                         |
 | Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/ml/26_observability.md) |

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Run one project's test suite, or all of them.
-#   ./ci/test.sh            every suite
-#   ./ci/test.sh api ml     just those
+#   ./cicd/test.sh            every suite
+#   ./cicd/test.sh api ml     just those
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
