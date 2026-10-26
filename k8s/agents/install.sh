@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Installs the agent platform on the kind cluster: the A2A gateway, which every
 # call an agent makes inside the cluster goes through, with a key, an allow-list
-# and a rate limit for calls between agents; kagent, whose one global model config
+# and a rate limit for calls between agents; Agent Substrate, which runs
+# sandboxed agents on a pool of gVisor workers; kagent, whose one global model config
 # reaches Qwen3-4B through the LLM gateway, the context and risk agents, each with
 # its own key to the MCP gateway, and the coordinator over them, with its key to
 # the A2A gateway; every agent with its prompt from MLflow and KEDA scaling it on
@@ -46,6 +47,9 @@ echo "==> the A2A gateway and its policy"
 kubectl apply -f k8s/agents/a2a-gateway.yaml >/dev/null
 kubectl -n kagent wait --for=condition=Programmed gateway/a2a-gateway --timeout=3m
 kubectl apply -f k8s/agents/a2a-policy.yaml -f k8s/agents/network.yaml >/dev/null
+
+# Before kagent, whose controller connects to it.
+./k8s/agents/substrate.sh
 
 echo "==> kagent ${KAGENT_VERSION}"
 helm --kube-context kind-fraudstream upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \

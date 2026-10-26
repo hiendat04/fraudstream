@@ -46,3 +46,22 @@ cilium-debug-agent:
   enabled: false
 proxy:
   url: http://a2a-gateway.kagent.svc.cluster.local:8080
+controller:
+  substrate:
+    enabled: true
+    ateApiEndpoint: dns:///api.ate-system.svc:443
+    ateApiInsecure: true
+    atenetRouterURL: http://atenet-router.ate-system.svc:80
+    defaultWorkerPool:
+      name: kagent-default
+substrateWorkerPool:
+  create: true
+  replicas: 2
+  ateomImage: ghcr.io/kagent-dev/substrate/ateom-gvisor:v0.0.9
+  template:
+    resources:
+      requests:
+        cpu: 100m
+        memory: 256Mi
+      limits:
+        memory: 1Gi
