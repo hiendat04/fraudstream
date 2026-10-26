@@ -62,7 +62,7 @@ for agent in "${agents[@]}"; do
     --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
 
-# By hand the prompt in git is promoted as it is registered; ci/deploy_agent.sh promotes
+# By hand the prompt in git is promoted as it is registered; cicd/deploy_agent.sh promotes
 # it only after the agent's eval questions pass.
 echo "==> the agents' prompts"
 prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://localhost:18085} uv run python -m fraudstream_agents.prompts "$@"); }

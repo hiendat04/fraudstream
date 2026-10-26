@@ -238,7 +238,7 @@ for i in $(seq 100); do curl -s -H "Host: split.platform-smoke.knative.localhost
 ```bash
 # builds the code image, packages the manifest's model version from MLflow into
 # fraudstream-serving:model-<version>-<code>, loads it into kind and applies
-MLFLOW_TRACKING_URI=http://localhost:18085 ./ci/apply_model.sh
+MLFLOW_TRACKING_URI=http://localhost:18085 ./cicd/apply_model.sh
 
 curl -H "Host: fraud-detection-predictor.kserve-models.knative.localhost" \
   -H "Content-Type: application/json" -d @request.json \

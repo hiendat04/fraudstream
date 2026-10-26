@@ -207,7 +207,7 @@ Every command runs from the repo root, after this setup:
 
 ```bash
 set -a && . ./.env && set +a
-GATEWAY_ADDRESS=127.0.0.1 . ci/gateway.sh            # gateway_curl
+GATEWAY_ADDRESS=127.0.0.1 . cicd/gateway.sh            # gateway_curl
 split() { kubectl --context kind-fraudstream -n kserve-models get inferenceservice fraud-detection \
   -o jsonpath='{range .status.components.predictor.traffic[*]}{.revisionName} {.percent}% {.tag}{"\n"}{end}'; }
 replay() { (cd api && uv run python tools/traffic.py --host inference.fraudstream.localhost \
@@ -250,7 +250,7 @@ payments. 27 were answered by version 2 and 3 by version 4, so both versions are
 The same check runs by hand:
 
 ```bash
-GATEWAY_ADDRESS=127.0.0.1 ./ci/check_model_split.sh
+GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_model_split.sh
 ```
 
 ![The Model server stage checks the split](../../images/ab_testing/02-jenkins-canary-check.png)
@@ -435,7 +435,7 @@ scaled to zero, and its next payment waited about 30 seconds for the model to lo
 manifest now keeps `minReplicas: 1` always, and promotion no longer changes it, so it no
 longer makes one more revision either.
 
-**`production` follows the traffic.** After an apply with no canary, `ci/apply_model.sh`
+**`production` follows the traffic.** After an apply with no canary, `cicd/apply_model.sh`
 points MLflow's `production` alias at the version serving everything, so the registry
 always names the model actually answering. `latest` is MLflow's own name for the newest
 version; it can't be set by hand.
@@ -466,7 +466,7 @@ file in Jenkins' home, which works because both jobs run on Jenkins' one node.
 
 **Waiting for Ready waits on the share.** `kubectl wait --for=condition=Ready` also needs
 KServe to record that it saw the newest spec. KServe skips that when a change leaves its
-status as it was, so the wait never ended. `ci/apply_model.sh` waits until the latest
+status as it was, so the wait never ended. `cicd/apply_model.sh` waits until the latest
 revision has the manifest's share, then for Ready.
 
 **A manifest-only commit changes no image.** The serving image is tagged with the last
@@ -494,10 +494,10 @@ the local cluster.
 | Metrics by version | `api/src/fraudstream_api/inference/telemetry.py` |
 | The dashboard | `k8s/observability/dashboards/model-ab.yaml` |
 | Package the model into its image | `serving/src/fraudstream_serving/fetch.py`, `k8s/Dockerfile.model` |
-| Apply the model, wait for its share, move `production` | `ci/apply_model.sh` |
-| Check who answers | `ci/check_model_split.sh`, `api/tools/model_split.py` |
+| Apply the model, wait for its share, move `production` | `cicd/apply_model.sh` |
+| Check who answers | `cicd/check_model_split.sh`, `api/tools/model_split.py` |
 | Deploy, check and start a rollout | `Jenkinsfile` (`Model server` stage) |
-| The rollout job | `ci/jenkins/model-rollout.Jenkinsfile`, `ci/jenkins/jenkins.yaml` |
+| The rollout job | `cicd/jenkins/model-rollout.Jenkinsfile`, `cicd/jenkins/jenkins.yaml` |
 | The step loop | `monitoring/src/fraudstream_monitoring/rollout.py` |
 | Verdicts and thresholds | `monitoring/src/fraudstream_monitoring/rollout_analysis.py` |
 | Reading Prometheus | `monitoring/src/fraudstream_monitoring/rollout_metrics.py` |

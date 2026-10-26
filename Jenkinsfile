@@ -1,6 +1,6 @@
 // Globals, not def: the when expressions run in another scope and could not read a local.
 MCP_PATHS = 'mcp_servers/src mcp_servers/pyproject.toml mcp_servers/uv.lock k8s/Dockerfile.mcp k8s/mcp k8s/charts'
-AGENT_PATHS = 'agents/src agents/tools agents/pyproject.toml agents/uv.lock k8s/agents/registry.yaml k8s/agents/check.sh k8s/agents/publish.sh ci/deploy_agent.sh'
+AGENT_PATHS = 'agents/src agents/tools agents/pyproject.toml agents/uv.lock k8s/agents/registry.yaml k8s/agents/check.sh k8s/agents/publish.sh cicd/deploy_agent.sh'
 CONTEXT_AGENT_PATHS = 'agents/prompts/context-agent.md k8s/agents/context-agent.yaml'
 RISK_AGENT_PATHS = 'agents/prompts/risk-agent.md k8s/agents/risk-agent.yaml'
 
@@ -32,22 +32,22 @@ pipeline {
   stages {
     stage('Test') {
       parallel {
-        stage('root')          { steps { sh './ci/test.sh root' } }
-        stage('ml')            { steps { sh './ci/test.sh ml' } }
-        stage('pipelines')     { steps { sh './ci/test.sh pipelines' } }
-        stage('feature_store') { steps { sh './ci/test.sh feature_store' } }
-        stage('datahub')       { steps { sh './ci/test.sh datahub' } }
-        stage('api')           { steps { sh './ci/test.sh api' } }
-        stage('serving')       { steps { sh './ci/test.sh serving' } }
-        stage('monitoring')    { steps { sh './ci/test.sh monitoring' } }
-        stage('rag')           { steps { sh './ci/test.sh rag' } }
-        stage('mcp_servers')   { steps { sh './ci/test.sh mcp_servers' } }
-        stage('agents')        { steps { sh './ci/test.sh agents' } }
+        stage('root')          { steps { sh './cicd/test.sh root' } }
+        stage('ml')            { steps { sh './cicd/test.sh ml' } }
+        stage('pipelines')     { steps { sh './cicd/test.sh pipelines' } }
+        stage('feature_store') { steps { sh './cicd/test.sh feature_store' } }
+        stage('datahub')       { steps { sh './cicd/test.sh datahub' } }
+        stage('api')           { steps { sh './cicd/test.sh api' } }
+        stage('serving')       { steps { sh './cicd/test.sh serving' } }
+        stage('monitoring')    { steps { sh './cicd/test.sh monitoring' } }
+        stage('rag')           { steps { sh './cicd/test.sh rag' } }
+        stage('mcp_servers')   { steps { sh './cicd/test.sh mcp_servers' } }
+        stage('agents')        { steps { sh './cicd/test.sh agents' } }
       }
     }
 
     stage('Inference API') {
-      when { expression { deploying('api/src ml/src/fraudstream_ml k8s/Dockerfile.inference k8s/apis/inference-api.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
+      when { expression { deploying('api/src ml/src/fraudstream_ml k8s/Dockerfile.inference k8s/apis/inference-api.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.inference -t "fraudstream-inference:$TAG" .
@@ -72,8 +72,8 @@ pipeline {
             helm upgrade --install inference-api k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/inference-api.yaml \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
-            ./ci/wait_for_version.sh inference.fraudstream.localhost "$TAG"
-            ./ci/check_gateway.sh inference.fraudstream.localhost \
+            ./cicd/wait_for_version.sh inference.fraudstream.localhost "$TAG"
+            ./cicd/check_gateway.sh inference.fraudstream.localhost \
               || { helm rollback inference-api -n fraudstream-apis --wait; exit 1; }
           '''
         }
@@ -81,7 +81,7 @@ pipeline {
     }
 
     stage('Context API') {
-      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
+      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.context -t "fraudstream-context:$TAG" .
@@ -111,8 +111,8 @@ pipeline {
             helm upgrade --install context-api k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/context-api.yaml \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 4m
-            ./ci/wait_for_version.sh context.fraudstream.localhost "$TAG"
-            ./ci/check_gateway.sh context.fraudstream.localhost \
+            ./cicd/wait_for_version.sh context.fraudstream.localhost "$TAG"
+            ./cicd/check_gateway.sh context.fraudstream.localhost \
               || { helm rollback context-api -n fraudstream-apis --wait; exit 1; }
           '''
         }
@@ -120,7 +120,7 @@ pipeline {
     }
 
     stage('Drift detection API') {
-      when { expression { deploying('api/src api/reference k8s/Dockerfile.drift-detection k8s/apis/drift-detection.yaml k8s/charts k8s/gateway ci/gateway.sh ci/check_gateway.sh') } }
+      when { expression { deploying('api/src api/reference k8s/Dockerfile.drift-detection k8s/apis/drift-detection.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.drift-detection -t "fraudstream-drift-detection:$TAG" .
@@ -134,15 +134,15 @@ pipeline {
             helm upgrade --install drift-detection k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/drift-detection.yaml \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
-            ./ci/wait_for_version.sh drift-detection.fraudstream.localhost "$TAG"
-            ./ci/check_gateway.sh drift-detection.fraudstream.localhost \
+            ./cicd/wait_for_version.sh drift-detection.fraudstream.localhost "$TAG"
+            ./cicd/check_gateway.sh drift-detection.fraudstream.localhost \
               || { helm rollback drift-detection -n fraudstream-apis --wait; exit 1; }
           '''
         }
       }
     }
     stage('Model server') {
-      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/Dockerfile.model k8s/models ci/apply_model.sh ci/check_model_split.sh api/tools/model_split.py') } }
+      when { expression { deploying('serving/src k8s/Dockerfile.serving k8s/Dockerfile.model k8s/models cicd/apply_model.sh cicd/check_model_split.sh api/tools/model_split.py') } }
       steps {
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
@@ -159,7 +159,7 @@ pipeline {
               flock 9
               git fetch -q origin "$DEPLOY_BRANCH"
               git diff --quiet HEAD "origin/$DEPLOY_BRANCH" -- k8s/models/fraud-detection.yaml || exit 99
-              ./ci/apply_model.sh
+              ./cicd/apply_model.sh
             ''')
             if (applied == 99) {
               echo 'A newer commit changes the model manifest, so its build applies it.'
@@ -168,7 +168,7 @@ pipeline {
             if (applied != 0) {
               error("applying the model failed (exit ${applied})")
             }
-            sh './ci/check_model_split.sh'
+            sh './cicd/check_model_split.sh'
             // Only a push that changed the model manifest starts a rollout, so an
             // unrelated commit never resumes a rollout a person has to decide on.
             def start = deploying('k8s/models/fraud-detection.yaml') && sh(returnStatus: true, script: '''
@@ -211,7 +211,7 @@ pipeline {
           }
           sh '''
             uv run python -m compileall -q airflow/dags
-            ./ci/sync_airflow.sh /deploy
+            ./cicd/sync_airflow.sh /deploy
           '''
           if (sh(script: 'docker ps --format "{{.Names}}" | grep -qx fraudstream-airflow-scheduler', returnStatus: true) != 0) {
             unstable('Airflow is not running: the pipelines were copied, but not checked')
@@ -231,7 +231,7 @@ pipeline {
     }
 
     stage('RAG pipeline') {
-      when { expression { deploying('rag airflow/dags/rag_index.py airflow/Dockerfile datahub/src datahub/contracts ci/run_dag.sh') } }
+      when { expression { deploying('rag airflow/dags/rag_index.py airflow/Dockerfile datahub/src datahub/contracts cicd/run_dag.sh') } }
       steps {
         script {
           // Building the image embeds one sentence with the pinned model, so a broken pin or wheel fails here.
@@ -259,7 +259,7 @@ pipeline {
           }
           sh '''
             docker exec fraudstream-airflow-scheduler airflow dags reserialize
-            ./ci/run_dag.sh fraudstream_rag_index 1800
+            ./cicd/run_dag.sh fraudstream_rag_index 1800
           '''
         }
       }
@@ -273,7 +273,7 @@ pipeline {
             unstable('AIRFLOW_PROJECT_DIR is not set, so the stream push job was not deployed')
             return
           }
-          sh './ci/sync_airflow.sh /deploy'
+          sh './cicd/sync_airflow.sh /deploy'
           if (sh(script: 'docker ps --format "{{.Names}}" | grep -qx fraudstream-feast-stream-push', returnStatus: true) != 0) {
             unstable('The stream push job is not running: its code was copied, but not restarted')
             return
@@ -302,7 +302,7 @@ pipeline {
         ROLLBACK_COMMIT = "${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}"
       }
       steps {
-        sh './ci/deploy_agent.sh context-agent'
+        sh './cicd/deploy_agent.sh context-agent'
       }
     }
 
@@ -313,7 +313,7 @@ pipeline {
         ROLLBACK_COMMIT = "${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}"
       }
       steps {
-        sh './ci/deploy_agent.sh risk-agent'
+        sh './cicd/deploy_agent.sh risk-agent'
       }
     }
 
@@ -324,11 +324,11 @@ pipeline {
         ROLLBACK_COMMIT = "${env.GIT_PREVIOUS_SUCCESSFUL_COMMIT ?: ''}"
       }
       steps {
-        sh './ci/deploy_agent.sh coordinator-agent'
+        sh './cicd/deploy_agent.sh coordinator-agent'
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
-          sh './ci/check_gateway.sh kagent.fraudstream.localhost /health'
+          sh './cicd/check_gateway.sh kagent.fraudstream.localhost /health'
         }
       }
     }

@@ -31,8 +31,8 @@ api() {
   helm --kube-context "$CONTEXT" upgrade --install "$release" k8s/charts/fraudstream-api -n "$NS" \
     -f "k8s/apis/$release.yaml" --set image.repository="$REPO/$image" --set-string image.tag="$TAG" \
     --set ingress.host="$host" --set-string env.OTEL_EXPORTER_OTLP_ENDPOINT= "$@" --rollback-on-failure --timeout 5m
-  GATEWAY_ADDRESS="$GATEWAY_IP" ./ci/wait_for_version.sh "$host" "$TAG"
-  GATEWAY_ADDRESS="$GATEWAY_IP" ./ci/check_gateway.sh "$host"
+  GATEWAY_ADDRESS="$GATEWAY_IP" ./cicd/wait_for_version.sh "$host" "$TAG"
+  GATEWAY_ADDRESS="$GATEWAY_IP" ./cicd/check_gateway.sh "$host"
 }
 
 api drift-detection fraudstream-drift-detection drift-detection

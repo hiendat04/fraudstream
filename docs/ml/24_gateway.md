@@ -216,14 +216,14 @@ alternative names, which is why "Common Name" is empty.
 
 ![Certificate issued by the local CA](../../images/gateway/03-certificate-from-local-ca.png)
 
-**Every rule, checked from the outside.** `ci/check_gateway.sh` checks each rule in the
+**Every rule, checked from the outside.** `cicd/check_gateway.sh` checks each rule in the
 diagram above: plain HTTP gets 308, no password or a wrong one gets 401, the right one
 gets 200 with the certificate trusted, and a burst of 200 requests is partly let through
 and partly refused with 429. A burst of wrong passwords is also refused.
 
 ```bash
 set -a && . ./.env && set +a
-GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh inference.fraudstream.localhost
+GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_gateway.sh inference.fraudstream.localhost
 ```
 
 ![Gateway check for the inference API](../../images/gateway/04-check-gateway-inference.png)
@@ -259,10 +259,10 @@ The recipe the monitoring UIs used:
 2. Give the service an Ingress on `<name>.fraudstream.localhost` with the same annotations
    as `k8s/charts/fraudstream-api/templates/ingress.yaml`. Most charts accept them under
    `ingress.annotations`.
-3. `GATEWAY_ADDRESS=127.0.0.1 ./ci/check_gateway.sh <name>.fraudstream.localhost`, if the
+3. `GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_gateway.sh <name>.fraudstream.localhost`, if the
    service answers 200 on `/livez`. Otherwise, point it at a path that does.
 
-A UI uses `ci/check_ui.sh` instead, which leaves out the burst test: one page of a UI
+A UI uses `cicd/check_ui.sh` instead, which leaves out the burst test: one page of a UI
 fires dozens of requests at once.
 
 ## Things worth knowing
@@ -293,5 +293,5 @@ inside the cluster).
 | Gateway defaults | `k8s/charts/fraudstream-api/values.yaml` (`ingress:`) |
 | Password Secret | `k8s/gateway/credentials.sh` |
 | Local CA and issuer | `k8s/platform/local-ca-issuer.yaml` |
-| Outside-in check | `ci/check_gateway.sh`, `ci/gateway.sh` |
+| Outside-in check | `cicd/check_gateway.sh`, `cicd/gateway.sh` |
 | Client settings for the tools | `api/tools/gateway.py` |

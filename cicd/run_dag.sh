@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Trigger one Airflow DAG run and wait for it; exit 0 only if it succeeds. Jenkins runs this after a
 # deploy, and it works the same by hand. Airflow runs in Docker Compose as fraudstream-airflow-scheduler.
-#   ./ci/run_dag.sh fraudstream_rag_index [timeout_seconds]
+#   ./cicd/run_dag.sh fraudstream_rag_index [timeout_seconds]
 set -euo pipefail
 
 dag=$1

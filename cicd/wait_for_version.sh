@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 # Wait until an API behind the gateway reports the version it was just deployed as.
-#   ./ci/wait_for_version.sh inference.fraudstream.localhost 9f789a7
+#   ./cicd/wait_for_version.sh inference.fraudstream.localhost 9f789a7
 # Needs GATEWAY_USER and GATEWAY_PASSWORD. From the local computer, add GATEWAY_ADDRESS=127.0.0.1.
 set -euo pipefail
 cd "$(dirname "$0")/.."
-. ci/gateway.sh
+. cicd/gateway.sh
 
 host=$1
 expected=$2

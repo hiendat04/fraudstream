@@ -3,10 +3,10 @@
 # CA, refused without the password, answered with it. The burst test of
 # check_gateway.sh is left out, because one page of a UI fires dozens of requests.
 #   set -a && . ./.env && set +a
-#   GATEWAY_ADDRESS=127.0.0.1 ./ci/check_ui.sh grafana.fraudstream.localhost /api/health
+#   GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_ui.sh grafana.fraudstream.localhost /api/health
 set -euo pipefail
 cd "$(dirname "$0")/.."
-. ci/gateway.sh
+. cicd/gateway.sh
 
 host=$1
 path=${2:-/}

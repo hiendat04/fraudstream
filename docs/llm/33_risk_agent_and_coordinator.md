@@ -342,6 +342,8 @@ to reserve at the old 100m.
 ./k8s/agents/check.sh --load 3 --agent coordinator-agent    # three at once, to watch KEDA
 ```
 
+Jenkins deploys each agent through its eval questions on a push; see [CI/CD](../ml/23_ci_cd.md#mcp-servers-and-agents).
+
 ## Where things are
 
 | What | Where |
@@ -357,6 +359,7 @@ to reserve at the old 100m.
 | The UI's timeout | `k8s/agents/ingress.yaml` |
 | The eval questions and the A2A client | `agents/src/fraudstream_agents/evals.py`, `agents/src/fraudstream_agents/a2a.py`, `agents/tools/check_agent.py` |
 | Calls counted at each agent | `k8s/observability/jaeger.yaml` |
+| Deploying an agent from Jenkins | `cicd/deploy_agent.sh`, `Jenkinsfile` |
 | The A2A metrics and panel | `k8s/observability/servicemonitors.yaml`, `k8s/observability/dashboards/agents.yaml` |
 | The search fix | `rag/src/fraudstream_rag/retrieval.py` |
 | Tests | `agents/tests/`, `rag/tests/test_retrieval.py` |

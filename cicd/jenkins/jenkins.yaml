@@ -83,7 +83,7 @@ jobs:
                 branch('feature/e2e-fraudstream-platform')
               }
             }
-            scriptPath('ci/jenkins/model-rollout.Jenkinsfile')
+            scriptPath('cicd/jenkins/model-rollout.Jenkinsfile')
           }
         }
       }
