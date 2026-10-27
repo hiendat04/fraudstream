@@ -4,13 +4,14 @@
 # thinking off, that each agent sees only its own tools, that the agents' calls go
 # through the A2A gateway, which refuses a caller without a key or outside its
 # allow-list and hands out agent cards with its own address, that the coordinator
-# reaches both specialists through it in fresh sessions, that every agent answers
-# its eval questions with the right tool calls and the stores' and the model's
-# numbers, that the coordinator's questions are counted at the risk agent and at
-# the A2A gateway and make one trace through both, that the MCP gateway counted
-# each specialist's tool calls, that KEDA keeps two replicas of each agent, that
-# Jaeger counted the calls at each agent, and that the registry holds the agents
-# and their MCP servers.
+# reaches both sandboxed specialists through it in fresh sessions, that every
+# agent answers its eval questions with the right tool calls and the stores' and
+# the model's numbers, that the coordinator's questions are counted at the risk
+# agent and at the A2A gateway and make one trace through both, that the MCP
+# gateway counted each specialist's tool calls, that KEDA keeps two coordinator
+# replicas and two workers for the sandboxed agents, that Jaeger counted the
+# calls at each agent, and that the registry holds the agents and their MCP
+# servers.
 #   ./k8s/agents/check.sh            the checks
 #   ./k8s/agents/check.sh --load 3 --agent coordinator-agent   three questions at once, to watch KEDA add a replica
 #   ./k8s/agents/check.sh --agent coordinator-agent            only that agent's eval questions
@@ -82,29 +83,30 @@ expect "fraud-risk-tools" "score_payment search_handbook" \
 echo "==> the A2A gateway"
 gateway=http://a2a-gateway.kagent.svc.cluster.local:8080
 expect "kagent's proxy" "$gateway" "$(kubectl -n kagent get configmap kagent-controller -o jsonpath='{.data.PROXY_URL}')"
-expect "the context agent's tools through it" "$gateway/mcp" \
-  "$(kubectl -n kagent get secret context-agent -o jsonpath='{.data.config\.json}' | base64 -d |
-    python3 -c 'import json, sys; print(json.load(sys.stdin)["http_tools"][0]["params"]["url"])')"
-# A pod that started while the proxy was switched on can keep the old URL with the same config hash.
-for pod in $(kubectl -n kagent get pods -l 'app.kubernetes.io/name in (context-agent,risk-agent)' -o name); do
-  expect "${pod#pod/} loaded its tools through it" "$gateway/mcp" \
-    "$(kubectl -n kagent logs "$pod" | grep '"Adding HTTP MCP tool"' | tail -1 | python3 -c 'import json, sys; print(json.loads(sys.stdin.read() or "{}").get("url"))')"
+for agent in context-agent risk-agent; do
+  expect "the $agent's tools through it" "$gateway/mcp" \
+    "$(kubectl -n kagent get secret "$agent" -o jsonpath='{.data.config\.json}' | base64 -d |
+      python3 -c 'import json, sys; print(json.load(sys.stdin)["http_tools"][0]["params"]["url"])')"
 done
 forward kagent a2a-gateway 18095:8080
 a2a_key=$(kubectl -n kagent get secret a2a-key-a2a-check -o jsonpath='{.data.authorization}' | base64 -d)
-status() { curl -s -o "$card" -w '%{http_code}' localhost:18095/.well-known/agent-card.json -H "x-kagent-host: $1" "${@:2}"; }
-expect "no key" 401 "$(status context-agent.kagent)"
-expect "a key, an agent off its list" 403 "$(status risk-agent.kagent -H "Authorization: $a2a_key")"
-expect "a key, an agent on its list" 200 "$(status context-agent.kagent -H "Authorization: $a2a_key")"
+# Sandboxed agents have no Service: kagent's controller serves them, on their own path.
+status() {
+  curl -s -o "$card" -w '%{http_code}' "localhost:18095/api/a2a-sandboxes/kagent/$1/.well-known/agent-card.json" \
+    -H "x-kagent-host: kagent-controller.kagent" "${@:2}"
+}
+expect "no key" 401 "$(status context-agent)"
+expect "a key, an agent off its list" 403 "$(status risk-agent -H "Authorization: $a2a_key")"
+expect "a key, an agent on its list" 200 "$(status context-agent -H "Authorization: $a2a_key")"
 expect "the card points at the gateway" yes \
-  "$(grep -q 'localhost:18095' "$card" && ! grep -q 'context-agent.kagent:8080' "$card" && echo yes || echo no)"
+  "$(grep -q 'localhost:18095' "$card" && ! grep -q 'kagent-controller.kagent:8083' "$card" && echo yes || echo no)"
 
 echo "==> the coordinator"
 expect "the agents it calls" "context-agent risk-agent" \
   "$(kubectl -n kagent get agent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].agent.name}')"
 expect "a fresh session per call" "true true" \
   "$(kubectl -n kagent get agent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].isolateSessions}')"
-expect "through the A2A gateway" "$gateway $gateway" \
+expect "through the A2A gateway" "$gateway/api/a2a-sandboxes/kagent/context-agent $gateway/api/a2a-sandboxes/kagent/risk-agent" \
   "$(kubectl -n kagent get secret coordinator-agent -o jsonpath='{.data.config\.json}' | base64 -d |
     python3 -c 'import json, sys; print(*(agent["url"] for agent in json.load(sys.stdin)["remote_agents"]))')"
 
@@ -140,11 +142,12 @@ raise SystemExit(0 if ok else 1)
 PY
 
 echo "==> replicas"
-for agent in context-agent risk-agent coordinator-agent; do
-  expect "$agent's scaler" True \
-    "$(kubectl -n kagent get scaledobject "$agent" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
-  expect "$agent at least two ready" yes \
-    "$([ "$(kubectl -n kagent get deploy "$agent" -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
+# The sandboxed agents' replicas are the workers that run their sessions.
+for scaled in coordinator-agent:coordinator-agent fleet-workers:kagent-default-deployment; do
+  expect "${scaled%%:*}'s scaler" True \
+    "$(kubectl -n kagent get scaledobject "${scaled%%:*}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+  expect "${scaled#*:} at least two ready" yes \
+    "$([ "$(kubectl -n kagent get deploy "${scaled#*:}" -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
 done
 
 echo "==> the registry"

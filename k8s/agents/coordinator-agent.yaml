@@ -15,6 +15,7 @@ spec:
     tools:
       - type: Agent
         agent:
+          kind: SandboxAgent
           name: context-agent
         isolateSessions: true
         headersFrom:
@@ -25,6 +26,7 @@ spec:
               key: authorization
       - type: Agent
         agent:
+          kind: SandboxAgent
           name: risk-agent
         isolateSessions: true
         headersFrom:

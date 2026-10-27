@@ -5,16 +5,19 @@ import json
 import httpx
 import pytest
 
-from fraudstream_agents.a2a import A2AError, Answer, answer_text, ask, grounded, message_request, numbers, task_state, tool_calls
+from fraudstream_agents.a2a import (
+    A2AError, Answer, agent_url, answer_text, ask, grounded, message_request, numbers, task_state, tool_calls,
+)
 
 pytestmark = pytest.mark.anyio
 
 
 def test_the_request_is_a_blocking_message_send():
-    assert message_request("hi", "r1") == {
+    assert message_request("hi", "r1", "c1") == {
         "jsonrpc": "2.0", "id": "r1", "method": "message/send",
         "params": {
-            "message": {"kind": "message", "role": "user", "messageId": "r1", "parts": [{"kind": "text", "text": "hi"}]},
+            "message": {"kind": "message", "role": "user", "messageId": "r1", "contextId": "c1",
+                        "parts": [{"kind": "text", "text": "hi"}]},
             "configuration": {"blocking": True},
         },
     }
@@ -97,6 +100,29 @@ async def test_each_question_gets_its_own_id():
         await ask(client, "http://c/", "a")
         await ask(client, "http://c/", "b")
     assert len(set(ids)) == 2
+
+
+async def test_each_question_gets_its_own_session():
+    contexts = []
+
+    def answer(request):
+        contexts.append(json.loads(request.content)["params"]["message"]["contextId"])
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "result": {"kind": "message", "parts": []}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+        await ask(client, "http://c/", "a")
+        await ask(client, "http://c/", "b")
+    assert all(contexts) and len(set(contexts)) == 2
+
+
+@pytest.mark.parametrize(("agent", "url"), [
+    pytest.param("context-agent", "http://c:8083/api/a2a-sandboxes/kagent/context-agent/", id="sandboxed-context-agent"),
+    pytest.param("risk-agent", "http://c:8083/api/a2a-sandboxes/kagent/risk-agent/", id="sandboxed-risk-agent"),
+    pytest.param("coordinator-agent", "http://c:8083/api/a2a/kagent/coordinator-agent/", id="a-deployment-agent"),
+    pytest.param("context-agent-2", "http://c:8083/api/a2a/kagent/context-agent-2/", id="an-unknown-name-is-not-sandboxed"),
+])
+def test_agent_url(agent, url):
+    assert agent_url("http://c:8083", agent) == url
 
 
 @pytest.mark.parametrize(("response", "message"), [

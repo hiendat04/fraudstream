@@ -16,7 +16,7 @@ spec:
         key: authorization
 ---
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: context-agent
   namespace: kagent
@@ -48,36 +48,6 @@ spec:
           examples:
             - What has customer cust_00090571 been doing recently?
             - How risky is merchant merch_00011503 right now?
-    deployment:
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
-          cpu: "1"
-          memory: 512Mi
----
-apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: context-agent
-  namespace: kagent
-spec:
-  scaleTargetRef:
-    name: context-agent
-  minReplicaCount: 2
-  maxReplicaCount: 3
-  fallback:
-    failureThreshold: 3
-    replicas: 2
-  advanced:
-    horizontalPodAutoscalerConfig:
-      behavior:
-        scaleDown:
-          stabilizationWindowSeconds: 120
-  triggers:
-    - type: prometheus
-      metadata:
-        serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
-        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="context_agent"}[2m])) or vector(0)
-        threshold: "1"
+  substrate:
+    workerPoolRef:
+      name: kagent-default

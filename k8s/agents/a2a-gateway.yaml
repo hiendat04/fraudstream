@@ -34,6 +34,22 @@ spec:
         namespaces:
           from: Same
 ---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sandbox-agents
+  namespace: kagent
+spec:
+  selector:
+    app.kubernetes.io/name: kagent
+    app.kubernetes.io/instance: kagent
+    app.kubernetes.io/component: controller
+  ports:
+    - name: a2a
+      port: 8083
+      targetPort: 8083
+      appProtocol: kgateway.dev/a2a
+---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute
 metadata:
@@ -47,17 +63,23 @@ spec:
     - matches:
         - headers:
             - name: x-kagent-host
-              value: context-agent.kagent
+              value: kagent-controller.kagent
+          path:
+            type: PathPrefix
+            value: /api/a2a-sandboxes/kagent/context-agent
       backendRefs:
-        - name: context-agent
-          port: 8080
+        - name: sandbox-agents
+          port: 8083
     - matches:
         - headers:
             - name: x-kagent-host
-              value: risk-agent.kagent
+              value: kagent-controller.kagent
+          path:
+            type: PathPrefix
+            value: /api/a2a-sandboxes/kagent/risk-agent
       backendRefs:
-        - name: risk-agent
-          port: 8080
+        - name: sandbox-agents
+          port: 8083
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

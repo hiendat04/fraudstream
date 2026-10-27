@@ -17,7 +17,7 @@ import time
 
 import httpx
 
-from fraudstream_agents.a2a import A2AError, Answer, ask
+from fraudstream_agents.a2a import A2AError, Answer, agent_url, ask
 from fraudstream_agents.evals import GOLDEN_QUESTIONS, GoldenQuestion, problems
 
 # The model has one slot, so questions sent together queue behind each other, and the
@@ -31,7 +31,7 @@ async def ask_and_check(client: httpx.AsyncClient, args: argparse.Namespace, gol
 
     started = time.perf_counter()
     try:
-        answer = await ask(client, f"{args.controller}/api/a2a/kagent/{golden.agent}/", golden.question)
+        answer = await ask(client, agent_url(args.controller, golden.agent), golden.question)
     except (A2AError, httpx.HTTPError) as error:
         answer = Answer("error", repr(error), [])
     seconds = time.perf_counter() - started

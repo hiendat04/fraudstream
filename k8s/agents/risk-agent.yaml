@@ -16,7 +16,7 @@ spec:
         key: authorization
 ---
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: risk-agent
   namespace: kagent
@@ -47,36 +47,6 @@ spec:
           examples:
             - "Payment txn_000000128913: customer cust_00090571, merchant merch_00011503, 2026-06-22T23:59:21Z, 143.92 USD, online, New York. What does the model say, and what should I do?"
             - Who has to agree before a payment above 5,000 USD is blocked?
-    deployment:
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
-          cpu: "1"
-          memory: 512Mi
----
-apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: risk-agent
-  namespace: kagent
-spec:
-  scaleTargetRef:
-    name: risk-agent
-  minReplicaCount: 2
-  maxReplicaCount: 3
-  fallback:
-    failureThreshold: 3
-    replicas: 2
-  advanced:
-    horizontalPodAutoscalerConfig:
-      behavior:
-        scaleDown:
-          stabilizationWindowSeconds: 120
-  triggers:
-    - type: prometheus
-      metadata:
-        serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
-        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="risk_agent"}[2m])) or vector(0)
-        threshold: "1"
+  substrate:
+    workerPoolRef:
+      name: kagent-default
