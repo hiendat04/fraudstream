@@ -77,7 +77,7 @@ for agent in "${agents[@]}" coordinator-agent; do
 done
 
 echo "==> the agents"
-for agent in "${agents[@]}"; do kubectl apply -f "k8s/agents/$agent.yaml" >/dev/null; done
+for agent in "${agents[@]}"; do ./k8s/agents/apply.sh "$agent" < "k8s/agents/$agent.yaml"; done
 # The first golden snapshot of each takes about a minute.
 for agent in "${agents[@]}"; do kubectl -n kagent wait "sandboxagent/$agent" --for=condition=Ready --timeout=10m; done
 # After the specialists are Ready: kagent refuses an Agent tool whose agent does not exist yet.
