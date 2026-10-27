@@ -115,3 +115,22 @@ spec:
         - regex:
             builtins: [CreditCard, Email]
             action: Mask
+---
+apiVersion: agentgateway.dev/v1alpha1
+kind: AgentgatewayModel
+metadata:
+  name: fraud-detection-llm
+  namespace: llm
+spec:
+  parentRefs:
+    - group: gateway.networking.k8s.io
+      kind: Gateway
+      name: llm-gateway
+      sectionName: llm
+  match:
+    model: fraud-detection-llm
+  virtualModel:
+    weighted:
+      targets:
+        - modelRef: {name: qwen3-4b}
+          weight: 100
