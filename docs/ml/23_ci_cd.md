@@ -153,7 +153,7 @@ flowchart LR
     subgraph DA["cicd/deploy_agent.sh &lt;agent&gt;, in each agent stage"]
         direction TB
         R1["1 · register the prompt<br/>alias candidate"] --> R2["2 · render candidate into the ConfigMap<br/>apply the Agent"]
-        R2 --> R3["3 · wait until kagent has rolled<br/>the pods onto the new config"]
+        R2 --> R3["3 · wait until kagent has rolled the pods<br/>or rebuilt the golden snapshot"]
         R3 --> R4{"4 · eval questions"}
         R4 -- pass --> R5["5 · candidate becomes production<br/>publish to agentregistry"]
         R4 -- fail --> R6["5 · production prompt and previous Agent back<br/>drop candidate · build fails"]
@@ -187,10 +187,12 @@ Prompt Registry. Two aliases say what each version is:
 
 1. Registers the prompt as a new version if its text changed, and points `candidate` at it.
 2. Renders `@candidate` into the agent's ConfigMap, annotated `prompts:/<agent>/<n>`,
-   and applies the Agent.
-3. Waits until kagent has reconciled the Agent and written the new prompt into the
-   agent's config, then for the pods to roll. A specialist pod that still loaded its
-   tools from an old address is restarted once.
+   and applies the agent through `k8s/agents/apply.sh`, which gives a sandboxed agent
+   the prompt's version as `PROMPT_VERSION`.
+3. Waits until kagent has reconciled the agent and written the new prompt into the
+   agent's config. Then, for the coordinator, for its pods to roll; for a sandboxed
+   specialist, for the golden snapshot of the new version, which every new conversation
+   starts from ([34_agent_fleet.md](../llm/34_agent_fleet.md#warm-start)).
 4. Asks the agent's eval questions (`k8s/agents/check.sh --agent <agent>`).
 5. On a pass, moves `production` to the candidate, drops `candidate` and publishes to
    agentregistry. On a fail, renders `@production` back, applies the Agent YAML from

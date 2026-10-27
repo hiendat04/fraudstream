@@ -90,7 +90,7 @@ flowchart LR
 The ML layer decides; the LLM layer explains. The fraud detection model scores every
 payment, and nothing in the LLM layer can change that score. The LLM layer is an analyst
 copilot built on the same data. When an analyst asks why a payment was flagged, the
-coordinator agent asks two specialists through the A2A gateway, and they call MCP tools. The tools read the Feast features the model saw (through the context
+coordinator agent asks two sandboxed specialists through the A2A gateway, and they call MCP tools. The tools read the Feast features the model saw (through the context
 API) and the model's own score (through the inference API). They also search the
 handbook and model cards that the RAG pipeline embeds into Feast's pgvector store. The
 agent answers with those facts and cites its sources. Both layers share one feature
@@ -128,6 +128,7 @@ the analysts' one entry point, in the kagent UI.
 | Context API and MCP servers | Features, chunks and search by id; two MCP servers behind agentgateway with a key and tool policy per agent | [31_context_api_and_mcp.md](docs/llm/31_context_api_and_mcp.md) |
 | Agents | kagent with one global model config, the context agent with its prompt from MLflow, KEDA on calls in flight, agentregistry, both UIs behind NGINX | [32_agent_platform_and_context_agent.md](docs/llm/32_agent_platform_and_context_agent.md) |
 | Risk agent and coordinator | The risk agent scores a payment and cites the handbook; the coordinator delegates through agentgateway as the A2A gateway with a key, allow-list and rate limit; six eval questions | [33_risk_agent_and_coordinator.md](docs/llm/33_risk_agent_and_coordinator.md) |
+| Agent fleet | The context and risk agents sandboxed in gVisor on Agent Substrate: every conversation restored in about 2 s from a golden snapshot, many conversations on three shared workers | [34_agent_fleet.md](docs/llm/34_agent_fleet.md) |
 
 ## Quick start
 

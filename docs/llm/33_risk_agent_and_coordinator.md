@@ -14,8 +14,8 @@ flowchart TB
     UI -- "1 · A2A" --> CO["<b>coordinator agent</b><br/>2–3 replicas · KEDA"]
 
     CO -- "2 · A2A · coordinator key" --> RA["<b>A2A gateway</b><br/>route <i>agents</i><br/>key · allow-list · 60 a minute"]
-    RA -- "2" --> CX["<b>context agent</b><br/>2–3 replicas · KEDA"]
-    RA -- "2" --> RK["<b>risk agent</b><br/>2–3 replicas · KEDA"]
+    RA -- "2" --> CX["<b>context agent</b><br/>sandboxed · agent fleet"]
+    RA -- "2" --> RK["<b>risk agent</b><br/>sandboxed · agent fleet"]
 
     CX -- "3 · tools/call" --> RM["<b>A2A gateway</b><br/>route <i>mcp-tools</i><br/>passed on unchanged"]
     RK -- "3 · own MCP key" --> RM
@@ -66,15 +66,18 @@ handbook.
 
 ## The risk agent
 
-[risk-agent.yaml](../../k8s/agents/risk-agent.yaml) holds the agent, its tools and its
-scaler. It is built like the context agent: its prompt comes from MLflow, it runs on 2–3
-replicas, and only the controller and the A2A gateway may call it.
+[risk-agent.yaml](../../k8s/agents/risk-agent.yaml) holds the agent and its tools. It is
+built like the context agent: its prompt comes from MLflow, and it runs sandboxed on the
+agent fleet, each conversation in its own gVisor actor
+([34_agent_fleet.md](34_agent_fleet.md)).
 
 **Two tools, through its own key.** `score_payment` and `search_handbook` come from the
 `fraud-risk` MCP server, through the MCP gateway with the key `risk-agent`
 ([risk-agent.yaml#L2](../../k8s/agents/risk-agent.yaml#L2),
 [#L38](../../k8s/agents/risk-agent.yaml#L38)). The gateway's tool policy gives that key
 `fraud-risk` only, so the risk agent can't see the context tools, and the other way round.
+
+![kagent's two MCP servers: fraud-context-tools with three tools, fraud-risk-tools with two](../../images/multi_agents/18-kagent-mcp-servers.png)
 
 **Its prompt** ([agents/prompts/risk-agent.md](../../agents/prompts/risk-agent.md)) sorts
 every question into one of two kinds and gives each its own answer:
@@ -103,18 +106,21 @@ handbook's steps:
 For this June 2026 payment the online store no longer held the customer's or the
 merchant's history, so the model scored it without, and the answer says so.
 
-**KEDA** scales it like the context agent: 2–3 replicas, on calls in flight, read from
-`agent_duration_seconds` for `risk_agent`
-([risk-agent.yaml#L60](../../k8s/agents/risk-agent.yaml#L60)). Three questions at once
-read 2.55 calls per replica against a target of 1, and a third pod starts:
+**KEDA** scaled it like the context agent before the fleet: 2–3 replicas, on calls in
+flight, read from `agent_duration_seconds` for `risk_agent`. Three questions at once
+read 2.55 calls per replica against a target of 1, and a third pod started:
 
 ![KEDA's HPA for the risk agent at 2550m/1](../../images/multi_agents/03-risk-agent-scale-hpa.png)
 
 ![A third risk-agent pod starts](../../images/multi_agents/04-risk-agent-scale-pods.png)
 
+On the fleet it has no replicas of its own: its conversations share a fixed pool of
+workers with the context agent's.
+
 ## The A2A gateway
 
-kagent calls a sub-agent at its Service, `http://risk-agent.kagent:8080`, and an Agent
+kagent calls a sub-agent at its address, for a sandboxed specialist
+`http://kagent-controller.kagent:8083/api/a2a-sandboxes/kagent/risk-agent/`, and an Agent
 tool has no field to change that address. What kagent does have is one proxy setting
 for the whole platform: `proxy.url`
 ([kagent-values.yaml#L47](../../k8s/agents/kagent-values.yaml#L47)). With it set, every
@@ -122,8 +128,8 @@ call an agent makes inside the cluster goes to the proxy instead, with a header 
 where it was meant to go:
 
 ```text
-POST http://a2a-gateway.kagent.svc.cluster.local:8080/
-x-kagent-host: risk-agent.kagent
+POST http://a2a-gateway.kagent.svc.cluster.local:8080/api/a2a-sandboxes/kagent/risk-agent/
+x-kagent-host: kagent-controller.kagent
 Authorization: Bearer <the coordinator's A2A key>
 ```
 
@@ -132,8 +138,8 @@ The A2A gateway is an agentgateway Gateway in `kagent`
 
 | Route | Matches `x-kagent-host` | Goes to | Checks |
 |---|---|---|---|
-| `agents` ([#L38](../../k8s/agents/a2a-gateway.yaml#L38)) | `context-agent.kagent`, `risk-agent.kagent` | that agent's Service | the policy below |
-| `mcp-tools` ([#L63](../../k8s/agents/a2a-gateway.yaml#L63)) | `mcp-gateway.mcp.svc.cluster.local` | the MCP gateway | none here; the MCP gateway checks its own keys |
+| `agents` ([#L54](../../k8s/agents/a2a-gateway.yaml#L54)) | `kagent-controller.kagent`, on each specialist's sandbox path | kagent's controller, which hands the call to the agent's actor | the policy below |
+| `mcp-tools` ([#L85](../../k8s/agents/a2a-gateway.yaml#L85)) | `mcp-gateway.mcp.svc.cluster.local` | the MCP gateway | none here; the MCP gateway checks its own keys |
 
 The second route exists because the proxy setting also catches the specialists' tool
 calls: the MCP gateway's address is inside the cluster too. Passing them on unchanged
@@ -162,9 +168,9 @@ same pattern as the MCP gateway's keys.
 
 **The network.** One NetworkPolicy covers every pod kagent runs
 ([network.yaml](../../k8s/agents/network.yaml)): DNS, the controller, the LLM gateway,
-the A2A gateway and Jaeger, and no other way out. A second one lets only the controller
-and the A2A gateway reach the two specialists
-([network.yaml#L63](../../k8s/agents/network.yaml#L63)). The agents can no longer reach
+the A2A gateway and Jaeger, and no other way out. The specialists run on the fleet's
+workers, which a second one covers in the same way, adding Agent Substrate
+([network.yaml#L60](../../k8s/agents/network.yaml#L60)). The agents can no longer reach
 the MCP gateway directly.
 
 `check.sh` proves the policy: 401 without a key, 403 for an agent off the key's list,
@@ -305,8 +311,6 @@ to reserve at the old 100m.
 
 ## Known limits
 
-- **No sandbox on the laptop.** kagent 0.10 runs sandboxed agents only on Agent
-  Substrate, which needs gVisor; the risk agent gets it with the context agent on GKE.
 - **One model slot sets the speed.** A coordinator question waits for two or three
   model answers in turn, so it takes minutes, and more replicas add availability, not
   speed.
@@ -348,7 +352,8 @@ Jenkins deploys each agent through its eval questions on a push; see [CI/CD](../
 
 | What | Where |
 |---|---|
-| The risk agent, its tools and scaler | `k8s/agents/risk-agent.yaml` |
+| The risk agent and its tools | `k8s/agents/risk-agent.yaml` |
+| The agent fleet the specialists run on | [34_agent_fleet.md](34_agent_fleet.md) |
 | The coordinator and its scaler | `k8s/agents/coordinator-agent.yaml` |
 | The prompts | `agents/prompts/risk-agent.md`, `agents/prompts/coordinator-agent.md` |
 | The A2A gateway, its routes and policy | `k8s/agents/a2a-gateway.yaml`, `k8s/agents/a2a-policy.yaml` |
