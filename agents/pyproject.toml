@@ -35,6 +35,6 @@ fail_under = 90
 
 [tool.mutmut]
 source_paths = ["src/fraudstream_agents"]
-# The prompt tests read agents/prompts/, which mutmut would otherwise leave out of mutants/.
-also_copy = ["prompts"]
+# The prompt tests read agents/prompts/ and the check's tests import tools/, which mutmut would otherwise leave out of mutants/.
+also_copy = ["prompts", "tools"]
 pytest_add_cli_args_test_selection = ["tests"]

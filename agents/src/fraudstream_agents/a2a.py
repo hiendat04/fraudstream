@@ -1,6 +1,7 @@
 """Asking a kagent agent a question over A2A, and telling whether its answer quotes the tool's numbers.
 
-kagent's controller serves every agent's A2A endpoint at /api/a2a/<namespace>/<agent>/.
+kagent's controller serves every agent's A2A endpoint: at /api/a2a/<namespace>/<agent>/,
+or at /api/a2a-sandboxes/<namespace>/<agent>/ for an agent sandboxed on Agent Substrate.
 A question is a JSON-RPC message/send; with blocking set, the answer comes back
 once the agent has finished, as a task whose artifacts hold the text and whose
 history holds the messages it sent on the way, tool calls among them.
@@ -32,15 +33,27 @@ class Answer(NamedTuple):
     tools: list[str]
 
 
-def message_request(text: str, request_id: str) -> dict:
-    """A JSON-RPC message/send that waits for the agent's whole answer."""
+# The agents kagent runs as SandboxAgents (k8s/agents/*.yaml).
+SANDBOX_AGENTS = frozenset({"context-agent", "risk-agent"})
+
+
+def agent_url(controller: str, agent: str) -> str:
+    """The agent's A2A endpoint on kagent's controller."""
+
+    route = "a2a-sandboxes" if agent in SANDBOX_AGENTS else "a2a"
+    return f"{controller}/api/{route}/kagent/{agent}/"
+
+
+def message_request(text: str, request_id: str, context_id: str) -> dict:
+    """A JSON-RPC message/send that waits for the agent's whole answer, in the session context_id."""
 
     return {
         "jsonrpc": "2.0",
         "id": request_id,
         "method": "message/send",
         "params": {
-            "message": {"kind": "message", "role": "user", "messageId": request_id, "parts": [{"kind": "text", "text": text}]},
+            "message": {"kind": "message", "role": "user", "messageId": request_id, "contextId": context_id,
+                        "parts": [{"kind": "text", "text": text}]},
             "configuration": {"blocking": True},
         },
     }
@@ -86,10 +99,11 @@ def tool_calls(result: dict) -> list[str]:
             for part in message.get("parts", []) if _is_call(part)]
 
 
-async def ask(client: httpx.AsyncClient, url: str, text: str) -> Answer:
-    """Ask the agent at url one question; how the answer ended, its text and its tool calls."""
+async def ask(client: httpx.AsyncClient, url: str, text: str, context_id: str | None = None) -> Answer:
+    """Ask the agent at url one question, in session context_id or a new one; how the answer ended, its text and its tool calls."""
 
-    response = await client.post(url, json=message_request(text, uuid4().hex))
+    # A session of its own: a sandboxed agent refuses a request without one, and gives each its own actor.
+    response = await client.post(url, json=message_request(text, uuid4().hex, context_id or uuid4().hex))
     if response.status_code != 200:
         raise A2AError(f"{response.status_code}: {response.text[:200]}")
     body = response.json()

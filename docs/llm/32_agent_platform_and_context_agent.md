@@ -12,7 +12,7 @@ flowchart LR
     AN(["fraud analyst"]) -->|"1 · HTTPS · login"| NG["NGINX ingress"]
     NG -->|"1"| UI["kagent UI"]
     UI -->|"2 · A2A"| KC["kagent controller"]
-    KC -->|"2"| CA["<b>context agent</b><br/>2–3 replicas"]
+    KC -->|"2"| CA["<b>context agent</b><br/>sandboxed · agent fleet"]
     CA -->|"3 · chat completions<br/>key: agents"| LG["agentgateway<br/>llm-gateway"]
     LG --> LLM["llm-d · llama.cpp<br/>Qwen3-4B"]
     CA -->|"4 · tools/call<br/>key: context-agent"| AG["agentgateway<br/>A2A gateway"]
@@ -21,8 +21,6 @@ flowchart LR
     MLF[("MLflow<br/>prompt @production")] -->|"system prompt"| CA
     CA -->|"invoke_agent spans"| JG["Jaeger<br/>spanmetrics"]
     JG -->|"agent_calls_total"| PR[("Prometheus")]
-    PR --> KEDA["KEDA"]
-    KEDA -.->|"replicas"| CA
     NG -->|"login"| AR["agentregistry"]
 
     classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
@@ -61,6 +59,8 @@ Every Agent names it, so changing the model for all of them is one change.
 | Max tokens | 512 | a few bullet points or one tool call |
 | Timeout | 300 s | the model answers one request at a time on the CPU, so a request may wait behind several others. At 120 s, five of six questions sent together failed |
 
+![The model config in kagent's UI: qwen3-4b through the LLM gateway, with the key's Secret](../../images/agents/12-kagent-model-config.png)
+
 **Thinking is off at the model server.** Qwen3 writes a hidden reasoning block
 before it answers. On this CPU that adds a minute or more per call and can use up
 the 512 tokens before the tool call is written. kagent can't turn it off per
@@ -86,8 +86,8 @@ The text lives in git, [agents/prompts/context-agent.md](../../agents/prompts/co
 only when the text changed, points the alias `production` at it, and renders that
 version into the ConfigMap the agent reads
 ([context-agent.yaml#L28](../../k8s/agents/context-agent.yaml#L28)). The ConfigMap is annotated with
-the version it holds, `prompts:/context-agent/2`, and kagent rolls the agent's
-pods when it changes. A prompt is refused if it is blank, longer than 4,000
+the version it holds, `prompts:/context-agent/2`, and a new version makes a new
+golden snapshot of the agent ([34_agent_fleet.md](34_agent_fleet.md#warm-start)). A prompt is refused if it is blank, longer than 4,000
 characters, or contains `{{`, which both MLflow and kagent would read as a
 variable.
 
@@ -111,28 +111,36 @@ and answers with the stored values and when they were computed:
 
 ### It can reach only the gateways
 
-A NetworkPolicy shared by every agent ([network.yaml](../../k8s/agents/network.yaml))
-lets the agent's pods reach DNS, the kagent controller, the LLM gateway, the A2A
-gateway and Jaeger, and only the controller and the A2A gateway may call them. An agent is driven by text it reads, so a prompt
+The agent runs on the fleet's workers, and the NetworkPolicy `fleet-workers`
+([network.yaml#L60](../../k8s/agents/network.yaml#L60)) lets them reach DNS, the
+kagent controller, the LLM gateway, the A2A gateway, Jaeger and Agent Substrate, and
+only Substrate may call them. An agent is driven by text it reads, so a prompt
 injection could make it try any address; this way the gateway's key and tool
 policy can't be gone around. Checked from a short-lived pod that carries the
-agent's label, so the same policy applies to it:
+workers' label, so the same policy applies to it:
 
 ```bash
 img=$(kubectl -n mcp get deploy fraud-context -o jsonpath='{.spec.template.spec.containers[0].image}')
 kubectl -n kagent run network-probe --rm -i --restart=Never --image="$img" \
-  --labels=app.kubernetes.io/name=context-agent --command -- python -c "..."
+  --labels=ate.dev/worker-pool=kagent-default --command -- python -c "import time; time.sleep(5); ..."
 ```
 
-A direct call to `fraud-context` times out; so does one to the MCP gateway, which the
-agents now reach only through the A2A gateway.
+A direct call to `fraud-context` times out; so do ones to the inference API and the
+MCP gateway, which the agents reach only through the A2A gateway. The probe sleeps
+first: kindnet checks a new pod's connections only once it knows the pod's IP, so a
+call in the pod's first second gets through whatever the policy says.
 
-kagent 0.10 runs sandboxed agents only on Agent Substrate, which needs gVisor, so
-the sandbox runs on the GKE cluster with the agent fleet.
+Each conversation with the agent also runs in its own gVisor sandbox; see
+[34_agent_fleet.md](34_agent_fleet.md#the-sandbox).
 
 ### Replicas and KEDA
 
-KEDA keeps two to three replicas ([context-agent.yaml#L61](../../k8s/agents/context-agent.yaml#L61)).
+The context agent now runs on the agent fleet, a fixed pool of workers shared by
+every conversation, so it has no replicas of its own
+([34_agent_fleet.md](34_agent_fleet.md)). The KEDA setup below was its first; the
+coordinator still scales this way.
+
+Before the fleet, KEDA kept two to three replicas.
 
 | Setting | Value | Why |
 |---|---|---|
@@ -260,7 +268,8 @@ More in [22_validation_and_verification.md](../ml/22_validation_and_verification
 | What | Where |
 |---|---|
 | kagent, the model config and the install | `k8s/agents/kagent-values.yaml`, `k8s/agents/install.sh` |
-| The context agent, its tools and scaler | `k8s/agents/context-agent.yaml` |
+| The context agent and its tools | `k8s/agents/context-agent.yaml` |
+| The agent fleet it runs on | [34_agent_fleet.md](34_agent_fleet.md) |
 | Network rules for every agent | `k8s/agents/network.yaml` |
 | Its prompt and the prompt tool | `agents/prompts/context-agent.md`, `agents/src/fraudstream_agents/prompts.py` |
 | The registry and its records | `k8s/agents/agentregistry-values.yaml`, `k8s/agents/registry.yaml` |

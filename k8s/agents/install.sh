@@ -1,11 +1,14 @@
 #!/usr/bin/env bash
 # Installs the agent platform on the kind cluster: the A2A gateway, which every
 # call an agent makes inside the cluster goes through, with a key, an allow-list
-# and a rate limit for calls between agents; kagent, whose one global model config
-# reaches Qwen3-4B through the LLM gateway, the context and risk agents, each with
-# its own key to the MCP gateway, and the coordinator over them, with its key to
-# the A2A gateway; every agent with its prompt from MLflow and KEDA scaling it on
-# calls in flight, all under one NetworkPolicy; then agentregistry, with the
+# and a rate limit for calls between agents; Agent Substrate, which runs
+# sandboxed agents on a pool of gVisor workers; kagent, whose one global model config
+# reaches Qwen3-4B through the LLM gateway, the context and risk agents, sandboxed
+# on those workers, each with its own key to the MCP gateway, and the coordinator
+# over them, with its key to the A2A gateway; every agent with its prompt from
+# MLflow, KEDA scaling the coordinator on calls in flight, a fixed pool of three
+# workers (KEDA cannot scale a WorkerPool, whose scale has no pod selector), and
+# NetworkPolicies on the agents and the workers; then agentregistry, with the
 # agents and their MCP servers published to it; and both UIs behind NGINX with
 # HTTPS and the gateway login.
 # Safe to run again. Run k8s/gateway/credentials.sh for kagent and agentregistry
@@ -25,7 +28,7 @@ kubectl -n kagent create secret generic kagent-llm-key \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # A key is made once per caller and kept. The gateway stores only its hash, with
-# the caller's name and the agents it may call.
+# the caller's name and the paths of the agents it may call.
 echo "==> the A2A keys"
 entry() {
   local consumer=$1 agents=$2 key hash
@@ -37,8 +40,8 @@ entry() {
   printf '{"keyHash":"sha256:%s","metadata":{"consumer":"%s","agents":%s}}' "$hash" "$consumer" "$agents"
 }
 kubectl -n kagent create secret generic a2a-api-keys \
-  --from-literal=coordinator-agent="$(entry coordinator-agent '["context-agent.kagent","risk-agent.kagent"]')" \
-  --from-literal=a2a-check="$(entry a2a-check '["context-agent.kagent"]')" \
+  --from-literal=coordinator-agent="$(entry coordinator-agent '["/api/a2a-sandboxes/kagent/context-agent","/api/a2a-sandboxes/kagent/risk-agent"]')" \
+  --from-literal=a2a-check="$(entry a2a-check '["/api/a2a-sandboxes/kagent/context-agent"]')" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # Before kagent, whose proxy setting sends the agents' calls to it.
@@ -46,6 +49,9 @@ echo "==> the A2A gateway and its policy"
 kubectl apply -f k8s/agents/a2a-gateway.yaml >/dev/null
 kubectl -n kagent wait --for=condition=Programmed gateway/a2a-gateway --timeout=3m
 kubectl apply -f k8s/agents/a2a-policy.yaml -f k8s/agents/network.yaml >/dev/null
+
+# Before kagent, whose controller connects to it.
+./k8s/agents/substrate.sh
 
 echo "==> kagent ${KAGENT_VERSION}"
 helm --kube-context kind-fraudstream upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
@@ -72,15 +78,16 @@ for agent in "${agents[@]}" coordinator-agent; do
 done
 
 echo "==> the agents"
-for agent in "${agents[@]}"; do kubectl apply -f "k8s/agents/$agent.yaml" >/dev/null; done
-for agent in "${agents[@]}"; do kubectl -n kagent wait "agent/$agent" --for=condition=Ready --timeout=5m; done
+for agent in "${agents[@]}"; do ./k8s/agents/apply.sh "$agent" < "k8s/agents/$agent.yaml"; done
+# The first golden snapshot of each takes about a minute.
+for agent in "${agents[@]}"; do kubectl -n kagent wait "sandboxagent/$agent" --for=condition=Ready --timeout=10m; done
 # After the specialists are Ready: kagent refuses an Agent tool whose agent does not exist yet.
 kubectl apply -f k8s/agents/coordinator-agent.yaml >/dev/null
 kubectl -n kagent wait agent/coordinator-agent --for=condition=Ready --timeout=5m
 
 echo "==> agent telemetry and the Agents dashboard"
 kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
-for agent in "${agents[@]}" coordinator-agent; do kubectl -n kagent wait "scaledobject/$agent" --for=condition=Ready --timeout=2m; done
+kubectl -n kagent wait scaledobject/coordinator-agent --for=condition=Ready --timeout=2m
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
 kubectl create namespace agentregistry --dry-run=client -o yaml | kubectl apply -f - >/dev/null

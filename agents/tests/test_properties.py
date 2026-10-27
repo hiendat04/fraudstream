@@ -9,7 +9,7 @@ the cited chunks, both read with a regex.
 
 from hypothesis import given, settings, strategies as st
 
-from fraudstream_agents.a2a import close, grounded
+from fraudstream_agents.a2a import SANDBOX_AGENTS, agent_url, close, grounded
 from fraudstream_agents.evals import cited_chunks, decision
 from fraudstream_agents.prompts import MAX_PROMPT_CHARS, check, main, register
 from tests.conftest import FakeRegistry
@@ -72,3 +72,12 @@ def test_promoting_moves_exactly_one_alias(texts, tmp_path_factory):
     main(["promote", "context-agent", "--from", "candidate"], registry=registry)
     changes = 1 + sum(1 for before, after in zip(texts, texts[1:]) if before != after)
     assert registry.aliases == {("context-agent", "production"): changes}
+
+
+@given(name=st.one_of(st.sampled_from(sorted(SANDBOX_AGENTS)), st.from_regex(r"[a-z-]{1,40}", fullmatch=True)))
+def test_agent_url_names_exactly_one_route(name):
+    url = agent_url("http://c:8083", name)
+    sandboxed = url.startswith("http://c:8083/api/a2a-sandboxes/kagent/")
+    assert sandboxed != url.startswith("http://c:8083/api/a2a/kagent/")
+    assert sandboxed == (name in SANDBOX_AGENTS)
+    assert url.endswith(f"/{name}/")
