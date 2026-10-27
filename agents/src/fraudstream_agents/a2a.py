@@ -34,7 +34,7 @@ class Answer(NamedTuple):
 
 
 # The agents kagent runs as SandboxAgents (k8s/agents/*.yaml).
-SANDBOX_AGENTS = frozenset({"context-agent", "risk-agent"})
+SANDBOX_AGENTS = frozenset({"context-agent", "risk-agent", "risk-agent-b"})
 
 
 def agent_url(controller: str, agent: str) -> str:

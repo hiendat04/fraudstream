@@ -108,3 +108,7 @@ async def test_refusals_stop_being_asked_again_at_the_answer_timeout(monkeypatch
     with pytest.raises(check_agent.A2AError, match="no free workers"):
         await check_agent.ask_when_free(None, "url", "q")
     assert len(called) == 1
+
+
+def test_a_variant_is_a_choice_of_agent():
+    assert check_agent.parse_args([*PORTS, "--agent", "risk-agent-b"]).agent == ["risk-agent-b"]

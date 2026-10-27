@@ -47,6 +47,7 @@ cilium-debug-agent:
 proxy:
   url: http://a2a-gateway.kagent.svc.cluster.local:8080
 controller:
+  a2aBaseUrl: http://a2a-gateway.kagent.svc.cluster.local:8080
   substrate:
     enabled: true
     ateApiEndpoint: dns:///api.ate-system.svc:443
