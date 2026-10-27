@@ -9,7 +9,7 @@
 # the model's numbers, that the coordinator's questions are counted at the risk
 # agent and at the A2A gateway and make one trace through both, that the MCP
 # gateway counted each specialist's tool calls, that KEDA keeps two coordinator
-# replicas and two workers for the sandboxed agents, that Jaeger counted the
+# replicas and every worker for the sandboxed agents is ready, that Jaeger counted the
 # calls at each agent, and that the registry holds the agents and their MCP
 # servers.
 #   ./k8s/agents/check.sh            the checks
@@ -142,13 +142,13 @@ raise SystemExit(0 if ok else 1)
 PY
 
 echo "==> replicas"
-# The sandboxed agents' replicas are the workers that run their sessions.
-for scaled in coordinator-agent:coordinator-agent fleet-workers:kagent-default-deployment; do
-  expect "${scaled%%:*}'s scaler" True \
-    "$(kubectl -n kagent get scaledobject "${scaled%%:*}" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
-  expect "${scaled#*:} at least two ready" yes \
-    "$([ "$(kubectl -n kagent get deploy "${scaled#*:}" -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
-done
+expect "coordinator-agent's scaler" True \
+  "$(kubectl -n kagent get scaledobject coordinator-agent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
+expect "coordinator-agent at least two ready" yes \
+  "$([ "$(kubectl -n kagent get deploy coordinator-agent -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
+# The sandboxed agents' replicas are the workers that run their sessions, a fixed pool.
+expect "the workers ready" "$(kubectl -n kagent get workerpool kagent-default -o jsonpath='{.spec.replicas}')" \
+  "$(kubectl -n kagent get deploy kagent-default-deployment -o jsonpath='{.status.readyReplicas}')"
 
 echo "==> the registry"
 forward agentregistry agentregistry 18121:12121

@@ -115,3 +115,20 @@ spec:
     - port: metrics
       path: /metrics
       interval: 15s
+---
+apiVersion: monitoring.coreos.com/v1
+kind: PodMonitor
+metadata:
+  name: atelet
+  namespace: observability
+spec:
+  namespaceSelector:
+    matchNames:
+      - ate-system
+  selector:
+    matchLabels:
+      app: atelet
+  podMetricsEndpoints:
+    - port: prometheus
+      path: /metrics
+      interval: 15s

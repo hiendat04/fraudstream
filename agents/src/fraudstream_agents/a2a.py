@@ -99,11 +99,11 @@ def tool_calls(result: dict) -> list[str]:
             for part in message.get("parts", []) if _is_call(part)]
 
 
-async def ask(client: httpx.AsyncClient, url: str, text: str) -> Answer:
-    """Ask the agent at url one question; how the answer ended, its text and its tool calls."""
+async def ask(client: httpx.AsyncClient, url: str, text: str, context_id: str | None = None) -> Answer:
+    """Ask the agent at url one question, in session context_id or a new one; how the answer ended, its text and its tool calls."""
 
     # A session of its own: a sandboxed agent refuses a request without one, and gives each its own actor.
-    response = await client.post(url, json=message_request(text, uuid4().hex, uuid4().hex))
+    response = await client.post(url, json=message_request(text, uuid4().hex, context_id or uuid4().hex))
     if response.status_code != 200:
         raise A2AError(f"{response.status_code}: {response.text[:200]}")
     body = response.json()

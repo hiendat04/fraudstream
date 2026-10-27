@@ -115,6 +115,19 @@ async def test_each_question_gets_its_own_session():
     assert all(contexts) and len(set(contexts)) == 2
 
 
+async def test_a_question_asked_again_keeps_its_session():
+    contexts = []
+
+    def answer(request):
+        contexts.append(json.loads(request.content)["params"]["message"]["contextId"])
+        return httpx.Response(200, json={"jsonrpc": "2.0", "id": "x", "result": {"kind": "message", "parts": []}})
+
+    async with httpx.AsyncClient(transport=httpx.MockTransport(answer)) as client:
+        await ask(client, "http://c/", "a", context_id="c1")
+        await ask(client, "http://c/", "a", context_id="c1")
+    assert contexts == ["c1", "c1"]
+
+
 @pytest.mark.parametrize(("agent", "url"), [
     pytest.param("context-agent", "http://c:8083/api/a2a-sandboxes/kagent/context-agent/", id="sandboxed-context-agent"),
     pytest.param("risk-agent", "http://c:8083/api/a2a-sandboxes/kagent/risk-agent/", id="sandboxed-risk-agent"),

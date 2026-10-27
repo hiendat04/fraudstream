@@ -6,7 +6,8 @@
 # reaches Qwen3-4B through the LLM gateway, the context and risk agents, sandboxed
 # on those workers, each with its own key to the MCP gateway, and the coordinator
 # over them, with its key to the A2A gateway; every agent with its prompt from
-# MLflow, KEDA scaling the coordinator and the workers on calls in flight, and
+# MLflow, KEDA scaling the coordinator on calls in flight, a fixed pool of three
+# workers (KEDA cannot scale a WorkerPool, whose scale has no pod selector), and
 # NetworkPolicies on the agents and the workers; then agentregistry, with the
 # agents and their MCP servers published to it; and both UIs behind NGINX with
 # HTTPS and the gateway login.
@@ -85,8 +86,8 @@ kubectl apply -f k8s/agents/coordinator-agent.yaml >/dev/null
 kubectl -n kagent wait agent/coordinator-agent --for=condition=Ready --timeout=5m
 
 echo "==> agent telemetry and the Agents dashboard"
-kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml -f k8s/agents/fleet-workers.yaml >/dev/null
-for scaled in coordinator-agent fleet-workers; do kubectl -n kagent wait "scaledobject/$scaled" --for=condition=Ready --timeout=2m; done
+kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
+kubectl -n kagent wait scaledobject/coordinator-agent --for=condition=Ready --timeout=2m
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
 kubectl create namespace agentregistry --dry-run=client -o yaml | kubectl apply -f - >/dev/null
