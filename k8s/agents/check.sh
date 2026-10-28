@@ -3,10 +3,13 @@
 # dates reach the model unmasked through the LLM gateway's PII guard with
 # thinking off, that each agent sees only its own tools, that the agents' calls go
 # through the A2A gateway, which refuses a caller without a key or outside its
-# allow-list and hands out agent cards with its own address, that the coordinator
+# allow-list and hands out agent cards with its own address (the risk agent's own
+# card even while its calls are split with risk-agent-b, which must be on the risk
+# agent's prompt and small-model-config), that the coordinator
 # reaches both sandboxed specialists through it in fresh sessions, that every
 # agent answers its eval questions with the right tool calls and the stores' and
-# the model's numbers, that the coordinator's questions are counted at the risk
+# the model's numbers (each agent's result pushed to the Pushgateway for the A/B
+# report), that the coordinator's questions are counted at the risk
 # agent and at the A2A gateway and make one trace through both, that the MCP
 # gateway counted each specialist's tool calls, that KEDA keeps two coordinator
 # replicas and every worker for the sandboxed agents is ready, that Jaeger counted the
@@ -15,6 +18,7 @@
 #   ./k8s/agents/check.sh            the checks
 #   ./k8s/agents/check.sh --load 3 --agent coordinator-agent   three questions at once, to watch KEDA add a replica
 #   ./k8s/agents/check.sh --agent coordinator-agent            only that agent's eval questions
+#   ./k8s/agents/check.sh --agent risk-agent-b                 the risk agent's eval questions, asked of risk-agent-b
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
@@ -31,7 +35,7 @@ expect() {
 }
 forwards=()
 card=$(mktemp)
-trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done; rm -f "$card"' EXIT
+trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done; wait 2>/dev/null; rm -f "$card"' EXIT
 # The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
 forward() { command kubectl --context kind-fraudstream -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
 prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
@@ -46,10 +50,11 @@ ask() {
     forward kagent kagent-controller 18083:8083
     forward fraudstream-apis context-api 18093:80
     forward fraudstream-apis inference-api 18092:80
+    forward observability pushgateway 18091:9091
     asked=1
   fi
-  PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
-    --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 "$@"
+  PYTHONPATH=agents/src env -u VIRTUAL_ENV uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
+    --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 --pushgateway http://127.0.0.1:18091 "$@"
 }
 case "${1:-}" in
   --load|--agent) ask "$@"; exit ;;
@@ -99,7 +104,16 @@ expect "no key" 401 "$(status context-agent)"
 expect "a key, an agent off its list" 403 "$(status risk-agent -H "Authorization: $a2a_key")"
 expect "a key, an agent on its list" 200 "$(status context-agent -H "Authorization: $a2a_key")"
 expect "the card points at the gateway" yes \
-  "$(grep -q 'localhost:18095' "$card" && ! grep -q 'kagent-controller.kagent:8083' "$card" && echo yes || echo no)"
+  "$(grep -q 'localhost:18095' "$card" && ! grep -q 'kagent-controller' "$card" && echo yes || echo no)"
+coordinator_key=$(kubectl -n kagent get secret a2a-key-coordinator-agent -o jsonpath='{.data.authorization}' | base64 -d)
+status risk-agent -H "Authorization: $coordinator_key" >/dev/null
+expect "the risk agent's card, whatever the split" risk_agent \
+  "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["name"])' "$card")"
+prompt=$(kubectl -n kagent get configmap risk-agent-prompt -o jsonpath='{.metadata.annotations.fraudstream\.dev/prompt}')
+expect "risk-agent-b on the risk agent's prompt" "${prompt##*/}" \
+  "$(kubectl -n kagent get sandboxagent risk-agent-b -o jsonpath='{.spec.declarative.deployment.env[?(@.name=="PROMPT_VERSION")].value}')"
+expect "risk-agent-b's model config" small-model-config \
+  "$(kubectl -n kagent get sandboxagent risk-agent-b -o jsonpath='{.spec.declarative.modelConfig}')"
 
 echo "==> the coordinator"
 expect "the agents it calls" "context-agent risk-agent" \
@@ -122,7 +136,7 @@ expect "the coordinator's questions counted at the risk agent" yes \
   "$(python3 -c 'import sys; print("yes" if float(sys.argv[2]) - float(sys.argv[1]) >= 2 else "no")' "$before" "$after")"
 expect "the coordinator's calls counted at the A2A gateway" yes \
   "$(python3 -c 'import sys; print("yes" if float(sys.argv[1]) > 0 else "no")' \
-    "$(promql 'sum(agentgateway_requests_total{gateway="kagent/a2a-gateway", protocol="a2a", consumer="coordinator-agent"})')")"
+    "$(promql 'sum(agentgateway_requests_total{gateway="kagent/a2a-gateway", protocol="a2a", consumer="coordinator-agent", backend=~"risk-agent-[ab][.].*"})')")"
 
 echo "==> one trace from the coordinator to the risk agent"
 forward observability jaeger 18096:16686

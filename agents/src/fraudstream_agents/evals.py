@@ -6,7 +6,7 @@ from the inference API.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 
 import httpx
 
@@ -64,6 +64,19 @@ GOLDEN_QUESTIONS = (
                    frozenset({"kagent__NS__context_agent", "kagent__NS__risk_agent"}),
                    customer="cust_00090571", payment=True, handbook=""),
 )
+
+# An agent made from another agent's manifest on a different model config, asked that agent's questions.
+VARIANTS = {"risk-agent-b": "risk-agent"}
+
+
+def questions_for(agents: list[str] | None) -> list[GoldenQuestion]:
+    """The named agents' questions in order, a variant asked its base agent's; every agent's but no variant's when none is named."""
+
+    if not agents:
+        return list(GOLDEN_QUESTIONS)
+    return [replace(golden, agent=agent)
+            for agent in agents
+            for golden in GOLDEN_QUESTIONS if golden.agent == VARIANTS.get(agent, agent)]
 
 
 def decision(text: str) -> bool | None:

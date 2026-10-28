@@ -19,6 +19,13 @@ data:
         metrics/agent-calls:
           receivers: [spanmetrics]
           exporters: [prometheus]
+        traces/tool-calls:
+          receivers: [otlp]
+          processors: [filter/tool-calls]
+          exporters: [spanmetrics/tools]
+        metrics/tool-calls:
+          receivers: [spanmetrics/tools]
+          exporters: [prometheus]
     extensions:
       healthcheckv2:
         use_v2: true
@@ -46,11 +53,25 @@ data:
         traces:
           span:
             - attributes["gen_ai.operation.name"] != "invoke_agent" or resource.attributes["service.name"] == "kagent-controller"
+      filter/tool-calls:
+        error_mode: ignore
+        traces:
+          span:
+            - attributes["gen_ai.operation.name"] != "execute_tool" or attributes["gen_ai.tool.name"] == "(merged tools)"
     connectors:
       spanmetrics:
         namespace: agent
         dimensions:
           - name: gen_ai.agent.name
+        histogram:
+          unit: s
+          explicit:
+            buckets: [1s, 5s, 15s, 30s, 60s, 120s, 300s]
+        metrics_flush_interval: 15s
+      spanmetrics/tools:
+        namespace: agent_tool
+        dimensions:
+          - name: gen_ai.tool.name
         histogram:
           unit: s
           explicit:

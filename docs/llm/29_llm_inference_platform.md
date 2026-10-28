@@ -279,6 +279,10 @@ image either, so the tag is one that exists for amd64 and arm64.
 **A fresh pod's first request is slow.** Its cache is empty, so the first request reads the
 whole prompt: 24 s to the first token, against about 6 s once the prefix is cached.
 
+**`fraud-detection-llm` is a virtual model for A/B tests.** It sends each request to
+`qwen3-4b` or `qwen3-1.7b` by weight. Only the benchmark's key uses it; see
+[35_ab_testing.md](35_ab_testing.md).
+
 ## Where things are
 
 | Area | Location |
@@ -286,7 +290,8 @@ whole prompt: 24 s to the first token, against about 6 s once the prefix is cach
 | Install everything | `k8s/llm/install.sh` |
 | Pinned versions | `k8s/versions.sh` |
 | agentgateway values | `k8s/llm/agentgateway-values.yaml` |
-| Gateway and the two models | `k8s/llm/gateway.yaml` |
+| Gateway, the two models and `fraud-detection-llm` | `k8s/llm/gateway.yaml` |
+| Checking the split between versions | `k8s/llm/check-split.sh` |
 | Keys, limits, telemetry labels and traces | `k8s/llm/policy.yaml` |
 | llm-d pickers | `k8s/llm/router-values.yaml` |
 | Model cache Job | `k8s/llm/models/fetch.yaml` |

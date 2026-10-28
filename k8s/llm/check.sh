@@ -3,6 +3,7 @@
 # and PII masking, from a curl pod inside the cluster, and that the gateway counted
 # the mask.
 #   ./k8s/llm/check.sh
+# The split of fraud-detection-llm between versions has its own check: ./k8s/llm/check-split.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 kubectl config use-context kind-fraudstream >/dev/null

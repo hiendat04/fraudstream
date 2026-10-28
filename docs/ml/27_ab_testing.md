@@ -484,6 +484,9 @@ rollout.
 (`k8s/gke/fraud-detection.yaml`) without KServe, so there is no canary. A/B tests run on
 the local cluster.
 
+A/B tests for LLM versions and agent model configs are in
+[35_ab_testing.md](../llm/35_ab_testing.md).
+
 ## Where things are
 
 | Area | Location |

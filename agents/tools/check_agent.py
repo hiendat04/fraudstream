@@ -5,12 +5,14 @@
     python tools/check_agent.py --controller ... --context-api ... --inference-api ... --agent context-agent --load 3
     python tools/check_agent.py --controller ... --context-api ... --inference-api ... --agent context-agent --load 10 --concurrency 2
 
-Every agent's questions are asked when no --agent is given. An answer passes when
-the agent finished, made the tool calls the question needs, and its answer holds
-what the stores and the fraud detection model say. --load sends one agent's first
+Every agent's questions are asked when no --agent is given; risk-agent-b, the risk
+agent on another model config, is asked the risk agent's questions when it is
+named. An answer passes when the agent finished, made the tool calls the question
+needs, and its answer holds what the stores and the fraud detection model say. --load sends one agent's first
 question that many times at once, to watch KEDA add a replica, and --concurrency
 sends them at most that many at a time. A sandboxed agent's question waits for a
-free worker, the time it waits counted in its seconds. Exits 1 if any check fails.
+free worker, the time it waits counted in its seconds. With --pushgateway, a judged
+run pushes each agent's result there. Exits 1 if any check fails.
 """
 
 import argparse
@@ -22,7 +24,7 @@ from uuid import uuid4
 import httpx
 
 from fraudstream_agents.a2a import A2AError, Answer, agent_url, ask
-from fraudstream_agents.evals import GOLDEN_QUESTIONS, GoldenQuestion, problems
+from fraudstream_agents.evals import GOLDEN_QUESTIONS, VARIANTS, GoldenQuestion, problems, questions_for
 
 # The model has one slot, so questions sent together queue behind each other, and the
 # coordinator's question waits for two specialists in turn.
@@ -66,6 +68,13 @@ async def ask_and_check(client: httpx.AsyncClient, args: argparse.Namespace, gol
     return not found
 
 
+def push_golden(client: httpx.Client, pushgateway: str, agent: str, passed: int, asked: int) -> None:
+    """Replace the agent's golden-set result on the Pushgateway, where the A/B report and dashboard read it."""
+
+    body = f'agent_golden_questions{{outcome="passed"}} {passed}\nagent_golden_questions{{outcome="failed"}} {asked - passed}\n'
+    client.put(f"{pushgateway}/metrics/job/agent_golden/agent/{agent}", content=body).raise_for_status()
+
+
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     """The command line; --concurrency defaults to --load, and must lie between 1 and it."""
 
@@ -73,9 +82,10 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser.add_argument("--controller", required=True, help="kagent's controller, which serves every agent's A2A endpoint")
     parser.add_argument("--context-api", required=True)
     parser.add_argument("--inference-api", required=True)
-    parser.add_argument("--agent", action="append", choices=sorted({golden.agent for golden in GOLDEN_QUESTIONS}))
+    parser.add_argument("--agent", action="append", choices=sorted({golden.agent for golden in GOLDEN_QUESTIONS} | VARIANTS.keys()))
     parser.add_argument("--load", type=int, default=0, help="ask the agent's first question this many times at once")
     parser.add_argument("--concurrency", type=int, help="ask the --load questions at most this many at a time")
+    parser.add_argument("--pushgateway", help="push each agent's golden-set result here, in a judged run")
     args = parser.parse_args(argv)
     if args.load and len(args.agent or []) != 1:
         parser.error("--load needs exactly one --agent")
@@ -88,7 +98,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
 
 async def main() -> int:
     args = parse_args()
-    chosen = [golden for golden in GOLDEN_QUESTIONS if not args.agent or golden.agent in args.agent]
+    chosen = questions_for(args.agent)
 
     async with httpx.AsyncClient(timeout=ANSWER_TIMEOUT_SECONDS) as client:
         if args.load:
@@ -101,6 +111,11 @@ async def main() -> int:
             results = await asyncio.gather(*(gated() for _ in range(args.load)))
         else:
             results = [await ask_and_check(client, args, golden, judge=True) for golden in chosen]
+    if args.pushgateway and not args.load:
+        with httpx.Client(timeout=30) as push:
+            for agent in dict.fromkeys(golden.agent for golden in chosen):
+                passed = [ok for golden, ok in zip(chosen, results) if golden.agent == agent]
+                push_golden(push, args.pushgateway, agent, sum(passed), len(passed))
     return 0 if all(results) else 1
 
 

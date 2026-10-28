@@ -1,0 +1,16 @@
+apiVersion: kagent.dev/v1alpha2
+kind: ModelConfig
+metadata:
+  name: small-model-config
+  namespace: kagent
+spec:
+  provider: OpenAI
+  model: qwen3-1.7b
+  apiKeySecret: kagent-llm-key-risk-agent-b
+  apiKeySecretKey: key
+  openAI:
+    apiFormat: chatCompletions
+    baseUrl: http://llm-gateway.llm.svc.cluster.local:8080/v1
+    temperature: "0"
+    maxTokens: 512
+    timeout: 300

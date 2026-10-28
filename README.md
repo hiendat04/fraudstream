@@ -129,6 +129,7 @@ the analysts' one entry point, in the kagent UI.
 | Agents | kagent with one global model config, the context agent with its prompt from MLflow, KEDA on calls in flight, agentregistry, both UIs behind NGINX | [32_agent_platform_and_context_agent.md](docs/llm/32_agent_platform_and_context_agent.md) |
 | Risk agent and coordinator | The risk agent scores a payment and cites the handbook; the coordinator delegates through agentgateway as the A2A gateway with a key, allow-list and rate limit; six eval questions | [33_risk_agent_and_coordinator.md](docs/llm/33_risk_agent_and_coordinator.md) |
 | Agent fleet | The context and risk agents sandboxed in gVisor on Agent Substrate: every conversation restored in about 2 s from a golden snapshot, many conversations on three shared workers | [34_agent_fleet.md](docs/llm/34_agent_fleet.md) |
+| A/B tests for LLMs and agents | A new LLM version and a cheaper model for the risk agent take a weighted share of traffic at the LLM and A2A gateways, side by side on one dashboard, judged on failures, latency and golden questions | [35_ab_testing.md](docs/llm/35_ab_testing.md) |
 
 ## Quick start
 

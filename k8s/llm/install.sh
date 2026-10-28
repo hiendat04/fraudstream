@@ -59,6 +59,7 @@ entry() {
 kubectl -n llm create secret generic llm-api-keys \
   --from-literal=benchmark="$(entry benchmark '["qwen3-4b","qwen3-1.7b"]')" \
   --from-literal=agents="$(entry agents '["qwen3-4b"]')" \
+  --from-literal=risk-agent-b="$(entry risk-agent-b '["qwen3-1.7b"]')" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 echo "==> the Gateway"

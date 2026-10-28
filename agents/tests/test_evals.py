@@ -6,7 +6,17 @@ import httpx
 import pytest
 
 from fraudstream_agents.a2a import Answer
-from fraudstream_agents.evals import GOLDEN_QUESTIONS, PAYMENT, GoldenQuestion, cited_chunks, decision, problems, score_reported, stored_values
+from fraudstream_agents.evals import (
+    GOLDEN_QUESTIONS,
+    PAYMENT,
+    GoldenQuestion,
+    cited_chunks,
+    decision,
+    problems,
+    questions_for,
+    score_reported,
+    stored_values,
+)
 from fraudstream_agents.prompts import PROMPTS_DIR
 
 
@@ -187,3 +197,19 @@ def test_only_numbers_count_as_stored_values():
     body = {"views": {"a": {"features": {"count": 17, "rate": 0.5, "category": "online", "flag": True, "missing": None}},
                       "b": {"features": {"total": 489.01}}}}
     assert stored_values(body) == [17, 0.5, 489.01]
+
+
+def test_a_variant_is_asked_its_base_agents_questions():
+    asked = questions_for(["risk-agent-b"])
+    base = [golden for golden in GOLDEN_QUESTIONS if golden.agent == "risk-agent"]
+    assert [golden.question for golden in asked] == [golden.question for golden in base]
+    assert [golden.tools for golden in asked] == [golden.tools for golden in base]
+    assert {golden.agent for golden in asked} == {"risk-agent-b"}
+
+
+def test_no_agent_named_asks_every_agent_but_no_variant():
+    assert questions_for(None) == list(GOLDEN_QUESTIONS)
+
+
+def test_an_agent_and_its_variant_are_both_asked():
+    assert {golden.agent for golden in questions_for(["risk-agent", "risk-agent-b"])} == {"risk-agent", "risk-agent-b"}

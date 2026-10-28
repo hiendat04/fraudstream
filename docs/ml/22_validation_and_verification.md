@@ -8,9 +8,9 @@ a fixed SLA. The context API and the MCP servers are covered in more detail in
 | Check | Result |
 |---|---|
 | Line and branch coverage | **100%** for `api/`, **100%** for `serving/`, **99%** for `mcp_servers/`, **99%** for `agents/` |
-| Tests | 250 in `api/`, 14 in `serving/`, 59 in `mcp_servers/`, 163 in `agents/` |
-| Mutation score | **89.6%** (1,054 of 1,176) for `api/`; **91.5%** (173 of 189) for `mcp_servers/`; **95.4%** (645 of 676) for `agents/` |
-| Properties | 19, run by Hypothesis, 3 of them by CrossHair |
+| Tests | 250 in `api/`, 14 in `serving/`, 59 in `mcp_servers/`, 201 in `agents/` |
+| Mutation score | **89.6%** (1,054 of 1,176) for `api/`; **91.5%** (173 of 189) for `mcp_servers/`; **94.6%** (896 of 947) for `agents/` |
+| Properties | 24, run by Hypothesis, 7 of them by CrossHair |
 | Load test, inference API | p95 200 ms, p99 920 ms at 48 req/s — **SLA met** |
 | Load test, context API | p95 5.0 s, p99 8.8 s at 12.6 req/s — **SLA missed** |
 

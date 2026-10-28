@@ -22,9 +22,12 @@ kubectl() { command kubectl --context kind-fraudstream "$@"; }
 
 kubectl create namespace kagent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-echo "==> the agents' LLM key"
+echo "==> the agents' LLM keys"
 kubectl -n kagent create secret generic kagent-llm-key \
   --from-literal=key="$(kubectl -n llm get secret llm-key-agents -o jsonpath='{.data.key}' | base64 -d)" \
+  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+kubectl -n kagent create secret generic kagent-llm-key-risk-agent-b \
+  --from-literal=key="$(kubectl -n llm get secret llm-key-risk-agent-b -o jsonpath='{.data.key}' | base64 -d)" \
   --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
 # A key is made once per caller and kept. The gateway stores only its hash, with
@@ -81,6 +84,10 @@ echo "==> the agents"
 for agent in "${agents[@]}"; do ./k8s/agents/apply.sh "$agent" < "k8s/agents/$agent.yaml"; done
 # The first golden snapshot of each takes about a minute.
 for agent in "${agents[@]}"; do kubectl -n kagent wait "sandboxagent/$agent" --for=condition=Ready --timeout=10m; done
+# The risk agent on a second model config, the B side of its A/B test; the split rests at 100/0.
+kubectl apply -f k8s/agents/small-model-config.yaml >/dev/null
+./k8s/agents/risk-agent-b.sh
+kubectl -n kagent wait sandboxagent/risk-agent-b --for=condition=Ready --timeout=10m
 # After the specialists are Ready: kagent refuses an Agent tool whose agent does not exist yet.
 kubectl apply -f k8s/agents/coordinator-agent.yaml >/dev/null
 kubectl -n kagent wait agent/coordinator-agent --for=condition=Ready --timeout=5m
