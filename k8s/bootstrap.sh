@@ -88,19 +88,6 @@ kubectl apply --server-side -k \
   "https://github.com/kubeflow/trainer.git/manifests/overlays/runtimes?ref=${TRAINER_VERSION}"
 
 
-echo "==> Loading the lakehouse credentials into the cluster"
-# Only the username and password pairs. Host names and ports are already set in
-# the training image with values that work inside the cluster, and .env holds
-# the localhost versions, so copying the whole file in here would break them.
-set -a; . "${HERE}/../.env"; set +a
-kubectl create secret generic lakehouse-credentials --namespace kubeflow \
-  --from-literal=POSTGRES_USER="$POSTGRES_USER" \
-  --from-literal=POSTGRES_PASSWORD="$POSTGRES_PASSWORD" \
-  --from-literal=MINIO_ACCESS_KEY="$MINIO_ACCESS_KEY" \
-  --from-literal=MINIO_SECRET_KEY="$MINIO_SECRET_KEY" \
-  --dry-run=client -o yaml | kubectl apply -f -
-
-
 echo "==> Switching off the two components with no build for this machine"
 # Kubeflow publishes these for Intel machines only, so on an Apple Silicon one
 # they can never start. Neither is needed here: proxy-agent exists to expose the
@@ -135,6 +122,13 @@ echo "==> Creating the local certificate authority"
 kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy/cert-manager-webhook
 kubectl apply -f "$HERE/platform/local-ca-issuer.yaml"
 kubectl -n cert-manager wait --for=condition=Ready --timeout=2m certificate/local-ca
+
+
+echo "==> Connecting the cluster to Vault"
+# External Secrets copies each namespace's secrets from Vault, so Vault must be up
+# and unsealed first. Kubeflow's lakehouse login is the first of them.
+"$HERE/secrets/install.sh"
+kubectl apply -f "$HERE/platform/kubeflow-secrets.yaml"
 
 
 echo "==> Installing metrics-server ${METRICS_SERVER_CHART}"

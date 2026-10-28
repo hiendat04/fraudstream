@@ -5,6 +5,8 @@
 #   ./infra/vault/check.sh [section]...
 #   ./infra/vault/check.sh server        Vault is up, unsealed, on Raft, over TLS, with an audit log
 #   ./infra/vault/check.sh access        every secret is there, each reader reads its own and is refused the rest
+#   ./infra/vault/check.sh cluster       every Kubernetes Secret is synced from Vault and holds the same value
+#   ./infra/vault/check.sh cluster --sealed   and they all stay while Vault is sealed, and sync again once unsealed
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -98,13 +100,77 @@ access() {
   expect "a second seed changes no version" "$before" "$(versions)"
 }
 
+# <namespace> <Secret> <key> <Vault path> <field>: each key of each synced Secret and where it comes from.
+SYNCED=(
+  "fraudstream-apis feature-store-registry POSTGRES_USER platform/postgres login"
+  "fraudstream-apis feature-store-registry POSTGRES_PASSWORD platform/postgres password"
+  "fraudstream-apis context-api POSTGRES_USER platform/postgres login"
+  "fraudstream-apis context-api POSTGRES_PASSWORD platform/postgres password"
+  "fraudstream-apis context-api PGVECTOR_USER platform/pgvector login"
+  "fraudstream-apis context-api PGVECTOR_PASSWORD platform/pgvector password"
+  "fraudstream-apis gateway-htpasswd htpasswd platform/gateway-htpasswd htpasswd"
+  "observability gateway-htpasswd htpasswd platform/gateway-htpasswd htpasswd"
+  "observability grafana-admin admin-user platform/gateway login"
+  "observability grafana-admin admin-password platform/gateway password"
+  "kubeflow gateway-htpasswd htpasswd platform/gateway-htpasswd htpasswd"
+  "kubeflow lakehouse-credentials POSTGRES_USER platform/postgres login"
+  "kubeflow lakehouse-credentials POSTGRES_PASSWORD platform/postgres password"
+  "kubeflow lakehouse-credentials MINIO_ACCESS_KEY platform/minio login"
+  "kubeflow lakehouse-credentials MINIO_SECRET_KEY platform/minio password"
+)
+# Scripts that may still make a Secret by hand: the GKE deploy, whose cluster can't
+# reach Vault, and the keys' install scripts until they move to Vault too.
+HAND_MADE_ALLOWED="cicd/deploy_agent.sh k8s/agents/install.sh k8s/agents/substrate.sh k8s/gateway/credentials.sh k8s/gke/deploy.sh k8s/llm/install.sh k8s/mcp/install.sh"
+
+hash() { shasum -a 256 | cut -c1-16; }
+secret_hash() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d | hash; }
+synced_ready() { kubectl -n "$1" get externalsecret "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null; }
+all_ready() {
+  local line
+  for line in "${SYNCED[@]}"; do set -- $line; [ "$(synced_ready "$1" "$2")" = True ] || return 1; done
+}
+
+cluster() {
+  echo "==> cluster"
+  local line hashes=() i=0
+  for line in "${SYNCED[@]}"; do
+    set -- $line
+    expect "$1/$2 synced" True "$(synced_ready "$1" "$2")"
+    expect "$1/$2 $3 matches $4 $5" "$(vault kv get -mount=secret -field="$5" "$4" 2>/dev/null | hash)" "$(secret_hash "$1" "$2" "$3")"
+  done
+  local hand_made
+  hand_made=$(comm -23 <(grep -rl "create secret" --include='*.sh' --include='*Jenkinsfile' k8s cicd Jenkinsfile | sort) \
+    <(tr ' ' '\n' <<<"$HAND_MADE_ALLOWED" | sort) | xargs)
+  expect "Secrets made by hand, outside the allowed scripts" none "${hand_made:-none}"
+  [ "${1:-}" = --sealed ] || return 0
+
+  echo "==> cluster, with Vault sealed"
+  for line in "${SYNCED[@]}"; do set -- $line; hashes+=("$(secret_hash "$1" "$2" "$3")"); done
+  VAULT_TOKEN=$(jq -r .root_token ~/.fraudstream/vault-init.json) vault operator seal >/dev/null
+  echo "  sealed; waiting 2 minutes"
+  sleep 120
+  for line in "${SYNCED[@]}"; do
+    set -- $line
+    expect "$1/$2 $3 kept while sealed" "${hashes[$i]}" "$(secret_hash "$1" "$2" "$3")"
+    i=$((i + 1))
+  done
+  expect "an ExternalSecret reports it can't sync" False "$(synced_ready observability grafana-admin)"
+  ./infra/vault/unseal.sh >/dev/null
+  echo "  unsealed; waiting up to 3 minutes for every Secret to sync again"
+  for i in $(seq 36); do all_ready && break; sleep 5; done
+  expect "every Secret synced again" yes "$(all_ready && echo yes || echo no)"
+}
+
 : "${VAULT_ADDR:?set VAULT_ADDR=https://localhost:8200}" "${VAULT_CACERT:?set VAULT_CACERT to infra/vault/tls/ca.crt}"
 sections=("$@")
+case " $* " in *" --sealed "*) sealed=--sealed ;; esac
 [ ${#sections[@]} -gt 0 ] || sections=(server)
 for section in "${sections[@]}"; do
   case "$section" in
     server) server ;;
     access) access ;;
+    cluster) cluster "${sealed:-}" ;;
+    --sealed) ;;
     *) echo "unknown section: $section" >&2; exit 2 ;;
   esac
 done

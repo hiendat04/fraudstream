@@ -47,28 +47,19 @@ pipeline {
     }
 
     stage('Inference API') {
-      when { expression { deploying('api/src ml/src/fraudstream_ml k8s/Dockerfile.inference k8s/apis/inference-api.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
+      when { expression { deploying('api/src ml/src/fraudstream_ml k8s/Dockerfile.inference k8s/apis/inference-api.yaml k8s/apis/secrets.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.inference -t "fraudstream-inference:$TAG" .
           kind load docker-image "fraudstream-inference:$TAG" --name fraudstream
           kubectl create namespace fraudstream-apis --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/apis/secrets.yaml
+          kubectl -n fraudstream-apis wait externalsecret --all --for=condition=Ready --timeout=2m
         '''
-        withCredentials([usernamePassword(credentialsId: 'postgres',
-                                          usernameVariable: 'PGUSER',
-                                          passwordVariable: 'PGPASSWORD')]) {
-          sh '''
-            kubectl -n fraudstream-apis create secret generic feature-store-registry \
-              --from-literal=POSTGRES_USER="$PGUSER" \
-              --from-literal=POSTGRES_PASSWORD="$PGPASSWORD" \
-              --dry-run=client -o yaml | kubectl apply -f -
-          '''
-        }
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
-            ./k8s/gateway/credentials.sh fraudstream-apis
             helm upgrade --install inference-api k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/inference-api.yaml \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
@@ -81,33 +72,19 @@ pipeline {
     }
 
     stage('Context API') {
-      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
+      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/apis/secrets.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.context -t "fraudstream-context:$TAG" .
           kind load docker-image "fraudstream-context:$TAG" --name fraudstream
           kubectl create namespace fraudstream-apis --dry-run=client -o yaml | kubectl apply -f -
+          kubectl apply -f k8s/apis/secrets.yaml
+          kubectl -n fraudstream-apis wait externalsecret --all --for=condition=Ready --timeout=2m
         '''
-        withCredentials([usernamePassword(credentialsId: 'postgres',
-                                          usernameVariable: 'PGUSER',
-                                          passwordVariable: 'PGPASSWORD'),
-                         usernamePassword(credentialsId: 'pgvector',
-                                          usernameVariable: 'VECTOR_USER',
-                                          passwordVariable: 'VECTOR_PASSWORD')]) {
-          sh '''
-            kubectl -n fraudstream-apis create secret generic context-api \
-              --from-literal=POSTGRES_USER="$PGUSER" \
-              --from-literal=POSTGRES_PASSWORD="$PGPASSWORD" \
-              --from-literal=PGVECTOR_USER="$VECTOR_USER" \
-              --from-literal=PGVECTOR_PASSWORD="$VECTOR_PASSWORD" \
-              --dry-run=client -o yaml | kubectl apply -f -
-          '''
-        }
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
-            ./k8s/gateway/credentials.sh fraudstream-apis
             helm upgrade --install context-api k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/context-api.yaml \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 4m
@@ -130,7 +107,6 @@ pipeline {
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
-            ./k8s/gateway/credentials.sh fraudstream-apis
             helm upgrade --install drift-detection k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/drift-detection.yaml \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
