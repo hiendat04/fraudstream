@@ -9,3 +9,11 @@ path "sys/*" {
 path "sys/audit" {
   capabilities = ["read", "list", "sudo"]
 }
+
+path "auth/approle/role/+/role-id" {
+  capabilities = ["read"]
+}
+
+path "auth/approle/role/+/secret-id" {
+  capabilities = ["update"]
+}
