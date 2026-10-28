@@ -133,4 +133,6 @@ spec:
     weighted:
       targets:
         - modelRef: {name: qwen3-4b}
-          weight: 100
+          weight: 50
+        - modelRef: {name: qwen3-1-7b}
+          weight: 50
