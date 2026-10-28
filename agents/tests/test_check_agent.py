@@ -1,8 +1,9 @@
-"""The agents' check: which bursts its command line accepts, how many questions it has in flight, and which refusals it asks again."""
+"""The agents' check: which bursts its command line accepts, how many questions it has in flight, which refusals it asks again, and the golden results it pushes."""
 
 import asyncio
 import sys
 
+import httpx
 import pytest
 from hypothesis import given, strategies as st
 
@@ -112,3 +113,46 @@ async def test_refusals_stop_being_asked_again_at_the_answer_timeout(monkeypatch
 
 def test_a_variant_is_a_choice_of_agent():
     assert check_agent.parse_args([*PORTS, "--agent", "risk-agent-b"]).agent == ["risk-agent-b"]
+
+
+def test_golden_results_are_pushed_per_agent():
+    sent = []
+
+    def handler(request):
+        sent.append((request.method, str(request.url), request.content.decode()))
+        return httpx.Response(200)
+
+    with httpx.Client(transport=httpx.MockTransport(handler)) as client:
+        check_agent.push_golden(client, "http://push:9091", "risk-agent-b", 1, 2)
+    assert sent == [("PUT", "http://push:9091/metrics/job/agent_golden/agent/risk-agent-b",
+                     'agent_golden_questions{outcome="passed"} 1\nagent_golden_questions{outcome="failed"} 1\n')]
+
+
+def fake_run(monkeypatch, argv, outcomes):
+    """main with every question answered by the next outcome; the pushes it made."""
+    answers, pushed = iter(outcomes), []
+
+    async def fake_ask_and_check(client, args, golden, judge):
+        return next(answers)
+
+    monkeypatch.setattr(check_agent, "ask_and_check", fake_ask_and_check)
+    monkeypatch.setattr(check_agent, "push_golden", lambda client, url, agent, passed, asked: pushed.append((url, agent, passed, asked)))
+    monkeypatch.setattr(sys, "argv", ["check_agent.py", *PORTS, *argv])
+    return pushed
+
+
+@pytest.mark.anyio
+async def test_a_judged_run_pushes_once_per_agent_asked(monkeypatch):
+    pushed = fake_run(monkeypatch, ["--agent", "risk-agent", "--agent", "risk-agent-b", "--pushgateway", "http://p"],
+                      [True, True, True, False])
+    assert await check_agent.main() == 1
+    assert pushed == [("http://p", "risk-agent", 2, 2), ("http://p", "risk-agent-b", 1, 2)]
+
+
+@pytest.mark.anyio
+async def test_a_burst_or_a_run_without_a_pushgateway_pushes_nothing(monkeypatch):
+    pushed = fake_run(monkeypatch, ["--agent", "risk-agent", "--load", "2", "--pushgateway", "http://p"], [True, True])
+    assert await check_agent.main() == 0
+    pushed_too = fake_run(monkeypatch, ["--agent", "risk-agent"], [True, True])
+    assert await check_agent.main() == 0
+    assert pushed == pushed_too == []

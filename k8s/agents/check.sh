@@ -8,7 +8,8 @@
 # agent's prompt and small-model-config), that the coordinator
 # reaches both sandboxed specialists through it in fresh sessions, that every
 # agent answers its eval questions with the right tool calls and the stores' and
-# the model's numbers, that the coordinator's questions are counted at the risk
+# the model's numbers (each agent's result pushed to the Pushgateway for the A/B
+# report), that the coordinator's questions are counted at the risk
 # agent and at the A2A gateway and make one trace through both, that the MCP
 # gateway counted each specialist's tool calls, that KEDA keeps two coordinator
 # replicas and every worker for the sandboxed agents is ready, that Jaeger counted the
@@ -49,10 +50,11 @@ ask() {
     forward kagent kagent-controller 18083:8083
     forward fraudstream-apis context-api 18093:80
     forward fraudstream-apis inference-api 18092:80
+    forward observability pushgateway 18091:9091
     asked=1
   fi
-  PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
-    --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 "$@"
+  PYTHONPATH=agents/src env -u VIRTUAL_ENV uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 \
+    --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 --pushgateway http://127.0.0.1:18091 "$@"
 }
 case "${1:-}" in
   --load|--agent) ask "$@"; exit ;;

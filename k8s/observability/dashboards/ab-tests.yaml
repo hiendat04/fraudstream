@@ -1,0 +1,69 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: dashboard-ab-tests
+  namespace: observability
+  labels:
+    grafana_dashboard: "1"
+data:
+  ab-tests.json: |
+    {
+      "uid": "fraudstream-ab-tests",
+      "title": "FraudStream · A/B tests",
+      "tags": ["fraudstream", "llm", "agents"],
+      "schemaVersion": 39,
+      "refresh": "30s",
+      "time": {"from": "now-3h", "to": "now"},
+      "panels": [
+        {"id": 1, "type": "row", "title": "LLM versions · fraud-detection-llm", "collapsed": false, "gridPos": {"x": 0, "y": 0, "w": 24, "h": 1}, "panels": []},
+        {"id": 2, "type": "timeseries", "title": "Share of answers by version", "gridPos": {"x": 0, "y": 1, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (gen_ai_response_model) (rate(agentgateway_gen_ai_server_request_duration_count{consumer=\"benchmark\"}[5m])) / ignoring(gen_ai_response_model) group_left sum(rate(agentgateway_gen_ai_server_request_duration_count{consumer=\"benchmark\"}[5m]))", "legendFormat": "{{gen_ai_response_model}}"}]},
+        {"id": 3, "type": "stat", "title": "Answers by version (time range)", "gridPos": {"x": 12, "y": 1, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "sum by (gen_ai_response_model) (increase(agentgateway_gen_ai_server_request_duration_count{consumer=\"benchmark\"}[$__range]))", "legendFormat": "{{gen_ai_response_model}}", "instant": true}]},
+        {"id": 4, "type": "stat", "title": "Failed requests by backend (time range)", "gridPos": {"x": 18, "y": 1, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "sum by (backend) (increase(agentgateway_requests_total{gateway=\"llm/llm-gateway\", consumer=\"benchmark\", status!~\"2..\"}[$__range]))", "legendFormat": "{{backend}}", "instant": true}]},
+        {"id": 5, "type": "timeseries", "title": "Request time p95 by version", "gridPos": {"x": 0, "y": 9, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, gen_ai_response_model) (rate(agentgateway_gen_ai_server_request_duration_bucket{consumer=\"benchmark\"}[5m])))", "legendFormat": "{{gen_ai_response_model}}"}]},
+        {"id": 6, "type": "timeseries", "title": "Time to first token p95 by version (every caller)", "gridPos": {"x": 8, "y": 9, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, model_name) (rate(llm_d_epp_request_ttft_seconds_bucket[5m])))", "legendFormat": "{{model_name}}"}]},
+        {"id": 7, "type": "timeseries", "title": "Output tokens per second by pod", "gridPos": {"x": 16, "y": 9, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (pod) (rate(llamacpp:tokens_predicted_total[5m]))", "legendFormat": "{{pod}}"}]},
+        {"id": 8, "type": "row", "title": "Risk agent · model config A against B", "collapsed": false, "gridPos": {"x": 0, "y": 17, "w": 24, "h": 1}, "panels": []},
+        {"id": 9, "type": "timeseries", "title": "Share of the risk agent's calls at the A2A gateway", "gridPos": {"x": 0, "y": 18, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (backend) (rate(agentgateway_requests_total{gateway=\"kagent/a2a-gateway\", route=\"kagent/agents\", backend=~\"risk-agent-[ab][.].*\"}[5m])) / ignoring(backend) group_left sum(rate(agentgateway_requests_total{gateway=\"kagent/a2a-gateway\", route=\"kagent/agents\", backend=~\"risk-agent-[ab][.].*\"}[5m]))", "legendFormat": "{{backend}}"}]},
+        {"id": 10, "type": "stat", "title": "Golden questions by agent (last push)", "gridPos": {"x": 12, "y": 18, "w": 12, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0}, "overrides": []},
+         "options": {"reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "sum by (agent, outcome) (agent_golden_questions{job=\"agent_golden\"})", "legendFormat": "{{agent}} {{outcome}}", "instant": true}]},
+        {"id": 11, "type": "timeseries", "title": "Calls per agent, by outcome", "gridPos": {"x": 0, "y": 26, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "min": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "sum by (gen_ai_agent_name, status_code) (increase(agent_calls_total{gen_ai_agent_name=~\"risk_agent|risk_agent_b\"}[15m]))", "legendFormat": "{{gen_ai_agent_name}} {{status_code}}"}]},
+        {"id": 12, "type": "timeseries", "title": "Call time p95 per agent", "gridPos": {"x": 8, "y": 26, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "s", "min": 0}, "overrides": []},
+         "targets": [{"refId": "A", "expr": "histogram_quantile(0.95, sum by (le, gen_ai_agent_name) (rate(agent_duration_seconds_bucket{gen_ai_agent_name=~\"risk_agent|risk_agent_b\"}[15m])))", "legendFormat": "{{gen_ai_agent_name}}"}]},
+        {"id": 13, "type": "bargauge", "title": "Tool calls per agent and tool (time range)", "gridPos": {"x": 16, "y": 26, "w": 8, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "short", "decimals": 0, "min": 0}, "overrides": []},
+         "options": {"orientation": "horizontal", "reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "sum by (service_name, gen_ai_tool_name, status_code) (increase(agent_tool_calls_total{service_name=~\"risk_agent|risk_agent_b\"}[$__range]))", "legendFormat": "{{service_name}} · {{gen_ai_tool_name}} · {{status_code}}", "instant": true}]}
+      ]
+    }

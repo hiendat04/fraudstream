@@ -4,11 +4,13 @@ CrossHair drives the prompt-length rule and the 1% rule, integer comparisons it
 solves at the boundaries instead of guessing them. It can't see through the regex
 that finds numbers in an answer, so the property on whole answers, like the one
 on registering any text, is left to random search. So are the decision line and
-the cited chunks, both read with a regex.
+the cited chunks, both read with a regex. It also drives the A/B judge's
+properties, ratios of whole counts it can solve exactly.
 """
 
-from hypothesis import given, settings, strategies as st
+from hypothesis import assume, given, settings, strategies as st
 
+from fraudstream_agents.ab_testing import Variant, Verdict, judge
 from fraudstream_agents.a2a import SANDBOX_AGENTS, agent_url, close, grounded
 from fraudstream_agents.evals import cited_chunks, decision
 from fraudstream_agents.prompts import MAX_PROMPT_CHARS, check, main, register
@@ -81,3 +83,26 @@ def test_agent_url_names_exactly_one_route(name):
     assert sandboxed != url.startswith("http://c:8083/api/a2a/kagent/")
     assert sandboxed == (name in SANDBOX_AGENTS)
     assert url.endswith(f"/{name}/")
+
+
+counts = st.integers(min_value=0, max_value=1000)
+
+
+@settings(backend="crosshair", max_examples=50, deadline=None)
+@given(a_calls=counts, a_failed=counts, b_calls=counts, b_failed=counts, a_asked=counts, a_passed=counts, b_asked=counts,
+       b_passed=counts, a_p95=counts, b_p95=counts, min_calls=st.integers(min_value=1, max_value=50))
+def test_a_candidate_no_worse_on_every_count_is_never_failed(a_calls, a_failed, b_calls, b_failed, a_asked, a_passed, b_asked,
+                                                             b_passed, a_p95, b_p95, min_calls):
+    assume(a_failed <= a_calls and b_failed <= b_calls and a_passed <= a_asked and b_passed <= b_asked)
+    assume(b_failed * a_calls <= a_failed * b_calls and (a_calls or not b_failed))
+    assume(b_passed * a_asked >= a_passed * b_asked and b_p95 <= a_p95)
+    a = Variant("A", a_calls, a_failed, a_p95, a_passed, a_asked)
+    b = Variant("B", b_calls, b_failed, b_p95, b_passed, b_asked)
+    assert judge(a, b, min_calls=min_calls).verdict is not Verdict.FAIL
+
+
+@settings(backend="crosshair", max_examples=50, deadline=None)
+@given(b_calls=counts, min_calls=st.integers(min_value=1, max_value=50))
+def test_too_few_calls_never_pass(b_calls, min_calls):
+    assume(b_calls < min_calls)
+    assert judge(Variant("A", 100, 0, 1.0), Variant("B", b_calls, 0, 1.0), min_calls=min_calls).verdict is not Verdict.PASS
