@@ -156,6 +156,18 @@ services:
       KAFKA_CLUSTERS_0_BOOTSTRAPSERVERS: "kafka:29092"
       DYNAMIC_CONFIG_ENABLED: "false"
 
+  vault:
+    image: hashicorp/vault:2.0.4
+    container_name: fraudstream-vault
+    command: server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - vault-data:/vault/file
+      - ./infra/vault/config.hcl:/vault/config/config.hcl:ro
+      - ./infra/vault/tls:/vault/tls:ro
+
   postgres:
     image: postgres:16-alpine
     container_name: fraudstream-postgres
@@ -551,6 +563,7 @@ networks:
     external: true
 
 volumes:
+  vault-data:
   kafka-data:
   postgres-data:
   minio-data:
