@@ -138,8 +138,8 @@ The A2A gateway is an agentgateway Gateway in `kagent`
 
 | Route | Matches `x-kagent-host` | Goes to | Checks |
 |---|---|---|---|
-| `agents` ([#L54](../../k8s/agents/a2a-gateway.yaml#L54)) | `kagent-controller.kagent`, on each specialist's sandbox path | kagent's controller, which hands the call to the agent's actor | the policy below |
-| `mcp-tools` ([#L85](../../k8s/agents/a2a-gateway.yaml#L85)) | `mcp-gateway.mcp.svc.cluster.local` | the MCP gateway | none here; the MCP gateway checks its own keys |
+| `agents` ([#L86](../../k8s/agents/a2a-gateway.yaml#L86)) | `kagent-controller.kagent`, on each specialist's sandbox path | kagent's controller, which hands the call to the agent's actor. The risk agent's calls go to two backends by weight, `risk-agent-a` and `risk-agent-b`, for [A/B tests](35_ab_testing.md) | the policy below |
+| `mcp-tools` ([#L137](../../k8s/agents/a2a-gateway.yaml#L137)) | `mcp-gateway.mcp.svc.cluster.local` | the MCP gateway | none here; the MCP gateway checks its own keys |
 
 The second route exists because the proxy setting also catches the specialists' tool
 calls: the MCP gateway's address is inside the cluster too. Passing them on unchanged
