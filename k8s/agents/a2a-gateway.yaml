@@ -112,10 +112,10 @@ spec:
       backendRefs:
         - name: risk-agent-a
           port: 8083
-          weight: 50
+          weight: 100
         - name: risk-agent-b
           port: 8083
-          weight: 50
+          weight: 0
           filters:
             - type: URLRewrite
               urlRewrite:
