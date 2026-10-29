@@ -2,7 +2,7 @@
 # Check that one API is reachable only the way the gateway intends: HTTPS with a
 # certificate from the local CA, the right password, and a rate limit.
 
-#   set -a && . ./.env && set +a
+#   . infra/vault/env.sh
 #   GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_gateway.sh inference.fraudstream.localhost
 #   GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_gateway.sh kagent.fraudstream.localhost /health
 

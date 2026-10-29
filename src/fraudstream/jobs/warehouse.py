@@ -16,14 +16,10 @@ from typing import Any, Sequence
 
 DEFAULT_WAREHOUSE_URI = "s3a://fraudstream/warehouse"
 DEFAULT_MINIO_ENDPOINT = "http://localhost:19000"
-DEFAULT_MINIO_ACCESS_KEY = "fraudstream"
-DEFAULT_MINIO_SECRET_KEY = "fraudstream_local_password"
 
 DEFAULT_POSTGRES_HOST = "localhost"
 DEFAULT_POSTGRES_PORT = 5432
 DEFAULT_POSTGRES_DATABASE = "fraudstream"
-DEFAULT_POSTGRES_USER = "fraudstream"
-DEFAULT_POSTGRES_PASSWORD = "fraudstream_local_password"
 
 HADOOP_AWS_PACKAGE = "org.apache.hadoop:hadoop-aws:3.4.1"
 POSTGRESQL_JDBC_PACKAGE = "org.postgresql:postgresql:42.7.4"
@@ -36,12 +32,16 @@ SUPPORTED_ICEBERG_CATALOG_TYPES = {"jdbc", "hadoop"}
 
 @dataclass(frozen=True)
 class WarehouseConfig:
-    """MinIO / S3A location and credentials for Parquet storage."""
+    """MinIO / S3A location and credentials for Parquet storage.
+
+    The credentials default to empty, for local `file://` runs; anything that
+    reads them from the environment requires them.
+    """
 
     uri: str = DEFAULT_WAREHOUSE_URI
     endpoint: str = DEFAULT_MINIO_ENDPOINT
-    access_key: str = DEFAULT_MINIO_ACCESS_KEY
-    secret_key: str = DEFAULT_MINIO_SECRET_KEY
+    access_key: str = ""
+    secret_key: str = ""
 
     @classmethod
     def from_env(cls) -> "WarehouseConfig":
@@ -56,8 +56,8 @@ class WarehouseConfig:
         return cls(
             uri=_env_value("FRAUDSTREAM_WAREHOUSE_URI", DEFAULT_WAREHOUSE_URI),
             endpoint=_env_value("MINIO_ENDPOINT", DEFAULT_MINIO_ENDPOINT),
-            access_key=_env_value("MINIO_ACCESS_KEY", DEFAULT_MINIO_ACCESS_KEY),
-            secret_key=_env_value("MINIO_SECRET_KEY", DEFAULT_MINIO_SECRET_KEY),
+            access_key=required_env("MINIO_ACCESS_KEY"),
+            secret_key=required_env("MINIO_SECRET_KEY"),
         )
 
 
@@ -97,8 +97,8 @@ class PostgresJdbcConfig:
     host: str = DEFAULT_POSTGRES_HOST
     port: int = DEFAULT_POSTGRES_PORT
     database: str = DEFAULT_POSTGRES_DATABASE
-    user: str = DEFAULT_POSTGRES_USER
-    password: str = DEFAULT_POSTGRES_PASSWORD
+    user: str = ""
+    password: str = ""
 
     @property
     def url(self) -> str:
@@ -130,14 +130,8 @@ def add_warehouse_arguments(parser: argparse.ArgumentParser) -> None:
         default=_env_value("MINIO_ENDPOINT", DEFAULT_MINIO_ENDPOINT),
         help=f"MinIO S3 API endpoint. Defaults to {DEFAULT_MINIO_ENDPOINT}.",
     )
-    parser.add_argument(
-        "--minio-access-key",
-        default=_env_value("MINIO_ACCESS_KEY", DEFAULT_MINIO_ACCESS_KEY),
-    )
-    parser.add_argument(
-        "--minio-secret-key",
-        default=_env_value("MINIO_SECRET_KEY", DEFAULT_MINIO_SECRET_KEY),
-    )
+    _add_secret_argument(parser, "--minio-access-key", "MINIO_ACCESS_KEY")
+    _add_secret_argument(parser, "--minio-secret-key", "MINIO_SECRET_KEY")
 
 
 def warehouse_config_from_args(args: argparse.Namespace) -> WarehouseConfig:
@@ -188,8 +182,8 @@ def add_postgres_arguments(parser: argparse.ArgumentParser) -> None:
     parser.add_argument("--postgres-host", default=_env_value("POSTGRES_HOST", DEFAULT_POSTGRES_HOST))
     parser.add_argument("--postgres-port", type=int, default=_env_int("POSTGRES_PORT", DEFAULT_POSTGRES_PORT))
     parser.add_argument("--postgres-db", default=_env_value("POSTGRES_DB", DEFAULT_POSTGRES_DATABASE))
-    parser.add_argument("--postgres-user", default=_env_value("POSTGRES_USER", DEFAULT_POSTGRES_USER))
-    parser.add_argument("--postgres-password", default=_env_value("POSTGRES_PASSWORD", DEFAULT_POSTGRES_PASSWORD))
+    _add_secret_argument(parser, "--postgres-user", "POSTGRES_USER")
+    _add_secret_argument(parser, "--postgres-password", "POSTGRES_PASSWORD")
 
 
 def postgres_config_from_args(args: argparse.Namespace) -> PostgresJdbcConfig:
@@ -365,6 +359,22 @@ def truncate_tables_cascade(spark: Any, tables: Sequence[str], postgres: Postgre
             statement.close()
     finally:
         connection.close()
+
+
+def required_env(name: str) -> str:
+    """A credential from the environment; there is no default to fall back to."""
+
+    value = os.environ.get(name)
+    if not value:
+        raise RuntimeError(f"{name} is not set")
+    return value
+
+
+def _add_secret_argument(parser: argparse.ArgumentParser, flag: str, name: str) -> None:
+    """A credential option: the environment variable when set, otherwise required on the command line."""
+
+    value = os.environ.get(name)
+    parser.add_argument(flag, default=value or None, required=not value, help=f"Defaults to ${name}.")
 
 
 def _env_value(name: str, default: str) -> str:

@@ -9,6 +9,7 @@
 #   ./infra/vault/check.sh cluster --sealed   and they all stay while Vault is sealed, and sync again once unsealed
 #   ./infra/vault/check.sh keys          the gateways' keys and their hashes come from Vault, made once
 #   ./infra/vault/check.sh keys --rotate      and a rotated key reaches the A2A gateway: the old one is refused
+#   ./infra/vault/check.sh compose       no secret in .env or the code, Compose needs Vault, Debezium reads its password
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -243,6 +244,27 @@ keys() {
   kill "$forward" 2>/dev/null; wait "$forward" 2>/dev/null || true
 }
 
+# Variables that hold a secret; .env must leave each one empty.
+SECRET_VARIABLES="POSTGRES_USER POSTGRES_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY MINIO_ROOT_USER MINIO_ROOT_PASSWORD
+  PGVECTOR_USER PGVECTOR_PASSWORD GATEWAY_USER GATEWAY_PASSWORD GITHUB_USER GITHUB_TOKEN JENKINS_ADMIN_PASSWORD
+  AIRFLOW_FERNET_KEY AIRFLOW_JWT_SECRET AIRFLOW_API_SECRET_KEY CLOUD_POSTGRES_PASSWORD"
+
+compose() {
+  echo "==> compose"
+  local name in_env old_defaults
+  in_env=$(for name in $SECRET_VARIABLES; do ! grep -q "^$name=." .env 2>/dev/null || printf '%s ' "$name"; done | xargs)
+  expect "secrets with a value in .env" none "${in_env:-none}"
+  old_defaults=$(git grep -l "fraudstream_local_password\|llm_local_password\|change-me" -- ':!docs' ':!infra/vault/check.sh' | xargs || true)
+  expect "files holding an old default password" none "${old_defaults:-none}"
+  expect "Compose refuses to start without Vault" refused \
+    "$(env -i PATH="$PATH" HOME="$HOME" docker compose config --quiet 2>/dev/null && echo started || echo refused)"
+  expect "Debezium reads config from the environment" env \
+    "$(docker inspect fraudstream-debezium-connect --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
+      | sed -n 's/^CONNECT_CONFIG_PROVIDERS=//p')"
+  expect "the Debezium connector" RUNNING \
+    "$(curl -s localhost:18083/connectors/fraudstream-bronze-raw-transactions/status | jq -r '.connector.state // empty')"
+}
+
 : "${VAULT_ADDR:?set VAULT_ADDR=https://localhost:8200}" "${VAULT_CACERT:?set VAULT_CACERT to infra/vault/tls/ca.crt}"
 sections=("$@")
 case " $* " in *" --sealed "*) sealed=--sealed ;; esac
@@ -254,6 +276,7 @@ for section in "${sections[@]}"; do
     access) access ;;
     cluster) cluster "${sealed:-}" ;;
     keys) keys "${rotate:-}" ;;
+    compose) compose ;;
     --sealed | --rotate) ;;
     *) echo "unknown section: $section" >&2; exit 2 ;;
   esac

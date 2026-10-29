@@ -163,6 +163,9 @@ def test_main_runs_each_step_with_its_dependencies(tmp_path: Path, monkeypatch: 
     monkeypatch.setattr(steps, "write_online_step", lambda run_dir, store: calls.append(f"online {store}") or {})
     monkeypatch.setattr(steps, "check", lambda run_dir, store, golden: calls.append(f"check {store}") or {"passed": True})
     monkeypatch.setattr(feast_spark, "configs_from_env", lambda: (None, None, None))
+    # The steps read MinIO's settings from the environment, as they do in Airflow.
+    monkeypatch.setenv("MINIO_ACCESS_KEY", "ak")
+    monkeypatch.setenv("MINIO_SECRET_KEY", "sk")
     monkeypatch.setattr(feast_spark, "build_spark_session", lambda **kwargs: spark)
     monkeypatch.setattr(sources, "sync_handbook", lambda warehouse, source, target: calls.append(f"sync {target}") or {})
     run = ["--run-dir", str(tmp_path)]

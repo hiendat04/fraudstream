@@ -231,7 +231,7 @@ pipeline {
           }
           // Recreating Airflow would kill running tasks, so a person does it.
           if (sh(script: 'test "$(docker inspect -f "{{.Image}}" fraudstream-airflow-scheduler)" = "$(docker image inspect -f "{{.Id}}" fraudstream-airflow:local)"', returnStatus: true) != 0) {
-            unstable('Airflow runs an older image: recreate it with docker compose --profile orchestration up -d')
+            unstable('Airflow runs an older image: recreate it with ./infra/vault/compose.sh --profile orchestration up -d')
           }
           sh '''
             docker exec fraudstream-airflow-scheduler airflow dags reserialize
