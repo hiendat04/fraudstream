@@ -11,6 +11,8 @@ cd "$(dirname "$0")"
 export VAULT_ADDR VAULT_CACERT
 init_file=~/.fraudstream/vault-init.json
 
+# Starts Vault; it unseals only once initialized.
+./unseal.sh >/dev/null
 if [ "$(vault status -format=json | jq -r .initialized)" != true ]; then
   mkdir -p ~/.fraudstream
   (umask 077 && vault operator init -key-shares=1 -key-threshold=1 -format=json >"$init_file")

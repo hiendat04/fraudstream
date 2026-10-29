@@ -6,9 +6,14 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 set -a; . ./.env; set +a
+: "${VAULT_ADDR:=https://localhost:8200}" "${VAULT_CACERT:=$PWD/infra/vault/tls/ca.crt}"
+export VAULT_ADDR VAULT_CACERT
 tf=infra/terraform/tf.sh
 
 preflight() {
+  # Ansible and the deploy read the cloud's passwords from Vault.
+  vault token lookup >/dev/null 2>&1 \
+    || { echo "vault is sealed or you are not logged in: ./infra/vault/unseal.sh, then vault login -method=userpass username=operator" >&2; exit 1; }
   command -v gke-gcloud-auth-plugin >/dev/null \
     || { echo "gke-gcloud-auth-plugin is not on PATH" >&2; exit 1; }
   for name in postgres redis minio; do
@@ -20,7 +25,7 @@ preflight() {
 up() {
   preflight
   for stack in network registry gke stores-vm; do "$tf" "$stack" apply -auto-approve -input=false; done
-  (cd infra/ansible && ansible-galaxy collection install -r requirements.yml >/dev/null && ansible-playbook site.yml)
+  (cd infra/ansible && ansible-galaxy collection install -r requirements.yml >/dev/null && no_proxy='*' ansible-playbook site.yml)
   ./k8s/gke/platform.sh
   ./k8s/gke/deploy.sh
   kubectl config use-context kind-fraudstream >/dev/null 2>&1 || true

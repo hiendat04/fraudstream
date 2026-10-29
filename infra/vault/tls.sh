@@ -7,12 +7,21 @@ set -euo pipefail
 cd "$(dirname "$0")"
 mkdir -p tls
 cd tls
+# Python 3.13 and later refuse a CA without key usage.
+CA_USAGE="keyUsage=critical,keyCertSign,cRLSign"
+
+# A CA made without it is re-issued from the same key and name, in place, so the
+# server certificate and every copy of the old CA keep working.
+if [ -f ca.crt ] && ! openssl x509 -in ca.crt -noout -ext keyUsage 2>/dev/null | grep -q "Certificate Sign"; then
+  openssl req -x509 -new -key ca.key -days 3650 -subj "/CN=FraudStream Vault CA" -addext "$CA_USAGE" -out ca.crt 2>/dev/null
+  echo "re-issued: infra/vault/tls/ca.crt, with key usage"
+fi
 [ ! -f vault.crt ] || { echo "kept: infra/vault/tls/vault.crt exists"; exit 0; }
 
 umask 077
 
 # Create the CA private key and certificate
-openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=FraudStream Vault CA" \
+openssl req -x509 -newkey rsa:4096 -nodes -days 3650 -subj "/CN=FraudStream Vault CA" -addext "$CA_USAGE" \
   -keyout ca.key -out ca.crt 2>/dev/null
 
 # Create the Vault server private key and CSR

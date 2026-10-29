@@ -1,3 +1,3 @@
 seed_local_dir: "{{ playbook_dir }}/.seed"
-seed_local_postgres_user: "{{ lookup('env', 'POSTGRES_USER') | default('fraudstream', true) }}"
+seed_local_postgres_user: "{{ lookup('community.hashi_vault.vault_kv2_get', 'platform/postgres', engine_mount_point='secret').secret.login }}"
 seed_remote_dir: "{{ fraudstream_dir }}/seed"

@@ -2,4 +2,4 @@ fraudstream_dir: /opt/fraudstream
 docker_network: fraudstream
 postgres_user: fraudstream
 postgres_db: fraudstream
-postgres_password: "{{ lookup('env', 'CLOUD_POSTGRES_PASSWORD') }}"
+postgres_password: "{{ lookup('community.hashi_vault.vault_kv2_get', 'cloud/postgres', engine_mount_point='secret').secret.password }}"

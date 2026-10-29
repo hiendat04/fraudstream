@@ -7,7 +7,7 @@
       ansible.builtin.assert:
         that:
           - postgres_password | length > 0
-        fail_msg: Load .env first (set -a && . ../../.env && set +a)
+        fail_msg: Vault's cloud/postgres has no password; run ./infra/vault/seed.sh
     - name: Wait for the VM to accept SSH
       ansible.builtin.wait_for_connection:
         timeout: 300

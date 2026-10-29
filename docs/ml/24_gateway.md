@@ -86,7 +86,7 @@ them into a running gateway:
 flowchart LR
     subgraph YOU["What you provide"]
         direction TB
-        ENV[".env<br/>GATEWAY_USER<br/>GATEWAY_PASSWORD"]
+        ENV[("Vault<br/>platform/gateway-htpasswd<br/>user : apr1 hash")]
         VALUES["Helm chart values<br/>host · tlsIssuer<br/>authSecret · rateLimit"]
     end
 
@@ -108,7 +108,7 @@ flowchart LR
         NIC["<b>NGINX Ingress Controller</b><br/>watches Ingresses and Secrets,<br/>writes nginx.conf, reloads"]
     end
 
-    ENV -- "k8s/gateway/credentials.sh" --> HT
+    ENV -- "External Secrets" --> HT
     VALUES -- "helm upgrade" --> ING
     ING -- "cert-manager.io/cluster-issuer" --> CRT
     ISS -- "signs" --> CRT
@@ -120,11 +120,15 @@ flowchart LR
 
     classDef gateway fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
     class NIC gateway
+    classDef store fill:#0f766e,stroke:#134e4a,color:#ffffff
+    class ENV store
 ```
 
-1. **The password.** `k8s/gateway/credentials.sh` hashes the password from `.env` and
-   stores it as the Secret `gateway-htpasswd`, of type `nginx.org/htpasswd`. The
-   password itself never enters the cluster.
+1. **The password.** Vault keeps the gateway's password, and next to it the htpasswd
+   line, with the password hashed. External Secrets copies that line into the Secret
+   `gateway-htpasswd`, of type `nginx.org/htpasswd`
+   ([`k8s/apis/secrets.yaml`](../../k8s/apis/secrets.yaml#L87)). The password itself
+   never enters the cluster ([28](28_security.md)).
 2. **The Ingress.** The shared Helm chart writes one Ingress per API: its host, a `tls`
    block, and the annotations that switch on the redirect, auth and rate limit. These
    are on by default, so any service deployed with the chart is protected unless its
@@ -181,11 +185,11 @@ The order matters, and NGINX fixes it:
 ## Set it up
 
 ```bash
-# 1. credentials in .env: GATEWAY_USER, GATEWAY_PASSWORD
-set -a && . ./.env && set +a
+# 1. the gateway login from Vault, for the checks
+. infra/vault/env.sh
 
-# 2. the password Secret, once per namespace behind the gateway
-./k8s/gateway/credentials.sh fraudstream-apis
+# 2. the password Secret, synced from Vault, once per namespace behind the gateway
+kubectl --context kind-fraudstream apply -f k8s/apis/secrets.yaml
 
 # 3. deploy (CI does this on the deploy branch)
 helm upgrade --install inference-api k8s/charts/fraudstream-api -n fraudstream-apis \
@@ -255,7 +259,10 @@ through the gateway against 16 ms direct.
 
 The recipe the monitoring UIs used:
 
-1. `./k8s/gateway/credentials.sh <namespace>` for the service's namespace.
+1. Let the namespace read the password: a policy
+   `infra/vault/policies/k8s-<namespace>.hcl` for `platform/gateway-htpasswd`, then
+   `./infra/vault/configure.sh`. Add a `gateway-htpasswd` ExternalSecret like the one in
+   `k8s/observability/secrets.yaml`.
 2. Give the service an Ingress on `<name>.fraudstream.localhost` with the same annotations
    as `k8s/charts/fraudstream-api/templates/ingress.yaml`. Most charts accept them under
    `ingress.annotations`.
@@ -291,7 +298,7 @@ inside the cluster).
 |---|---|
 | Ingress with the gateway annotations | `k8s/charts/fraudstream-api/templates/ingress.yaml` |
 | Gateway defaults | `k8s/charts/fraudstream-api/values.yaml` (`ingress:`) |
-| Password Secret | `k8s/gateway/credentials.sh` |
+| Password Secret, synced from Vault | `k8s/apis/secrets.yaml` (`gateway-htpasswd`) |
 | Local CA and issuer | `k8s/platform/local-ca-issuer.yaml` |
 | Outside-in check | `cicd/check_gateway.sh`, `cicd/gateway.sh` |
 | Client settings for the tools | `api/tools/gateway.py` |

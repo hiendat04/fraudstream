@@ -123,9 +123,9 @@ SYNCED=(
   "kubeflow lakehouse-credentials MINIO_ACCESS_KEY platform/minio login"
   "kubeflow lakehouse-credentials MINIO_SECRET_KEY platform/minio password"
 )
-# Scripts that may still make a Secret by hand: the GKE deploy, whose cluster can't
-# reach Vault, and the gateway login script it uses.
-HAND_MADE_ALLOWED="k8s/gateway/credentials.sh k8s/gke/deploy.sh"
+# The one script that may still make a Secret by hand: the GKE deploy, whose cluster
+# can't reach Vault; it copies them from Vault.
+HAND_MADE_ALLOWED="k8s/gke/deploy.sh"
 
 hash() { shasum -a 256 | cut -c1-16; }
 secret_hash() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d | hash; }
@@ -335,6 +335,22 @@ airflow() {
   expect "a task's rendered GATEWAY_PASSWORD" "***" "${rendered:-no drift run with a rendered env yet}"
 }
 
+# Not named ansible, which would hide the command.
+ansible_lookups() {
+  echo "==> ansible"
+  local output found
+  # The playbook's own variables, read as a run reads them, on this computer only. On macOS
+  # a forked worker dies looking up the system proxy, so no_proxy skips that.
+  output=$(cd infra/ansible && no_proxy='*' ansible -i localhost, localhost -c local -m ansible.builtin.debug \
+    -e @group_vars/stores.yml -e @roles/seed/defaults/main.yml \
+    -a '{"msg": "{{ \"set\" if postgres_password else \"missing\" }} {{ \"set\" if seed_local_postgres_user else \"missing\" }}"}' 2>&1 || true)
+  found=$(grep -q SUCCESS <<<"$output" && sed -n 's/^ *"msg": "\([^"]*\)".*/\1/p' <<<"$output" || true)
+  expect "the cloud's postgres password and the seed's login, from Vault" "set set" \
+    "${found:-$(grep -o 'FAILED.*' <<<"$output" | head -1 | cut -c1-200)}"
+  expect "the playbook's syntax" passes \
+    "$(cd infra/ansible && ansible-playbook -i localhost, site.yml --syntax-check >/dev/null 2>&1 && echo passes || echo fails)"
+}
+
 : "${VAULT_ADDR:?set VAULT_ADDR=https://localhost:8200}" "${VAULT_CACERT:?set VAULT_CACERT to infra/vault/tls/ca.crt}"
 sections=("$@")
 case " $* " in *" --sealed "*) sealed=--sealed ;; esac
@@ -349,6 +365,7 @@ for section in "${sections[@]}"; do
     compose) compose ;;
     jenkins) jenkins ;;
     airflow) airflow ;;
+    ansible) ansible_lookups ;;
     --sealed | --rotate) ;;
     *) echo "unknown section: $section" >&2; exit 2 ;;
   esac

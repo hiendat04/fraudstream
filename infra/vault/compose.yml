@@ -1,0 +1,17 @@
+name: fraudstream
+
+services:
+  vault:
+    image: hashicorp/vault:2.0.4
+    container_name: fraudstream-vault
+    command: server
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8200:8200"
+    volumes:
+      - vault-data:/vault/file
+      - ./config.hcl:/vault/config/config.hcl:ro
+      - ./tls:/vault/tls:ro
+
+volumes:
+  vault-data:

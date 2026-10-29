@@ -28,6 +28,9 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **A real front door.** Every API sits behind an NGINX gateway with its own domain,
   HTTPS from a local CA, basic auth and a per-client rate limit. CI checks all four after
   each deploy and rolls back an API left open.
+- **One vault for every secret.** HashiCorp Vault holds every password, key and token, and
+  nothing in the repository does. Each reader logs in as itself and reads only its own
+  entries, and every read is in the audit log.
 - **Cloud in one command.** Terraform and Ansible bring the serving path up on GKE and
   take it down again, with a budget and a leftover check so a forgotten session can't
   run up a bill. A payment scored in the cloud matches the laptop to the last decimal.
@@ -40,8 +43,8 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **Tested with numbers.** 100% line and branch coverage on both APIs, 86% mutation score,
   property-based tests, and a load test judged against an SLA fixed in advance.
 - **CI/CD.** Jenkins tests every branch and deploys the deploy branch, the MCP servers and
-  the agents included. Every image is tagged with its commit, an agent's prompt reaches
-  production only after its eval questions pass, and secrets never leave Jenkins.
+  the agents included. Every image is tagged with its commit, and an agent's prompt
+  reaches production only after its eval questions pass.
 - **Measured, not claimed.** Spark AQE and Flink chaining experiments are captured from
   the runtime UIs, with before and after numbers.
 
@@ -122,6 +125,7 @@ the analysts' one entry point, in the kagent UI.
 | Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/ml/25_infrastructure_as_code.md)                                                                                                                         |
 | Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/ml/26_observability.md) |
 | A/B testing | A new model runs as a KServe canary next to the served one, compared on real traffic without labels, and stepped up, promoted or rolled back by commits, by hand or by a Jenkins job | [27_ab_testing.md](docs/ml/27_ab_testing.md) |
+| Secrets | One HashiCorp Vault holds every password, key and token. Each reader logs in as itself and reads only its own: External Secrets for each namespace, Jenkins, Airflow, Ansible and the GKE deploy | [28_security.md](docs/ml/28_security.md) |
 | **LLM layer** | | |
 | LLM inference platform | Qwen3 on llama.cpp behind llm-d and agentgateway: keys, limits, PII masking, telemetry, benchmark | [29_llm_inference_platform.md](docs/llm/29_llm_inference_platform.md) |
 | RAG data pipeline | The handbook, model cards and feature dictionary, chunked and embedded daily into Iceberg and Feast's pgvector store, checked and governed | [30_rag_pipeline.md](docs/llm/30_rag_pipeline.md) |
@@ -141,7 +145,7 @@ own isolated environment, because their Python versions don't match.
 uv sync --extra kafka --extra spark --extra storage
 
 # infrastructure: Vault first, then everything else with its passwords from Vault
-docker compose up -d vault && ./infra/vault/unseal.sh
+./infra/vault/unseal.sh
 vault login -method=userpass username=operator
 . infra/vault/env.sh
 docker compose up -d minio minio-bucket-init postgres postgres-schema-init kafka kafka-topic-init kafka-ui

@@ -3,7 +3,8 @@
 Every push is tested. A push to the deploy branch is also built and deployed:
 the two web APIs, the KServe model, the training pipeline, the Airflow pipelines,
 the RAG pipeline, the stream push job, the MCP servers and the three agents. Secrets
-live in Jenkins and in the cluster, never in the repository.
+live in Vault, never in the repository. Jenkins reads each one when a build uses it
+([28](28_security.md)).
 
 ## Architecture
 
@@ -21,7 +22,7 @@ flowchart LR
             GATE{"deploy branch<br/>and files<br/>changed?"}
             STOP(["tested only"])
             CD["<b>CD · deploy branch</b><br/>build image<br/>tag = commit"]
-            CRED[["credentials<br/>postgres · minio · github · gateway"]]
+            CRED[["credentials, read from Vault<br/>minio · github · gateway"]]
             CI --> GATE
             GATE -- no --> STOP
             GATE -- yes --> CD
@@ -236,8 +237,9 @@ v4, which passed. With **DEPLOY_ALL**, all four stages went green:
 | Secret | Lives in | Used by |
 |---|---|---|
 | The kubeconfig for the kind cluster | the Jenkins volume, from `cicd/jenkins/kubeconfig.sh` | every stage |
-| The `gateway` user and password | Jenkins credential `gateway` | the UI check after the coordinator |
-| MCP, A2A and LLM keys | Kubernetes Secrets, made once by the install scripts | the agents; `deploy_agent.sh` only copies a specialist's MCP key into `kagent` |
+| The `gateway` user and password | Vault `platform/gateway`, through the Jenkins credential `gateway` | the gateway checks after each deploy |
+| The GitHub token | Vault `ci/github`, through the Jenkins credential `github` | scanning the repository |
+| MCP, A2A and LLM keys | Vault, synced into Kubernetes Secrets by External Secrets | the agents |
 
 MLflow and agentregistry need no credential: Jenkins reaches MLflow on the Compose
 network and agentregistry through a port-forward.
@@ -255,11 +257,11 @@ network and agentregistry through a port-forward.
 ## Setup
 
 ```bash
-# .env (gitignored) holds the secrets Jenkins reads at start-up
-JENKINS_ADMIN_PASSWORD=...  GITHUB_USER=...  GITHUB_TOKEN=...
+# .env (gitignored) holds no secret, only the deploy folder
 AIRFLOW_PROJECT_DIR=/Users/Admin/MLOps/fraudstream-deploy
 
-docker compose --profile ci up -d jenkins          # http://localhost:18086
+. infra/vault/env.sh                                 # Jenkins' admin password and Vault login
+docker compose --profile ci up -d jenkins            # http://localhost:18086
 ./cicd/jenkins/kubeconfig.sh                         # point Jenkins at the kind cluster
 ./cicd/sync_airflow.sh "$AIRFLOW_PROJECT_DIR"        # fill the deploy folder once
 ```
@@ -269,8 +271,10 @@ Parameters → DEPLOY_ALL** redeploys everything without a code change.
 
 ## Things worth knowing
 
-- **Secrets reach Jenkins as files**, through Docker secrets, not environment
-  variables, so no build inherits them. The build log shows `POSTGRES_PASSWORD=****`.
+- **Jenkins' own logins reach it as files**, through Docker secrets, not environment
+  variables, so no build inherits them: its admin password and its Vault AppRole. Every
+  other credential is read from Vault at the moment a build uses it, and the build log
+  shows `GATEWAY_PASSWORD=****`.
 - **Never delete the deploy folder while Airflow runs.** Airflow keeps the deleted
   folder mounted and fails with `Operation not permitted: '/opt/airflow/dags'`.
   Recreate its containers with `--force-recreate` to fix it.
@@ -307,3 +311,4 @@ Parameters → DEPLOY_ALL** redeploys everything without a code change.
 | Publishing to agentregistry | `k8s/agents/publish.sh` |
 | The MCP servers' install and check | `k8s/mcp/install.sh`, `k8s/mcp/check.sh` |
 | The gateway check | `cicd/check_gateway.sh` |
+| Credentials read from Vault | `cicd/jenkins/jenkins.yaml` (`hashicorpVault`), `cicd/jenkins/entrypoint.sh` |
