@@ -80,9 +80,8 @@ rollback() {
 
 if [ -n "$specialist" ]; then
   echo "==> $agent's MCP key"
-  kubectl -n kagent create secret generic "mcp-key-$agent" \
-    --from-literal=authorization="Bearer $(kubectl -n mcp get secret "mcp-key-$agent" -o jsonpath='{.data.key}' | base64 -d)" \
-    --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+  # Synced from Vault by k8s/agents/secrets.yaml; the agent can't start without it.
+  kubectl -n kagent wait externalsecret "mcp-key-$agent" --for=condition=Ready --timeout=2m >/dev/null
 fi
 
 echo "==> $agent's prompt, as the candidate"

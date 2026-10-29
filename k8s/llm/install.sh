@@ -45,22 +45,12 @@ for pool in qwen3-4b qwen3-1-7b; do
     --wait --timeout 5m >/dev/null
 done
 
-# A key is made once per consumer and kept. The gateway only stores its hash, with
-# the consumer's name and the models it may use.
+# A key is made once per consumer in Vault and kept. External Secrets copies each
+# key, and the gateway's list of key hashes with the models each consumer may use.
 echo "==> API keys"
-entry() {
-  local consumer=$1 models=$2 key hash
-  kubectl -n llm get secret "llm-key-$consumer" >/dev/null 2>&1 \
-    || kubectl -n llm create secret generic "llm-key-$consumer" --from-literal=key="$(openssl rand -hex 24)" >/dev/null
-  key=$(kubectl -n llm get secret "llm-key-$consumer" -o jsonpath='{.data.key}' | base64 -d)
-  hash=$(printf %s "$key" | shasum -a 256 | cut -d' ' -f1)
-  printf '{"keyHash":"sha256:%s","metadata":{"consumer":"%s","models":%s}}' "$hash" "$consumer" "$models"
-}
-kubectl -n llm create secret generic llm-api-keys \
-  --from-literal=benchmark="$(entry benchmark '["qwen3-4b","qwen3-1.7b"]')" \
-  --from-literal=agents="$(entry agents '["qwen3-4b"]')" \
-  --from-literal=risk-agent-b="$(entry risk-agent-b '["qwen3-1.7b"]')" \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+for consumer in benchmark agents risk-agent-b; do ./infra/vault/new-key.sh "llm/$consumer"; done
+kubectl apply -f k8s/llm/secrets.yaml >/dev/null
+kubectl -n llm wait externalsecret --all --for=condition=Ready --timeout=2m
 
 echo "==> the Gateway"
 kubectl apply -f k8s/llm/gateway.yaml >/dev/null

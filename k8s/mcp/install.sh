@@ -22,22 +22,12 @@ for server in fraud-context fraud-risk; do
     --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
 done
 
-# A key is made once per consumer and kept. The gateway stores only its hash, with
-# the consumer's name and the MCP servers whose tools it may see and call.
+# A key is made once per consumer in Vault and kept. External Secrets copies each
+# key, and the gateway's list of key hashes with the MCP servers each may use.
 echo "==> API keys"
-entry() {
-  local consumer=$1 servers=$2 key hash
-  kubectl -n mcp get secret "mcp-key-$consumer" >/dev/null 2>&1 \
-    || kubectl -n mcp create secret generic "mcp-key-$consumer" --from-literal=key="$(openssl rand -hex 24)" >/dev/null
-  key=$(kubectl -n mcp get secret "mcp-key-$consumer" -o jsonpath='{.data.key}' | base64 -d)
-  hash=$(printf %s "$key" | shasum -a 256 | cut -d' ' -f1)
-  printf '{"keyHash":"sha256:%s","metadata":{"consumer":"%s","servers":%s}}' "$hash" "$consumer" "$servers"
-}
-kubectl -n mcp create secret generic mcp-api-keys \
-  --from-literal=context-agent="$(entry context-agent '["fraud-context"]')" \
-  --from-literal=risk-agent="$(entry risk-agent '["fraud-risk"]')" \
-  --from-literal=mcp-check="$(entry mcp-check '["fraud-context","fraud-risk"]')" \
-  --dry-run=client -o yaml | kubectl apply -f - >/dev/null
+for consumer in context-agent risk-agent mcp-check; do ./infra/vault/new-key.sh "mcp/$consumer"; done
+kubectl apply -f k8s/mcp/secrets.yaml >/dev/null
+kubectl -n mcp wait externalsecret --all --for=condition=Ready --timeout=2m
 
 echo "==> the MCP gateway and its policy"
 kubectl apply -f k8s/mcp/gateway.yaml >/dev/null

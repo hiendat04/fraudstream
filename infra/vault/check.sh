@@ -7,6 +7,8 @@
 #   ./infra/vault/check.sh access        every secret is there, each reader reads its own and is refused the rest
 #   ./infra/vault/check.sh cluster       every Kubernetes Secret is synced from Vault and holds the same value
 #   ./infra/vault/check.sh cluster --sealed   and they all stay while Vault is sealed, and sync again once unsealed
+#   ./infra/vault/check.sh keys          the gateways' keys and their hashes come from Vault, made once
+#   ./infra/vault/check.sh keys --rotate      and a rotated key reaches the A2A gateway: the old one is refused
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -119,12 +121,24 @@ SYNCED=(
   "kubeflow lakehouse-credentials MINIO_SECRET_KEY platform/minio password"
 )
 # Scripts that may still make a Secret by hand: the GKE deploy, whose cluster can't
-# reach Vault, and the keys' install scripts until they move to Vault too.
-HAND_MADE_ALLOWED="cicd/deploy_agent.sh k8s/agents/install.sh k8s/agents/substrate.sh k8s/gateway/credentials.sh k8s/gke/deploy.sh k8s/llm/install.sh k8s/mcp/install.sh"
+# reach Vault, and the gateway login script it uses.
+HAND_MADE_ALLOWED="k8s/gateway/credentials.sh k8s/gke/deploy.sh"
 
 hash() { shasum -a 256 | cut -c1-16; }
 secret_hash() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d | hash; }
 synced_ready() { kubectl -n "$1" get externalsecret "$2" -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}' 2>/dev/null; }
+# Each line: <namespace> <Secret> <key> <Vault path> <field> [prefix]. The Secret is
+# synced, and its value is the prefix and the field, compared by hash.
+compare_synced() {
+  local line
+  for line in "$@"; do
+    set -- $line
+    expect "$1/$2 synced" True "$(synced_ready "$1" "$2")"
+    expect "$1/$2 $3 matches $4 $5" \
+      "$({ printf '%s' "${6:+$6 }"; vault kv get -mount=secret -field="$5" "$4" 2>/dev/null; } | hash)" \
+      "$(secret_hash "$1" "$2" "$3")"
+  done
+}
 all_ready() {
   local line
   for line in "${SYNCED[@]}"; do set -- $line; [ "$(synced_ready "$1" "$2")" = True ] || return 1; done
@@ -132,17 +146,14 @@ all_ready() {
 
 cluster() {
   echo "==> cluster"
-  local line hashes=() i=0
-  for line in "${SYNCED[@]}"; do
-    set -- $line
-    expect "$1/$2 synced" True "$(synced_ready "$1" "$2")"
-    expect "$1/$2 $3 matches $4 $5" "$(vault kv get -mount=secret -field="$5" "$4" 2>/dev/null | hash)" "$(secret_hash "$1" "$2" "$3")"
-  done
+  # set -- below replaces the arguments, so the flag is kept first.
+  local mode=${1:-} line hashes=() i=0
+  compare_synced "${SYNCED[@]}"
   local hand_made
   hand_made=$(comm -23 <(grep -rl "create secret" --include='*.sh' --include='*Jenkinsfile' k8s cicd Jenkinsfile | sort) \
     <(tr ' ' '\n' <<<"$HAND_MADE_ALLOWED" | sort) | xargs)
   expect "Secrets made by hand, outside the allowed scripts" none "${hand_made:-none}"
-  [ "${1:-}" = --sealed ] || return 0
+  [ "$mode" = --sealed ] || return 0
 
   echo "==> cluster, with Vault sealed"
   for line in "${SYNCED[@]}"; do set -- $line; hashes+=("$(secret_hash "$1" "$2" "$3")"); done
@@ -161,16 +172,89 @@ cluster() {
   expect "every Secret synced again" yes "$(all_ready && echo yes || echo no)"
 }
 
+# The gateways' keys and their copies, as compare_synced reads them.
+KEYS=(
+  "llm llm-key-benchmark key llm/benchmark key"
+  "llm llm-key-agents key llm/agents key"
+  "llm llm-key-risk-agent-b key llm/risk-agent-b key"
+  "mcp mcp-key-context-agent key mcp/context-agent key"
+  "mcp mcp-key-risk-agent key mcp/risk-agent key"
+  "mcp mcp-key-mcp-check key mcp/mcp-check key"
+  "kagent a2a-key-coordinator-agent authorization a2a/coordinator-agent key Bearer"
+  "kagent a2a-key-a2a-check authorization a2a/a2a-check key Bearer"
+  "kagent kagent-llm-key key llm/agents key"
+  "kagent kagent-llm-key-risk-agent-b key llm/risk-agent-b key"
+  "kagent mcp-key-context-agent authorization mcp/context-agent key Bearer"
+  "kagent mcp-key-risk-agent authorization mcp/risk-agent key Bearer"
+  "kagent gateway-htpasswd htpasswd platform/gateway-htpasswd htpasswd"
+  "agentregistry gateway-htpasswd htpasswd platform/gateway-htpasswd htpasswd"
+  "ate-system substrate-rustfs accessKey agents/substrate-rustfs access_key"
+  "ate-system substrate-rustfs secretKey agents/substrate-rustfs secret_key"
+)
+# <namespace> <Secret> <consumer> <Vault path>: each consumer's entry in a gateway's key list.
+KEY_HASHES=(
+  "llm llm-api-keys benchmark llm/benchmark"
+  "llm llm-api-keys agents llm/agents"
+  "llm llm-api-keys risk-agent-b llm/risk-agent-b"
+  "mcp mcp-api-keys context-agent mcp/context-agent"
+  "mcp mcp-api-keys risk-agent mcp/risk-agent"
+  "mcp mcp-api-keys mcp-check mcp/mcp-check"
+  "kagent a2a-api-keys coordinator-agent a2a/coordinator-agent"
+  "kagent a2a-api-keys a2a-check a2a/a2a-check"
+)
+key_hash_of() { kubectl -n "$1" get secret "$2" -o json 2>/dev/null | jq -r --arg c "$3" '.data[$c] // empty | @base64d | fromjson | .keyHash'; }
+vault_key_hash() { printf 'sha256:%s' "$(vault kv get -mount=secret -field=key "$1" 2>/dev/null | shasum -a 256 | cut -d' ' -f1)"; }
+all_key_hashes() { local line; for line in "${KEY_HASHES[@]}"; do set -- $line; vault_key_hash "$4"; echo; done | hash; }
+card_status() {
+  curl -s -o /dev/null -w '%{http_code}' "localhost:18095/api/a2a-sandboxes/kagent/context-agent/.well-known/agent-card.json" \
+    -H "x-kagent-host: kagent-controller.kagent" -H @<(printf 'Authorization: Bearer %s\n' "$1")
+}
+
+keys() {
+  echo "==> keys"
+  # set -- below replaces the arguments, so the flag is kept first.
+  local mode=${1:-} line before forward old new
+  compare_synced "${KEYS[@]}"
+  for line in "${KEY_HASHES[@]}"; do
+    set -- $line
+    expect "$1/$2 $3 is the hash of $4" "$(vault_key_hash "$4")" "$(key_hash_of "$1" "$2" "$3")"
+  done
+  reads llm "$(kubernetes_login llm)" llm/agents '!mcp/mcp-check'
+  reads mcp "$(kubernetes_login mcp)" mcp/mcp-check '!llm/agents'
+  reads kagent "$(kubernetes_login kagent)" a2a/a2a-check llm/agents mcp/risk-agent '!llm/benchmark'
+  before=$(all_key_hashes)
+  for line in "${KEY_HASHES[@]}"; do set -- $line; ./infra/vault/new-key.sh "$4" >/dev/null; done
+  expect "making the keys again changes none" "$before" "$(all_key_hashes)"
+  [ "$mode" = --rotate ] || return 0
+
+  echo "==> keys, rotating a2a-check"
+  command kubectl --context kind-fraudstream -n kagent port-forward svc/a2a-gateway 18095:8080 >/dev/null &
+  forward=$!
+  sleep 2
+  old=$(vault kv get -mount=secret -field=key a2a/a2a-check)
+  expect "the current key is let in" 200 "$(card_status "$old")"
+  ./infra/vault/rotate-key.sh a2a/a2a-check >/dev/null
+  new=$(vault kv get -mount=secret -field=key a2a/a2a-check)
+  echo "  rotated; waiting up to 3 minutes for the gateway to take the new key"
+  for _ in $(seq 36); do [ "$(card_status "$new")" = 200 ] && break; sleep 5; done
+  expect "the new key is let in" 200 "$(card_status "$new")"
+  expect "the old key is refused" 401 "$(card_status "$old")"
+  expect "a2a-api-keys holds the new hash" "$(vault_key_hash a2a/a2a-check)" "$(key_hash_of kagent a2a-api-keys a2a-check)"
+  kill "$forward" 2>/dev/null; wait "$forward" 2>/dev/null || true
+}
+
 : "${VAULT_ADDR:?set VAULT_ADDR=https://localhost:8200}" "${VAULT_CACERT:?set VAULT_CACERT to infra/vault/tls/ca.crt}"
 sections=("$@")
 case " $* " in *" --sealed "*) sealed=--sealed ;; esac
+case " $* " in *" --rotate "*) rotate=--rotate ;; esac
 [ ${#sections[@]} -gt 0 ] || sections=(server)
 for section in "${sections[@]}"; do
   case "$section" in
     server) server ;;
     access) access ;;
     cluster) cluster "${sealed:-}" ;;
-    --sealed) ;;
+    keys) keys "${rotate:-}" ;;
+    --sealed | --rotate) ;;
     *) echo "unknown section: $section" >&2; exit 2 ;;
   esac
 done
