@@ -41,5 +41,8 @@ COPY --from=ghcr.io/astral-sh/uv:0.9.10 /uv /usr/local/bin/uv
 COPY plugins.txt /usr/share/jenkins/ref/plugins.txt
 RUN jenkins-plugin-cli --plugin-file /usr/share/jenkins/ref/plugins.txt
 
-ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false"
+COPY entrypoint.sh /usr/local/bin/entrypoint.sh
+ENTRYPOINT ["/usr/local/bin/entrypoint.sh"]
+
+ENV JAVA_OPTS="-Djenkins.install.runSetupWizard=false -Djavax.net.ssl.trustStore=/var/jenkins_home/cacerts -Djavax.net.ssl.trustStorePassword=changeit"
 ENV CASC_JENKINS_CONFIG=/var/jenkins_home/casc/jenkins.yaml

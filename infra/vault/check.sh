@@ -10,6 +10,7 @@
 #   ./infra/vault/check.sh keys          the gateways' keys and their hashes come from Vault, made once
 #   ./infra/vault/check.sh keys --rotate      and a rotated key reaches the A2A gateway: the old one is refused
 #   ./infra/vault/check.sh compose       no secret in .env or the code, Compose needs Vault, Debezium reads its password
+#   ./infra/vault/check.sh jenkins       Jenkins holds only its Vault login, and its credentials are read from Vault
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -91,7 +92,7 @@ access() {
     expect "$path" set "$(vault kv metadata get -mount=secret "$path" >/dev/null 2>&1 && echo set || echo missing)"
   done
   token=$(approle_login jenkins)
-  reads jenkins "$token" platform/postgres platform/minio platform/pgvector platform/gateway ci/github '!llm/agents'
+  reads jenkins "$token" platform/minio platform/gateway ci/github '!platform/postgres' '!llm/agents'
   token=$(approle_login airflow)
   reads airflow "$token" platform/postgres platform/minio platform/pgvector platform/gateway '!ci/github'
   token=$(kubernetes_login fraudstream-apis)
@@ -265,6 +266,34 @@ compose() {
     "$(curl -s localhost:18083/connectors/fraudstream-bronze-raw-transactions/status | jq -r '.connector.state // empty')"
 }
 
+JENKINS_CREDENTIALS="minio github gateway"
+
+# The audit log's reads of one path by one AppRole, in the last 30 minutes.
+audited_reads() {
+  docker logs fraudstream-vault --since 30m 2>/dev/null | jq -Rr --arg path "$1" --arg role "$2" '
+    fromjson? | select(.type == "response" and .request.path == $path and .auth.metadata.role_name == $role) | .time' | wc -l | xargs
+}
+
+jenkins() {
+  echo "==> jenkins"
+  local admin credentials id
+  expect "Jenkins' secret files" "JENKINS_ADMIN_PASSWORD VAULT_ROLE_ID VAULT_SECRET_ID" \
+    "$(docker exec fraudstream-jenkins ls /run/secrets 2>/dev/null | sort | xargs)"
+  admin=$(vault kv get -mount=secret -field=admin_password compose/jenkins)
+  # While Jenkins starts, it answers with an HTML page instead of JSON.
+  credentials=$(curl -s -u "admin:$admin" "localhost:18086/credentials/store/system/domain/_/api/json?depth=1" \
+    | jq -c '[.credentials[]? | {id, typeName}]' 2>/dev/null || echo null)
+  expect "Jenkins' API answers" yes "$([ "$credentials" != null ] && echo yes || echo "no: still starting?")"
+  for id in $JENKINS_CREDENTIALS; do
+    expect "credential $id is read from Vault" yes \
+      "$(jq -r --arg id "$id" 'any(.[]; .id == $id and (.typeName | test("Vault")))' <<<"$credentials" | sed 's/true/yes/;s/false/no/')"
+  done
+  expect "Jenkins logs in to Vault" yes "$(jq -r 'any(.[]; .id == "vault-approle")' <<<"$credentials" | sed 's/true/yes/;s/false/no/')"
+  local reads
+  reads=$(audited_reads secret/data/platform/gateway jenkins)
+  expect "the audit log shows Jenkins reading the gateway login" yes "$([ "${reads:-0}" -gt 0 ] && echo yes || echo "no reads in the last 30 minutes")"
+}
+
 : "${VAULT_ADDR:?set VAULT_ADDR=https://localhost:8200}" "${VAULT_CACERT:?set VAULT_CACERT to infra/vault/tls/ca.crt}"
 sections=("$@")
 case " $* " in *" --sealed "*) sealed=--sealed ;; esac
@@ -277,6 +306,7 @@ for section in "${sections[@]}"; do
     cluster) cluster "${sealed:-}" ;;
     keys) keys "${rotate:-}" ;;
     compose) compose ;;
+    jenkins) jenkins ;;
     --sealed | --rotate) ;;
     *) echo "unknown section: $section" >&2; exit 2 ;;
   esac
