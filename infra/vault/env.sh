@@ -29,9 +29,18 @@ AIRFLOW_JWT_SECRET=$(_vault_field compose/airflow jwt_secret)
 AIRFLOW_API_SECRET_KEY=$(_vault_field compose/airflow api_secret_key)
 MINIO_ACCESS_KEY=$MINIO_ROOT_USER
 MINIO_SECRET_KEY=$MINIO_ROOT_PASSWORD
+
+# Jenkins' own Vault login, a fresh secret id each run: Jenkins reads every other
+# credential from Vault with it when a build uses one.
+VAULT_ROLE_ID=$(vault read -field=role_id auth/approle/role/jenkins/role-id)
+VAULT_SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/jenkins/secret-id)
+
+# Airflow's, the same way: its secrets backend reads the connections with it.
+AIRFLOW_VAULT_ROLE_ID=$(vault read -field=role_id auth/approle/role/airflow/role-id)
+AIRFLOW_VAULT_SECRET_ID=$(vault write -f -field=secret_id auth/approle/role/airflow/secret-id)
 export POSTGRES_USER POSTGRES_PASSWORD MINIO_ROOT_USER MINIO_ROOT_PASSWORD MINIO_ACCESS_KEY MINIO_SECRET_KEY \
   PGVECTOR_USER PGVECTOR_PASSWORD GATEWAY_USER GATEWAY_PASSWORD GITHUB_USER GITHUB_TOKEN JENKINS_ADMIN_PASSWORD \
-  AIRFLOW_FERNET_KEY AIRFLOW_JWT_SECRET AIRFLOW_API_SECRET_KEY
+  AIRFLOW_FERNET_KEY AIRFLOW_JWT_SECRET AIRFLOW_API_SECRET_KEY VAULT_ROLE_ID VAULT_SECRET_ID AIRFLOW_VAULT_ROLE_ID AIRFLOW_VAULT_SECRET_ID
 
 unset -f _vault_field
 unset _vault_dir

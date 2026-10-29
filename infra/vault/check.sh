@@ -11,6 +11,7 @@
 #   ./infra/vault/check.sh keys --rotate      and a rotated key reaches the A2A gateway: the old one is refused
 #   ./infra/vault/check.sh compose       no secret in .env or the code, Compose needs Vault, Debezium reads its password
 #   ./infra/vault/check.sh jenkins       Jenkins holds only its Vault login, and its credentials are read from Vault
+#   ./infra/vault/check.sh airflow       Airflow reads its connections from Vault, and a task's password is masked
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
@@ -268,20 +269,29 @@ compose() {
 
 JENKINS_CREDENTIALS="minio github gateway"
 
-# The audit log's reads of one path by one AppRole, in the last 30 minutes.
+# The audit log's reads of one path by one AppRole in the last 30 minutes, from
+# the given containers when named (the access check logs in as each AppRole too).
 audited_reads() {
-  docker logs fraudstream-vault --since 30m 2>/dev/null | jq -Rr --arg path "$1" --arg role "$2" '
-    fromjson? | select(.type == "response" and .request.path == $path and .auth.metadata.role_name == $role) | .time' | wc -l | xargs
+  local from
+  from=$(for container in "${@:3}"; do
+    docker inspect -f '{{range .NetworkSettings.Networks}}{{.IPAddress}} {{end}}' "$container" 2>/dev/null
+  done | xargs)
+  docker logs fraudstream-vault --since 30m 2>/dev/null | jq -Rr --arg path "$1" --arg role "$2" --arg from "$from" '
+    fromjson? | select(.type == "response" and .request.path == $path and .auth.metadata.role_name == $role)
+    | .request.remote_address as $ip | select($from == "" or ($from | split(" ") | index($ip)) != null) | .time' | wc -l | xargs
 }
 
 jenkins() {
   echo "==> jenkins"
-  local admin credentials id
+  local admin jar credentials id crumb fetched reads
   expect "Jenkins' secret files" "JENKINS_ADMIN_PASSWORD VAULT_ROLE_ID VAULT_SECRET_ID" \
     "$(docker exec fraudstream-jenkins ls /run/secrets 2>/dev/null | sort | xargs)"
   admin=$(vault kv get -mount=secret -field=admin_password compose/jenkins)
+  jar=$(mktemp)
+  # The login reaches curl through its config on stdin, never its command line; the cookie keeps the crumb's session.
+  jenkins_api() { printf 'user = "admin:%s"\n' "$admin" | curl -s -K - -b "$jar" -c "$jar" "$@"; }
   # While Jenkins starts, it answers with an HTML page instead of JSON.
-  credentials=$(curl -s -u "admin:$admin" "localhost:18086/credentials/store/system/domain/_/api/json?depth=1" \
+  credentials=$(jenkins_api "localhost:18086/credentials/store/system/domain/_/api/json?depth=1" \
     | jq -c '[.credentials[]? | {id, typeName}]' 2>/dev/null || echo null)
   expect "Jenkins' API answers" yes "$([ "$credentials" != null ] && echo yes || echo "no: still starting?")"
   for id in $JENKINS_CREDENTIALS; do
@@ -289,9 +299,40 @@ jenkins() {
       "$(jq -r --arg id "$id" 'any(.[]; .id == $id and (.typeName | test("Vault")))' <<<"$credentials" | sed 's/true/yes/;s/false/no/')"
   done
   expect "Jenkins logs in to Vault" yes "$(jq -r 'any(.[]; .id == "vault-approle")' <<<"$credentials" | sed 's/true/yes/;s/false/no/')"
-  local reads
-  reads=$(audited_reads secret/data/platform/gateway jenkins)
+  # Only deploy builds use the gateway login, so Jenkins is asked to fetch it here, as a build would.
+  crumb=$(jenkins_api localhost:18086/crumbIssuer/api/json | jq -r '"\(.crumbRequestField): \(.crumb)"' 2>/dev/null || true)
+  fetched=$(jenkins_api -X POST localhost:18086/scriptText -H "$crumb" --data-urlencode 'script=
+def c = com.cloudbees.plugins.credentials.SystemCredentialsProvider.instance.credentials.find { it.id == "gateway" }
+println(c != null && c.password.plainText ? "resolved" : "missing")' || true)
+  rm -f "$jar"
+  expect "Jenkins fetches the gateway login" resolved "$fetched"
+  reads=$(audited_reads secret/data/platform/gateway jenkins fraudstream-jenkins)
   expect "the audit log shows Jenkins reading the gateway login" yes "$([ "${reads:-0}" -gt 0 ] && echo yes || echo "no reads in the last 30 minutes")"
+}
+
+airflow() {
+  echo "==> airflow"
+  local connection passwords reads admin run rendered
+  connection=$(docker exec fraudstream-airflow-scheduler airflow connections get postgres -o json 2>/dev/null \
+    | jq -r '.[0] // . | "\(.conn_type) \(.host) password \(if (.password // "") != "" then "set" else "missing" end)"' || true)
+  expect "the postgres connection, from Vault" "postgres postgres password set" "$connection"
+  passwords=$(docker exec fraudstream-airflow-scheduler env 2>/dev/null \
+    | grep -oE '^(POSTGRES|PGVECTOR|GATEWAY)_PASSWORD|^MINIO_SECRET_KEY' | xargs || true)
+  expect "no password in the scheduler's environment" none "${passwords:-none}"
+  reads=$(audited_reads secret/data/platform/postgres airflow fraudstream-airflow-scheduler fraudstream-airflow-api-server)
+  expect "the audit log shows Airflow reading the postgres login" yes "$([ "${reads:-0}" -gt 0 ] && echo yes || echo "no reads in the last 30 minutes")"
+  # The last drift run's first task: its rendered environment must show *** for the password.
+  # Every user is an admin here, so the token endpoint hands one out without a login.
+  admin=$(curl -s localhost:18081/auth/token | jq -r '.access_token // empty' 2>/dev/null || true)
+  [ -n "$admin" ] || admin=$(curl -s -X POST localhost:18081/auth/token -H 'Content-Type: application/json' -d '{}' \
+    | jq -r '.access_token // empty' 2>/dev/null || true)
+  expect "Airflow's API answers" yes "${admin:+yes}"
+  run=$(curl -s -H "Authorization: Bearer $admin" "localhost:18081/api/v2/dags/fraudstream_drift_monitoring/dagRuns?order_by=-start_date&limit=1" \
+    | jq -r '.dag_runs[0].dag_run_id // empty' 2>/dev/null || true)
+  rendered=$(curl -s -H "Authorization: Bearer $admin" \
+    "localhost:18081/api/v2/dags/fraudstream_drift_monitoring/dagRuns/$run/taskInstances" \
+    | jq -r '[.task_instances[] | select(.rendered_fields.env != null)][0].rendered_fields.env.GATEWAY_PASSWORD // empty' 2>/dev/null || true)
+  expect "a task's rendered GATEWAY_PASSWORD" "***" "${rendered:-no drift run with a rendered env yet}"
 }
 
 : "${VAULT_ADDR:?set VAULT_ADDR=https://localhost:8200}" "${VAULT_CACERT:?set VAULT_CACERT to infra/vault/tls/ca.crt}"
@@ -307,6 +348,7 @@ for section in "${sections[@]}"; do
     keys) keys "${rotate:-}" ;;
     compose) compose ;;
     jenkins) jenkins ;;
+    airflow) airflow ;;
     --sealed | --rotate) ;;
     *) echo "unknown section: $section" >&2; exit 2 ;;
   esac

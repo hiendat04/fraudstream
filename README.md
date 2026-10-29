@@ -143,8 +143,8 @@ uv sync --extra kafka --extra spark --extra storage
 # infrastructure: Vault first, then everything else with its passwords from Vault
 docker compose up -d vault && ./infra/vault/unseal.sh
 vault login -method=userpass username=operator
-./infra/vault/compose.sh up -d minio minio-bucket-init postgres postgres-schema-init kafka kafka-topic-init kafka-ui
 . infra/vault/env.sh
+docker compose up -d minio minio-bucket-init postgres postgres-schema-init kafka kafka-topic-init kafka-ui
 
 # generate data, then build the layers
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions
@@ -158,7 +158,8 @@ Prefer orchestration? Start Airflow and trigger `fraudstream_raw_to_bronze` at
 `http://localhost:18081`. The other DAGs follow on their own.
 
 ```bash
-./infra/vault/compose.sh --profile orchestration up --build -d \
+[ -z "${AIRFLOW_PROJECT_DIR:-}" ] || ./cicd/sync_airflow.sh "$AIRFLOW_PROJECT_DIR"
+docker compose --profile orchestration up --build -d \
   airflow-db airflow-init airflow-api-server airflow-dag-processor airflow-scheduler
 ```
 
@@ -168,7 +169,7 @@ Everything else has its own run instructions in the docs above: Flink
 ([11](docs/data_engineering/11_data_governance_datahub.md)), Feast ([17](docs/ml/16_feature_store.md)) and
 the Kubernetes stack ([21](docs/ml/20_local_k8s_platform.md)). Add `--spark-ui` to any Spark
 job, or `--flink-ui` to the Flink job, to watch it run. Stop the services with
-`./infra/vault/compose.sh down`.
+`docker compose down`.
 
 | Service | URL |
 |---|---|

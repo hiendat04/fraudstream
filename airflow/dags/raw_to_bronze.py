@@ -8,10 +8,15 @@ from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG, TaskGroup
 
 from fraudstream_airflow.assets import BRONZE_TRANSACTIONS_VALIDATED
-from fraudstream_airflow.dag_helpers import DEFAULT_ARGS, SPARK_POOL, project_python_command
+from fraudstream_airflow.dag_helpers import (
+    DEFAULT_ARGS,
+    MINIO_KWARGS,
+    SPARK_POOL,
+    project_python_command,
+    verify_source_manifest,
+)
 from fraudstream.orchestration.validation import (
     validate_bronze_report,
-    validate_source_manifest,
 )
 
 
@@ -41,9 +46,10 @@ with DAG(
 
         verify_source_manifest = PythonOperator(
             task_id="verify_source_manifest",
-            python_callable=validate_source_manifest,
+            python_callable=verify_source_manifest,
             op_kwargs={
                 "source_dir": "{{ var.value.fraudstream_raw_transactions_dir }}",
+                **MINIO_KWARGS,
             },
         )
 
