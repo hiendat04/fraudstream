@@ -14,36 +14,43 @@ jenkins:
 unclassified:
   location:
     url: "http://localhost:18086/"
+  hashicorpVault:
+    configuration:
+      vaultUrl: "https://vault:8200"
+      vaultCredentialId: "vault-approle"
+      engineVersion: 2
 
 credentials:
   system:
     domainCredentials:
       - credentials:
-          - usernamePassword:
+          - vaultAppRoleCredential:
               scope: GLOBAL
-              id: "postgres"
-              username: "${POSTGRES_USER}"
-              password: "${POSTGRES_PASSWORD}"
-          - usernamePassword:
+              id: "vault-approle"
+              path: "approle"
+              roleId: "${VAULT_ROLE_ID}"
+              secretId: "${VAULT_SECRET_ID}"
+          - vaultUsernamePasswordCredentialImpl:
               scope: GLOBAL
               id: "minio"
-              username: "${MINIO_ACCESS_KEY}"
-              password: "${MINIO_SECRET_KEY}"
-          - usernamePassword:
+              path: "secret/platform/minio"
+              usernameKey: "login"
+              passwordKey: "password"
+              engineVersion: 2
+          - vaultUsernamePasswordCredentialImpl:
               scope: GLOBAL
               id: "github"
-              username: "${GITHUB_USER}"
-              password: "${GITHUB_TOKEN}"
-          - usernamePassword:
+              path: "secret/ci/github"
+              usernameKey: "username"
+              passwordKey: "token"
+              engineVersion: 2
+          - vaultUsernamePasswordCredentialImpl:
               scope: GLOBAL
               id: "gateway"
-              username: "${GATEWAY_USER}"
-              password: "${GATEWAY_PASSWORD}"
-          - usernamePassword:
-              scope: GLOBAL
-              id: "pgvector"
-              username: "${PGVECTOR_USER}"
-              password: "${PGVECTOR_PASSWORD}"
+              path: "secret/platform/gateway"
+              usernameKey: "login"
+              passwordKey: "password"
+              engineVersion: 2
 
 jobs:
   - script: |

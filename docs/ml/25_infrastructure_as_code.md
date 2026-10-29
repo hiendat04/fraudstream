@@ -216,9 +216,10 @@ so running the playbook again changes nothing on a VM that is already right.
 ## Run a session
 
 ```bash
-# the GKE login helper on PATH, and the local stores the VM is seeded from
+# the GKE login helper on PATH, Vault, and the local stores the VM is seeded from
 export PATH="/opt/homebrew/share/google-cloud-sdk/bin:$PATH"
-docker compose up -d postgres redis minio
+./infra/vault/unseal.sh && vault login -method=userpass username=operator
+. infra/vault/env.sh && docker compose up -d postgres redis minio
 
 ./infra/session.sh up          # the whole serving path, ends with the two URLs
 ./infra/session.sh leftovers   # what is billing right now
@@ -226,7 +227,8 @@ docker compose up -d postgres redis minio
 ```
 
 The settings come from `.env`: `GCP_PROJECT`, `GCP_REGION`, `GCP_ZONE`,
-`GCP_BILLING_ACCOUNT`, the budget, `CLOUD_POSTGRES_PASSWORD` and the gateway password.
+`GCP_BILLING_ACCOUNT` and the budget. The passwords come from Vault
+([28](28_security.md)), and `session.sh` stops first if you aren't logged in to it.
 The bootstrap stack runs once by hand, before the first session:
 `./infra/terraform/tf.sh bootstrap apply`.
 
@@ -261,9 +263,18 @@ the cluster name, the zone and the gateway IP.
 find the registry, the model and the features already loaded, and skip the copy.
 
 ```bash
+ansible-galaxy collection install -r infra/ansible/requirements.yml
+uv tool install --force ansible-core --with hvac
 cd infra/ansible && set -a && . ../../.env && set +a
-ansible-playbook site.yml
+no_proxy='*' ansible-playbook site.yml
 ```
+
+**The database password is a Vault lookup.** `postgres_password` reads `cloud/postgres`
+with the operator's token, at the moment a task needs it
+([`group_vars/stores.yml`](../../infra/ansible/group_vars/stores.yml#L5)). The seed's
+local login reads `platform/postgres` the same way. `no_proxy='*'` is for macOS: there,
+a forked Ansible worker dies while it looks up the system's proxy settings for the
+request to Vault.
 
 ![Ansible rerun: base packages and Docker](../../images/iac/03-ansible-rerun-base-and-docker.png)
 
@@ -396,7 +407,7 @@ account, and no storage password exists.
 | Modules | `infra/terraform/modules/{network,registry,gke,vm}/` |
 | Ansible settings and inventory | `infra/ansible/ansible.cfg`, `infra/ansible/inventory/terraform.py` |
 | Playbook and roles | `infra/ansible/site.yml`, `infra/ansible/roles/` |
-| VM settings | `infra/ansible/group_vars/stores.yml` |
+| VM settings, and the password's Vault lookup | `infra/ansible/group_vars/stores.yml` |
 | Platform on GKE | `k8s/gke/platform.sh`, `k8s/gke/nginx-ingress-values.yaml` |
 | Deploy to GKE | `k8s/gke/deploy.sh`, `k8s/gke/env.sh` |
 | Stores seen from the cluster | `k8s/gke/stores.yaml` |

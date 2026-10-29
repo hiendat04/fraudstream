@@ -9,6 +9,7 @@ docs/superpowers/
 data/
 .idea
 local-ca.crt
+infra/vault/tls/
 .terraform/
 *.tfstate
 *.tfstate.*

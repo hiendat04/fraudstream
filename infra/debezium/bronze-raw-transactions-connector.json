@@ -3,7 +3,7 @@
   "database.hostname": "postgres",
   "database.port": "5432",
   "database.user": "fraudstream",
-  "database.password": "fraudstream_local_password",
+  "database.password": "${env:POSTGRES_PASSWORD}",
   "database.dbname": "fraudstream",
 
   "topic.prefix": "fraudstream",

@@ -6,3 +6,4 @@ credentials-binding
 timestamper
 ws-cleanup
 pipeline-stage-view
+hashicorp-vault-plugin

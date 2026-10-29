@@ -5,7 +5,7 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
-run_root()          { PYTHONPATH=src uv run python -m unittest discover -s tests/unit -p 'test_*.py'; }
+run_root()          { PYTHONPATH=src:airflow/include uv run python -m unittest discover -s tests/unit -p 'test_*.py'; }
 run_ml()            { cd ml && PYTHONPATH=src uv run python -m unittest discover -s tests; }
 run_pipelines()     { cd pipelines && PYTHONPATH=src uv run python -m unittest discover -s tests; }
 run_feature_store() { cd feature_store && PYTHONPATH=src:../src uv run python -m unittest discover -s tests; }

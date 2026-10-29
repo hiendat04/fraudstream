@@ -16,15 +16,14 @@ from typing import Any
 from fraudstream.jobs.warehouse import (
     DEFAULT_POSTGRES_DATABASE,
     DEFAULT_POSTGRES_HOST,
-    DEFAULT_POSTGRES_PASSWORD,
     DEFAULT_POSTGRES_PORT,
-    DEFAULT_POSTGRES_USER,
     HADOOP_AWS_PACKAGE,
     ICEBERG_SPARK_PACKAGE,
     POSTGRESQL_JDBC_PACKAGE,
     IcebergCatalogConfig,
     PostgresJdbcConfig,
     WarehouseConfig,
+    required_env,
 )
 
 
@@ -139,8 +138,8 @@ def configs_from_env() -> tuple[WarehouseConfig, IcebergCatalogConfig, PostgresJ
         host=os.environ.get("POSTGRES_HOST", DEFAULT_POSTGRES_HOST),
         port=int(os.environ.get("POSTGRES_PORT") or DEFAULT_POSTGRES_PORT),
         database=os.environ.get("POSTGRES_DB", DEFAULT_POSTGRES_DATABASE),
-        user=os.environ.get("POSTGRES_USER", DEFAULT_POSTGRES_USER),
-        password=os.environ.get("POSTGRES_PASSWORD", DEFAULT_POSTGRES_PASSWORD),
+        user=required_env("POSTGRES_USER"),
+        password=required_env("POSTGRES_PASSWORD"),
     )
     return warehouse, iceberg, postgres
 

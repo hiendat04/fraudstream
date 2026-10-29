@@ -98,6 +98,8 @@ class ConfigsFromEnvTest(unittest.TestCase):
             "POSTGRES_DB": "fraudstream",
             "POSTGRES_USER": "fraudstream",
             "POSTGRES_PASSWORD": "pg-secret",
+            "MINIO_ACCESS_KEY": "ak",
+            "MINIO_SECRET_KEY": "sk",
         }
 
         with unittest.mock.patch.dict("os.environ", env, clear=False):
@@ -106,6 +108,12 @@ class ConfigsFromEnvTest(unittest.TestCase):
         self.assertEqual(warehouse.endpoint, "http://minio:9000")
         self.assertEqual(postgres.url, "jdbc:postgresql://postgres:5432/fraudstream")
         self.assertEqual(iceberg.warehouse_uri, "s3a://fraudstream/warehouse")
+
+    def test_spark_session_needs_the_postgres_password(self):
+        env = {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk", "POSTGRES_USER": "fraudstream"}
+        with unittest.mock.patch.dict("os.environ", env, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "POSTGRES_PASSWORD is not set"):
+                configs_from_env()
 
 
 class PushTargetTableTest(unittest.TestCase):

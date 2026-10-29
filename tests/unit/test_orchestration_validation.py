@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
+from unittest.mock import patch
 
 from fraudstream.jobs.gold.transactions import (
     CORE_GOLD_TABLE_NAMES,
@@ -24,6 +25,12 @@ from fraudstream.orchestration.validation import (
 
 class OrchestrationValidationTest(TestCase):
     """Quality gates should accept reconciled artifacts and reject bad counts."""
+
+    def setUp(self) -> None:
+        # The gates read MinIO's settings from the environment, as they do in Airflow.
+        environment = patch.dict("os.environ", {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"})
+        environment.start()
+        self.addCleanup(environment.stop)
 
     def test_validates_source_manifest_and_bronze_reconciliation(self) -> None:
         with TemporaryDirectory() as tmp_dir:

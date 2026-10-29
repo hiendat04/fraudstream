@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Send 30 replayed payments through the gateway and check that the model
 # versions answering match the InferenceService's split.
-#   set -a && . ./.env && set +a
+#   . infra/vault/env.sh
 #   GATEWAY_ADDRESS=127.0.0.1 ./cicd/check_model_split.sh
 set -euo pipefail
 cd "$(dirname "$0")/.."

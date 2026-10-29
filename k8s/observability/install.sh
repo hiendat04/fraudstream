@@ -1,20 +1,18 @@
 #!/usr/bin/env bash
 # Install the observability stack on the local cluster. Everything lands in the
 # observability namespace, and every UI sits behind the gateway. Safe to run again.
-#   set -a && . ./.env && set +a && ./k8s/observability/install.sh
+#   ./k8s/observability/install.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 . k8s/versions.sh
-: "${GATEWAY_USER:?set GATEWAY_USER}" "${GATEWAY_PASSWORD:?set GATEWAY_PASSWORD}"
 NS=observability
 
 kubectl config use-context kind-fraudstream >/dev/null
 
-echo "==> Namespace, gateway password, Grafana admin"
-./k8s/gateway/credentials.sh "$NS"
-kubectl -n "$NS" create secret generic grafana-admin \
-  --from-literal=admin-user="$GATEWAY_USER" --from-literal=admin-password="$GATEWAY_PASSWORD" \
-  --dry-run=client -o yaml | kubectl apply -f -
+echo "==> Namespace, and the gateway password and Grafana admin from Vault"
+kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
+kubectl apply -f k8s/observability/secrets.yaml
+kubectl -n "$NS" wait externalsecret --all --for=condition=Ready --timeout=2m
 
 echo "==> Prometheus, Grafana, node-exporter, kube-state-metrics"
 helm upgrade --install metrics oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
@@ -51,7 +49,7 @@ echo "==> Routes through the gateway"
 kubectl apply -f k8s/observability/ingress.yaml
 
 echo "==> Kubeflow Pipelines behind the gateway for the drift pipeline"
-./k8s/gateway/credentials.sh kubeflow
+kubectl apply -f k8s/platform/kubeflow-secrets.yaml
 kubectl apply -f k8s/gateway/pipelines.yaml
 
 echo

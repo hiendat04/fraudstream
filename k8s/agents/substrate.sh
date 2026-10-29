@@ -17,10 +17,10 @@ kubectl() { command kubectl --context kind-fraudstream "$@"; }
 
 kubectl create namespace ate-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
-echo "==> RustFS keys"
-kubectl -n ate-system get secret substrate-rustfs >/dev/null 2>&1 \
-  || kubectl -n ate-system create secret generic substrate-rustfs \
-    --from-literal=accessKey="$(openssl rand -hex 12)" --from-literal=secretKey="$(openssl rand -hex 24)" >/dev/null
+echo "==> RustFS keys, made once in Vault"
+./infra/vault/new-key.sh agents/substrate-rustfs access_key secret_key
+kubectl apply -f k8s/agents/substrate-secrets.yaml >/dev/null
+kubectl -n ate-system wait externalsecret substrate-rustfs --for=condition=Ready --timeout=2m >/dev/null
 rustfs() { kubectl -n ate-system get secret substrate-rustfs -o jsonpath="{.data.$1}" | base64 -d; }
 
 # No --wait: the API server can't be ready until Valkey is fixed below.

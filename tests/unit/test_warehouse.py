@@ -2,7 +2,11 @@
 
 from __future__ import annotations
 
+import os
 from unittest import TestCase, main
+from unittest.mock import patch
+
+import fraudstream.jobs.warehouse as warehouse_module
 
 from fraudstream.jobs.warehouse import (
     HADOOP_AWS_PACKAGE,
@@ -13,6 +17,7 @@ from fraudstream.jobs.warehouse import (
     WarehouseConfig,
     configure_iceberg_catalog,
     configure_object_storage,
+    required_env,
     write_iceberg_table,
 )
 
@@ -189,6 +194,41 @@ class _FakeDataFrame:
         writer = _FakeWriter(table)
         self.write_to_calls.append(writer)
         return writer
+
+
+class RequiredSecretsTest(TestCase):
+    """Credentials come only from the environment: none is written in the code."""
+
+    def test_required_env_returns_the_value(self) -> None:
+        with patch.dict(os.environ, {"POSTGRES_PASSWORD": "from-vault"}):
+            self.assertEqual(required_env("POSTGRES_PASSWORD"), "from-vault")
+
+    def test_required_env_names_a_missing_variable(self) -> None:
+        with patch.dict(os.environ, {}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "^POSTGRES_PASSWORD is not set$"):
+                required_env("POSTGRES_PASSWORD")
+
+    def test_required_env_treats_empty_as_missing(self) -> None:
+        with patch.dict(os.environ, {"POSTGRES_PASSWORD": ""}):
+            with self.assertRaisesRegex(RuntimeError, "POSTGRES_PASSWORD is not set"):
+                required_env("POSTGRES_PASSWORD")
+
+    def test_minio_settings_need_their_keys(self) -> None:
+        with patch.dict(os.environ, {"MINIO_ACCESS_KEY": "ak"}, clear=True):
+            with self.assertRaisesRegex(RuntimeError, "MINIO_SECRET_KEY is not set"):
+                WarehouseConfig.from_env()
+
+    def test_minio_settings_take_their_keys_from_the_environment(self) -> None:
+        with patch.dict(os.environ, {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk"}, clear=True):
+            config = WarehouseConfig.from_env()
+        self.assertEqual((config.access_key, config.secret_key), ("ak", "sk"))
+
+    def test_no_password_has_a_default(self) -> None:
+        for name in ("DEFAULT_POSTGRES_PASSWORD", "DEFAULT_MINIO_SECRET_KEY",
+                     "DEFAULT_POSTGRES_USER", "DEFAULT_MINIO_ACCESS_KEY"):
+            self.assertFalse(hasattr(warehouse_module, name), name)
+        self.assertEqual((PostgresJdbcConfig().user, PostgresJdbcConfig().password), ("", ""))
+        self.assertEqual((WarehouseConfig().access_key, WarehouseConfig().secret_key), ("", ""))
 
 
 if __name__ == "__main__":

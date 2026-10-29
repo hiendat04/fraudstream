@@ -1,3 +1,6 @@
+include:
+  - infra/vault/compose.yml
+
 x-airflow-common: &airflow-common
   build:
     context: .
@@ -11,16 +14,16 @@ x-airflow-common: &airflow-common
     AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION: "true"
     AIRFLOW__CORE__EXECUTION_API_SERVER_URL: http://airflow-api-server:8080/execution/
     AIRFLOW__CORE__SIMPLE_AUTH_MANAGER_ALL_ADMINS: "true"
-    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:-MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY=}"
+    AIRFLOW__CORE__FERNET_KEY: "${AIRFLOW_FERNET_KEY:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     AIRFLOW__DATABASE__SQL_ALCHEMY_CONN: postgresql+psycopg2://airflow:airflow@airflow-db/airflow
-    AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET:-fraudstream-local-jwt-secret-change-me}"
-    AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:-fraudstream-local-api-secret-change-me}"
+    AIRFLOW__API_AUTH__JWT_SECRET: "${AIRFLOW_JWT_SECRET:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+    AIRFLOW__API__SECRET_KEY: "${AIRFLOW_API_SECRET_KEY:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     AIRFLOW__SCHEDULER__ENABLE_HEALTH_CHECK: "true"
+    AIRFLOW__SECRETS__BACKEND: airflow.providers.hashicorp.secrets.vault.VaultBackend
+    AIRFLOW__SECRETS__BACKEND_KWARGS: '{"url": "https://vault:8200", "mount_point": "secret", "connections_path": "platform", "variables_path": null, "config_path": null, "kv_engine_version": 2, "auth_type": "approle", "role_id": "${AIRFLOW_VAULT_ROLE_ID:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}", "secret_id": "${AIRFLOW_VAULT_SECRET_ID:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}", "verify": "/opt/airflow/vault-ca.crt"}'
     POSTGRES_HOST: postgres
     POSTGRES_PORT: "5432"
     POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
-    POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
-    POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
     REDIS_HOST: redis
     REDIS_PORT: "6379"
     FEAST_SPARK_MASTER: "local[4]"
@@ -29,10 +32,6 @@ x-airflow-common: &airflow-common
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
     MINIO_ENDPOINT: "http://minio:9000"
-    MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-fraudstream}"
-    MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
-    GATEWAY_USER: "${GATEWAY_USER:-fraudstream}"
-    GATEWAY_PASSWORD: "${GATEWAY_PASSWORD:-change-me}"
     GATEWAY_CA: /opt/airflow/project/local-ca.crt
     PUSHGATEWAY_URL: https://pushgateway.fraudstream.localhost
     PIPELINES_URL: https://pipelines.fraudstream.localhost
@@ -40,8 +39,6 @@ x-airflow-common: &airflow-common
     PGVECTOR_HOST: pgvector
     PGVECTOR_PORT: "5432"
     PGVECTOR_DB: llm
-    PGVECTOR_USER: "${PGVECTOR_USER:-llm}"
-    PGVECTOR_PASSWORD: "${PGVECTOR_PASSWORD:-llm_local_password}"
     DATAHUB_GMS_URL: "${DATAHUB_GMS_URL:-http://host.docker.internal:18087}"
     PYTHONPATH: /opt/airflow/project/src:/opt/airflow/project/monitoring/src:/opt/airflow/include
   # AIRFLOW_PROJECT_DIR set: Airflow runs the tree Jenkins deploys, not this checkout.
@@ -52,6 +49,7 @@ x-airflow-common: &airflow-common
     - ${AIRFLOW_PROJECT_DIR:-.}/airflow/config:/opt/airflow/config:ro
     - ${AIRFLOW_PROJECT_DIR:-.}/airflow/scripts:/opt/airflow/scripts:ro
     - ./airflow/logs:/opt/airflow/logs
+    - ./infra/vault/tls/ca.crt:/opt/airflow/vault-ca.crt:ro
   extra_hosts:
     - "pushgateway.fraudstream.localhost:host-gateway"
     - "pipelines.fraudstream.localhost:host-gateway"
@@ -167,12 +165,12 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
-      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+      POSTGRES_USER: "${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-fraudstream} -d ${POSTGRES_DB:-fraudstream}"]
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command} -d ${POSTGRES_DB:-fraudstream}"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -186,8 +184,8 @@ services:
         condition: service_healthy
     environment:
       POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
-      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
-      PGPASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+      POSTGRES_USER: "${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      PGPASSWORD: "${POSTGRES_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     volumes:
       - ./infra/postgres/init/001_create_fraudstream_schema.sql:/schema/001_create_fraudstream_schema.sql:ro
       - ./infra/postgres/init/002_create_mlflow_database.sql:/schema/002_create_mlflow_database.sql:ro
@@ -197,7 +195,7 @@ services:
         for file in /schema/*.sql; do
           psql \
             --host postgres \
-            --username "${POSTGRES_USER:-fraudstream}" \
+            --username "${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}" \
             --dbname "${POSTGRES_DB:-fraudstream}" \
             --set ON_ERROR_STOP=1 \
             --file "$$file"
@@ -211,8 +209,8 @@ services:
       - "${MINIO_API_PORT:-19000}:9000"
       - "${MINIO_CONSOLE_PORT:-19001}:9001"
     environment:
-      MINIO_ROOT_USER: "${MINIO_ROOT_USER:-fraudstream}"
-      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
+      MINIO_ROOT_USER: "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      MINIO_ROOT_PASSWORD: "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     volumes:
       - minio-data:/data
     healthcheck:
@@ -231,7 +229,7 @@ services:
     entrypoint: ["/bin/sh", "-c"]
     command:
       - |
-        mc alias set local http://minio:9000 "${MINIO_ROOT_USER:-fraudstream}" "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
+        mc alias set local http://minio:9000 "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}" "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
         mc mb --ignore-existing local/fraudstream
 
   mlflow:
@@ -250,14 +248,14 @@ services:
       - "${MLFLOW_PORT:-18085}:5000"
     environment:
       MLFLOW_S3_ENDPOINT_URL: "http://minio:9000"
-      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:-fraudstream}"
-      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
+      AWS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      AWS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     command:
       - mlflow
       - server
       - --host=0.0.0.0
       - --port=5000
-      - --backend-store-uri=postgresql+psycopg2://${POSTGRES_USER:-fraudstream}:${POSTGRES_PASSWORD:-fraudstream_local_password}@postgres:5432/mlflow
+      - --backend-store-uri=postgresql+psycopg2://${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}:${POSTGRES_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}@postgres:5432/mlflow
       - --artifacts-destination=s3://fraudstream/mlflow
       - --serve-artifacts
       - --allowed-hosts=mlflow:5000,localhost,localhost:${MLFLOW_PORT:-18085},127.0.0.1
@@ -275,6 +273,11 @@ services:
     # service's port comment above -- 8080 is another common squat target.
     ports:
       - "${TRINO_PORT:-18082}:8080"
+    environment:
+      POSTGRES_USER: "${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     volumes:
       - ./infra/trino/catalog:/etc/trino/catalog:ro
     depends_on:
@@ -294,6 +297,9 @@ services:
     environment:
       BOOTSTRAP_SERVERS: kafka:29092
       GROUP_ID: fraudstream-debezium
+      CONNECT_CONFIG_PROVIDERS: env
+      CONNECT_CONFIG_PROVIDERS_ENV_CLASS: org.apache.kafka.common.config.provider.EnvVarConfigProvider
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
       CONFIG_STORAGE_TOPIC: fraudstream_connect_configs
       OFFSET_STORAGE_TOPIC: fraudstream_connect_offsets
       STATUS_STORAGE_TOPIC: fraudstream_connect_statuses
@@ -369,13 +375,13 @@ services:
       - "${PGVECTOR_HOST_PORT:-5433}:5432"
     environment:
       POSTGRES_DB: llm
-      POSTGRES_USER: "${PGVECTOR_USER:-llm}"
-      POSTGRES_PASSWORD: "${PGVECTOR_PASSWORD:-llm_local_password}"
+      POSTGRES_USER: "${PGVECTOR_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      POSTGRES_PASSWORD: "${PGVECTOR_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
     volumes:
       - pgvector-data:/var/lib/postgresql/data
       - ./infra/pgvector/init:/docker-entrypoint-initdb.d:ro
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${PGVECTOR_USER:-llm} -d llm"]
+      test: ["CMD-SHELL", "pg_isready -U ${PGVECTOR_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command} -d llm"]
       interval: 10s
       timeout: 5s
       retries: 12
@@ -403,13 +409,13 @@ services:
       FEAST_PUSH_BATCH_SIZE: "${FEAST_PUSH_BATCH_SIZE:-10000}"
       FEAST_PUSH_FLUSH_SECONDS: "${FEAST_PUSH_FLUSH_SECONDS:-30}"
       MINIO_ENDPOINT: "http://minio:9000"
-      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:-fraudstream}"
-      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:-fraudstream_local_password}"
+      MINIO_ACCESS_KEY: "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      MINIO_SECRET_KEY: "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
       POSTGRES_HOST: postgres
       POSTGRES_PORT: "5432"
       POSTGRES_DB: "${POSTGRES_DB:-fraudstream}"
-      POSTGRES_USER: "${POSTGRES_USER:-fraudstream}"
-      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:-fraudstream_local_password}"
+      POSTGRES_USER: "${POSTGRES_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      POSTGRES_PASSWORD: "${POSTGRES_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
       REDIS_HOST: redis
       REDIS_PORT: "6379"
     volumes:
@@ -497,21 +503,14 @@ services:
       HOME: /var/jenkins_home
     secrets:
       - JENKINS_ADMIN_PASSWORD
-      - POSTGRES_USER
-      - POSTGRES_PASSWORD
-      - MINIO_ACCESS_KEY
-      - MINIO_SECRET_KEY
-      - GITHUB_USER
-      - GITHUB_TOKEN
-      - GATEWAY_USER
-      - GATEWAY_PASSWORD
-      - PGVECTOR_USER
-      - PGVECTOR_PASSWORD
+      - VAULT_ROLE_ID
+      - VAULT_SECRET_ID
     ports:
       - "${JENKINS_PORT:-18086}:8080"
     volumes:
       - jenkins-home:/var/jenkins_home
       - ./cicd/jenkins/jenkins.yaml:/var/jenkins_home/casc/jenkins.yaml:ro
+      - ./infra/vault/tls/ca.crt:/run/vault-ca.crt:ro
       - /var/run/docker.sock:/var/run/docker.sock
       - ${AIRFLOW_PROJECT_DIR:-.}:/deploy
     networks:
@@ -520,30 +519,15 @@ services:
     profiles: ["ci"]
 
 # Files under /run/secrets, so Jenkins can read them at start-up without every
-# build inheriting them as environment variables.
+# build inheriting them as environment variables. Only its Vault login: its
+# credentials are read from Vault when a build uses them.
 secrets:
   JENKINS_ADMIN_PASSWORD:
     environment: JENKINS_ADMIN_PASSWORD
-  POSTGRES_USER:
-    environment: POSTGRES_USER
-  POSTGRES_PASSWORD:
-    environment: POSTGRES_PASSWORD
-  MINIO_ACCESS_KEY:
-    environment: MINIO_ACCESS_KEY
-  MINIO_SECRET_KEY:
-    environment: MINIO_SECRET_KEY
-  GITHUB_USER:
-    environment: GITHUB_USER
-  GITHUB_TOKEN:
-    environment: GITHUB_TOKEN
-  GATEWAY_USER:
-    environment: GATEWAY_USER
-  GATEWAY_PASSWORD:
-    environment: GATEWAY_PASSWORD
-  PGVECTOR_USER:
-    environment: PGVECTOR_USER
-  PGVECTOR_PASSWORD:
-    environment: PGVECTOR_PASSWORD
+  VAULT_ROLE_ID:
+    environment: VAULT_ROLE_ID
+  VAULT_SECRET_ID:
+    environment: VAULT_SECRET_ID
 
 networks:
   default:
