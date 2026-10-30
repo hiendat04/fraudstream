@@ -10,6 +10,7 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 
 ## Contents
 
+- [At a glance](#at-a-glance)
 - [Highlights](#highlights)
 - [How it fits together](#how-it-fits-together): the two platforms, and the CI/CD pipeline
 - [What's inside](#whats-inside): every part, with its doc
@@ -17,6 +18,23 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - [Quick start](#quick-start)
 - [Tests](#tests)
 - [Repository layout](#repository-layout)
+
+## At a glance
+
+| Area | Result |
+|---|---|
+| Spark | main job **11.7x faster** (246 s → 21 s) with AQE and right-sized shuffles |
+| Flink | job graph cut **80%** (30 → 6 vertices) by operator chaining |
+| Fraud detection model | test PR-AUC **1.77x** the fraud base rate, on a time-ordered split |
+| Serving | p95 **280 ms**, p99 **390 ms**, **0 of 15,000** failed at 50 req/s over HTTPS |
+| Releases | **2,000 of 2,000** requests served through a failed release and its rollback |
+| Canary | a new model version promoted from 20% to 100% in **41 minutes** |
+| Tests | **100%** line and branch coverage on the APIs, **86.2%** mutation score |
+| LLM serving | time to first token **2.5x faster** (13.0 → 5.1 s); **4x** with llm-d's cache-aware routing |
+| RAG | **12 of 12** golden questions find their page |
+| Agents | **6 of 6** eval questions answered with citations; a conversation starts in **2.06 s** |
+| Cloud | the serving path on GKE for about **$0.20 an hour**, up and down in one command |
+| Secrets | **18** in Vault, **0** in the repository |
 
 ## Highlights
 
@@ -81,6 +99,37 @@ watches it or ships it.
 | **D** delivery | a push, tested, built and deployed by Jenkins |
 | **K** cloud | Terraform and Ansible bring the serving path up on Google Cloud |
 | **V** security | every secret from Vault |
+
+### How a payment's features stay correct
+
+A fraud detection model fails quietly when it trains on features it won't have when it
+serves, or on history from after the payment. One payment's features, from the event to
+the score:
+
+```mermaid
+sequenceDiagram
+    participant E as payment event
+    participant F as Flink
+    participant I as Iceberg
+    participant T as training
+    participant R as Redis, online
+    participant A as inference API
+
+    E->>F: arrives, maybe hours late
+    Note over F: watermark = latest event time − p95 delay,<br/>measured at 3 h 18 m, not guessed
+    F->>R: 5-minute window features
+    Note over F: up to 40 min late → the window is corrected<br/>later → financial_transactions_late, never dropped
+    F->>I: every clean event, late ones included
+    I->>T: point-in-time join
+    Note over I,T: history ends the day before the payment<br/>8 leakage rules, split by time
+    A->>R: the payment's features
+    Note over A: a value counts only if it was true before the payment<br/>and is younger than its TTL: 31 or 91 days, 1 h for streams
+    A->>A: the same 51 features the model trained on
+```
+
+Late data is corrected, not lost. Training never sees the future. Serving never uses a
+value training would have thrown away: the online store once held values 99 and 136
+days old, and the API refuses them.
 
 ### The LLM platform
 
