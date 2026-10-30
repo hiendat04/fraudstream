@@ -60,7 +60,7 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 
 ### The data and ML platform
 
-![FraudStream architecture](images/architecture/architecture.svg)
+![FraudStream architecture](images/architecture/data-and-ml-platform.svg)
 
 A payment's way to a score is **P**; everything else feeds it,
 watches it or ships it.
