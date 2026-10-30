@@ -2,7 +2,8 @@ __pycache__/
 *.py[cod]
 .pytest_cache/
 datahub/.venv/
-images/architecture/architecture.excalidraw
+images/architecture/
+images/flow_dots.py
 docs/mlops
 docs/superpowers/
 .env
