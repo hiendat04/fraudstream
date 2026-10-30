@@ -8,7 +8,15 @@ A fraud detection model is only as good as the pipelines feeding it. Real transa
 late records, duplicates, schema changes, spikes and skew, so this project generates
 those problems on purpose and builds the whole MLOps loop around handling them.
 
-![FraudStream architecture](images/architecture/architecture.svg)
+## Contents
+
+- [Highlights](#highlights)
+- [How it fits together](#how-it-fits-together): the two platforms, and the CI/CD pipeline
+- [What's inside](#whats-inside): every part, with its doc
+- [Novel ideas](#novel-ideas)
+- [Quick start](#quick-start)
+- [Tests](#tests)
+- [Repository layout](#repository-layout)
 
 ## Highlights
 
@@ -50,55 +58,102 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 
 ## How it fits together
 
-```mermaid
-flowchart LR
-    subgraph Sources["Generated sources"]
-        csv[Offline CSV]
-        events[Event log]
-    end
+### The data and ML platform
 
-    subgraph Batch["Batch: Airflow + Spark"]
-        bronze[Bronze] --> silver[Silver] --> gold[Gold + features]
-    end
+![FraudStream architecture](images/architecture/architecture.svg)
 
-    subgraph Stream["Streaming"]
-        kafka[Kafka] --> flink[Flink]
-    end
+A payment's way to a score is **P**; everything else feeds it,
+watches it or ships it.
 
-    lake[("Iceberg lakehouse<br/>MinIO + PostgreSQL")]
-    feast[("Feast<br/>Redis + offline")]
-    train["Kubeflow training<br/>XGBoost"]
-    mlflow[MLflow registry]
-    serve["KServe model"]
-    apis["Inference + drift APIs"]
+| Flow | What moves |
+|---|---|
+| **B** batch | the offline CSVs from MinIO through Spark's bronze, silver and gold, into Iceberg and PostgreSQL |
+| **S** streaming | live events through Kafka and Flink: clean transactions and features into Iceberg, late events to their own topic |
+| **C** change data capture | PostgreSQL's changes through Debezium into Kafka |
+| **O** orchestration | the engineer starts the DAGs; Airflow runs the Spark jobs and the replay producer |
+| **G** governance | schemas and lineage into DataHub |
+| **I** inspection | an engineer's SQL on PostgreSQL and Trino |
+| **F** features | offline features from Iceberg, materialized into Redis; window features pushed online |
+| **T** training | point-in-time features to distributed training on Kubeflow, the model registered in MLflow |
+| **P** payment | one payment through the gateway, its online features, a score from the model, then the drift check |
+| **M** monitoring | the drift check and retraining on drift; metrics, logs and traces into Prometheus, Elasticsearch and Jaeger |
+| **A** A/B testing | a new model version's share of traffic, set and promoted |
+| **D** delivery | a push, tested, built and deployed by Jenkins |
+| **K** cloud | Terraform and Ansible bring the serving path up on Google Cloud |
+| **V** security | every secret from Vault |
 
-    csv --> bronze
-    events --> kafka
-    gold --> lake
-    flink --> lake
-    lake -->|Trino| sql[SQL]
-    lake --> feast
-    flink --> feast
-    feast --> train --> mlflow --> serve --> apis
-    feast --> apis
+### The LLM platform
 
-    datahub{{DataHub: lineage and contracts}} -.-> lake
-    jenkins{{Jenkins CI/CD}} -.->|tests and deploys| apis
-    jenkins -.-> serve
-    jenkins -.-> train
-```
-
-## How the ML and LLM layers work together
+![FraudStream LLM platform](images/architecture/llm-platform.svg)
 
 The ML layer decides; the LLM layer explains. The fraud detection model scores every
-payment, and nothing in the LLM layer can change that score. The LLM layer is an analyst
-copilot built on the same data. When an analyst asks why a payment was flagged, the
-coordinator agent asks two sandboxed specialists through the A2A gateway, and they call MCP tools. The tools read the Feast features the model saw (through the context
-API) and the model's own score (through the inference API). They also search the
-handbook and model cards that the RAG pipeline embeds into Feast's pgvector store. The
-agent answers with those facts and cites its sources. Both layers share one feature
-store and send their metrics and traces to the same Prometheus and Jaeger. The coordinator is
-the analysts' one entry point, in the kagent UI.
+payment, and nothing in the LLM layer can change that score. An analyst asks the
+coordinator why a payment was flagged. The coordinator asks two sandboxed specialists,
+and they answer from the same features and the same model, through MCP tools.
+
+| Flow | What moves |
+|---|---|
+| **Q** question | the analyst's question to the coordinator, then through the A2A gateway to a specialist restored for this conversation |
+| **L** LLM | every agent's chat completions through the LLM gateway and llm-d to Qwen3 on llama.cpp |
+| **M** MCP tools | a specialist's tool calls through the MCP gateway to the servers, the APIs and the stores |
+| **R** RAG | the handbook, model cards and feature pages, chunked and embedded daily into Iceberg and pgvector |
+| **D** delivery | an agent's prompt and manifest, deployed only when its eval questions pass |
+| **O** observability | the gateways' metrics and traces, and the dashboards on them |
+| **V** security | every key from Vault, synced into its namespace |
+
+### From a push to production
+
+```mermaid
+flowchart TB
+    DEV(["engineer"]) -- "1 · git push" --> GH[("GitHub")]
+    GH -- "2 · scanned<br/>every 5 min" --> TEST["<b>Test</b><br/>11 suites in parallel<br/>on every branch"]
+    TEST -- "3" --> GATE{"deploy<br/>branch?"}
+    GATE -- "no" --> STOP(["tested only"])
+    GATE -- "4 · yes" --> APIS
+
+    subgraph DEPLOY["Jenkins deploys, in order · each part only when its files changed"]
+        APIS["<b>Web APIs</b> ×3<br/>build · helm upgrade<br/>new version and gateway checked, or rolled back"]
+        MODEL["<b>Model server</b><br/>the model inside its image · split checked"]
+        TRAIN["<b>Training pipeline</b><br/>a new Kubeflow version"]
+        AIR["<b>Airflow pipelines · stream push job</b><br/>synced · DAGs import · still running"]
+        RAG["<b>RAG pipeline</b><br/>handbook to MinIO · one run, golden questions"]
+        MCP["<b>MCP servers</b><br/>installed · tools checked"]
+        AG["<b>Agents</b> ×3<br/>prompt as candidate · eval questions pass,<br/>then production and agentregistry, or rolled back"]
+        APIS --> MODEL --> TRAIN --> AIR --> RAG --> MCP --> AG
+    end
+
+    MODEL -- "5 · a new canary" --> RO["<b>Model rollout job</b><br/>20 → 40 → 60 → 80%<br/>promote · roll back · hold"]
+    RO -. "6 · each step a commit" .-> GH
+    VA[("Vault")] -. "credentials at each use" .-> DEPLOY
+
+    DEV -. "a cloud demo, by hand" .-> SES
+    subgraph CLOUD["Cloud session"]
+        direction LR
+        SES["session.sh up"] --> TF["Terraform<br/>network · registry<br/>GKE · VM"] --> ANS["Ansible<br/>stores VM,<br/>seeded"] --> GKE["GKE deploy<br/>model and<br/>two APIs"]
+    end
+
+    classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
+    classDef store fill:#0f766e,stroke:#134e4a,color:#ffffff
+    classDef llm fill:#f3e8ff,stroke:#7c3aed,color:#0f172a
+    class TEST,RO key
+    class GH,VA store
+    class RAG,MCP,AG llm
+```
+
+1. **Push.** Every branch is pushed to GitHub.
+2. **Scan.** Jenkins finds new commits every five minutes.
+3. **Test.** All 11 test suites run in parallel, on every branch.
+4. **Deploy.** On the deploy branch, each part deploys only when its own files changed, and
+   checks itself after. An API answers with the new version and passes the gateway check,
+   or Helm rolls it back. An agent's prompt reaches production only when its eval
+   questions pass. The MCP servers go before the agents that use them.
+5. **Canary.** A new model version starts the rollout job.
+6. **Rollout.** It steps the canary up while it behaves like production, and commits each
+   step, so Git always says what the cluster serves.
+
+The purple stages deploy the LLM platform. Jenkins reads every credential from Vault at
+the moment a step uses it. The cloud session is started by hand, when a demo is due:
+Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_code.md)).
 
 ## What's inside
 
@@ -134,6 +189,20 @@ the analysts' one entry point, in the kagent UI.
 | Risk agent and coordinator | The risk agent scores a payment and cites the handbook; the coordinator delegates through agentgateway as the A2A gateway with a key, allow-list and rate limit; six eval questions | [33_risk_agent_and_coordinator.md](docs/llm/33_risk_agent_and_coordinator.md) |
 | Agent fleet | The context and risk agents sandboxed in gVisor on Agent Substrate: every conversation restored in about 2 s from a golden snapshot, many conversations on three shared workers | [34_agent_fleet.md](docs/llm/34_agent_fleet.md) |
 | A/B tests for LLMs and agents | A new LLM version and a cheaper model for the risk agent take a weighted share of traffic at the LLM and A2A gateways, side by side on one dashboard, judged on failures, latency and golden questions | [35_ab_testing.md](docs/llm/35_ab_testing.md) |
+
+## Novel ideas
+
+Two technologies the platform doesn't use yet, each aimed at a weakness measured on the
+running platform, in [36_novel_ideas.md](docs/ideas/36_novel_ideas.md):
+
+- **A graph database finds fraud rings.** Ten shared devices carry 28.6% of all fraud, and
+  a payment on one is 25 times as likely to be fraud. The model never sees a device, so
+  it catches only 15% of that fraud. Memgraph, reading from Kafka, turns shared devices
+  and IPs into ring features for the model and a tool the risk agent can cite.
+- **Argo CD and Argo Rollouts deploy from Git.** The cluster pulls its state from Git
+  instead of Jenkins pushing it, and Argo Rollouts steps the model's canary with its own
+  analysis, replacing 613 lines of the platform's own rollout code. The manifests are
+  valid against Argo's schemas, and their four checks run on this platform's Prometheus.
 
 ## Quick start
 
@@ -197,8 +266,8 @@ PYTHONPATH=src python -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
 The API suites, mutation tests and load test are covered in
-[docs/23](docs/ml/22_validation_and_verification.md), and CI runs all of them
-([docs/24](docs/ml/23_ci_cd.md)).
+[doc 22](docs/ml/22_validation_and_verification.md), and CI runs all of them
+([doc 23](docs/ml/23_ci_cd.md)).
 
 ## Repository layout
 
@@ -206,35 +275,47 @@ The API suites, mutation tests and load test are covered in
 fraudstream/
 ├── agents/                   # Isolated Python 3.12 agent prompts for MLflow, and the A2A check
 ├── airflow/                  # Airflow DAGs, shared configuration, and local runtime
-├── api/                      # Isolated Python 3.12 web APIs: fraud inference and drift detection
-│   └── loadtest/             # Locust load test and its SLA check
+├── api/                      # Isolated Python 3.12 web APIs: inference, drift detection, context
+│   └── loadtest/             # Locust load tests and their SLA checks
+├── cicd/                     # Jenkins image and its configuration, and the deploy and check scripts
 ├── configs/                  # Generator configs and measured Flink latency profile
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
 │   ├── data_engineering/     # Generators, Bronze/Silver/Gold, Flink, Airflow, DataHub, lakehouse
-│   ├── ml/                   # Feature store, training, serving, CI/CD, gateway, IaC, observability
-│   └── llm/                  # The LLM layer: serving, RAG, MCP and agents
+│   ├── ml/                   # Feature store, training, serving, CI/CD, gateway, IaC, observability, security
+│   ├── llm/                  # The LLM layer: serving, RAG, MCP, agents and their A/B tests
+│   └── ideas/                # Novel ideas, each shown to work on the running platform
 ├── feature_store/            # Isolated Python 3.12 Feast runtime, feature repo, and push job
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/
 │   ├── ansible/              # Playbook and roles that set up and seed the stores VM on GCP
+│   ├── debezium/             # The CDC connector's settings
+│   ├── mlflow/               # The MLflow server image
 │   ├── postgres/             # PostgreSQL schema initialization SQL
 │   ├── pgvector/             # pgvector initialization SQL for the LLM layer's Postgres
 │   ├── terraform/            # Terraform modules and one stack per piece of the GCP setup
+│   ├── trino/                # Trino's catalogs
+│   ├── vault/                # Vault: its Compose file, TLS, policies, setup and checks
 │   └── session.sh            # Start, end and check a cloud session
 ├── k8s/                      # kind cluster bootstrap, service images, pipeline RBAC
-│   ├── agents/               # kagent, the three agents, the A2A gateway, agentregistry, UIs
-│   ├── apis/                 # Helm values for the inference and drift detection releases
+│   ├── agents/               # kagent, the three agents, the A2A gateway, agentregistry, the agent fleet
+│   ├── apis/                 # Helm values for the web APIs, and their secrets from Vault
+│   ├── charts/               # One Helm chart shared by the web APIs
+│   ├── gateway/              # The Kubeflow Pipelines UI behind the gateway
 │   ├── gke/                  # Platform, deploy scripts and manifests for GKE
-│   ├── charts/               # One Helm chart shared by both web APIs
-│   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
-│   ├── models/               # KServe InferenceService for the fraud detection model
+│   ├── llm/                  # llm-d, the llama.cpp model servers and the LLM gateway
+│   ├── mcp/                  # The MCP servers and the MCP gateway
+│   ├── models/               # KServe InferenceService for the fraud detection model, and its rollout policy
 │   ├── observability/        # Prometheus, Grafana, Jaeger, ELK, dashboards, and their routes
+│   ├── platform/             # Settings for the ingress, cert-manager, metrics-server, and KServe
+│   ├── rbac/                 # Lets the training pipeline start Kubeflow Trainer jobs
+│   ├── secrets/              # External Secrets and Vault's token reviewer
 │   └── smoke/                # Checks for ingress, HTTPS, KEDA, and Knative
+├── mcp_servers/              # Isolated Python 3.12 MCP servers: fraud-context and fraud-risk
 ├── ml/                       # Isolated Python 3.12 training runtime, notebook, and saved model
-├── monitoring/               # Isolated Python 3.12 drift check, Pushgateway publisher, and retrain trigger
+├── monitoring/               # Isolated Python 3.12 drift check, retrain trigger, and canary rollout
 ├── pipelines/                # Isolated Python 3.12 Kubeflow Pipelines definition and submitter
 ├── rag/                      # Isolated Python 3.12 RAG pipeline, handbook, Feast project, golden questions
 ├── reports/                  # Generated human-readable reports and load test results
@@ -246,7 +327,8 @@ fraudstream/
 │   ├── producers/            # Kafka replay producer
 │   └── reports/              # Data-quality report generator
 ├── tests/unit/               # Unit tests
-├── docker-compose.yml        # Local Kafka, MinIO, PostgreSQL, and Airflow services
+├── docker-compose.yml        # Every local service; Vault's own file is included
+├── Jenkinsfile               # The CI/CD pipeline
 ├── main.py
 ├── pyproject.toml
 └── uv.lock
