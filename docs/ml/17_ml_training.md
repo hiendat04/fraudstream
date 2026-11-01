@@ -187,3 +187,14 @@ Run the tests with:
 ```bash
 cd ml && PYTHONPATH=../src:src uv run python -m unittest discover -s tests
 ```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The notebook | `ml/notebooks/fraud_model_training.ipynb` |
+| Training set from Feast | `ml/src/fraudstream_ml/dataset.py` |
+| Model inputs | `ml/src/fraudstream_ml/features.py` |
+| Split by date | `ml/src/fraudstream_ml/split.py` |
+| Training and metrics | `ml/src/fraudstream_ml/train.py` |
+| Tests | `ml/tests/` |

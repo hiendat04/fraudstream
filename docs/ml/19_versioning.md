@@ -176,3 +176,13 @@ stored as text everywhere.
 default and Spark's parquet reader only accepts milliseconds and microseconds.
 The retrieval step asks for microseconds when it writes, which is still far finer
 than payment times need.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Training data snapshots | `ml/src/fraudstream_ml/versioning.py` |
+| Registering the model | `ml/src/fraudstream_ml/registry.py`, `pipelines/src/fraudstream_pipelines/components.py` |
+| MLflow's database | `infra/postgres/init/002_create_mlflow_database.sql` |
+| MLflow service | `docker-compose.yml` |
+| Tests | `ml/tests/test_versioning.py`, `ml/tests/test_registry.py` |

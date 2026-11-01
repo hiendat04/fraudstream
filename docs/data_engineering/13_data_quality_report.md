@@ -47,3 +47,11 @@ Open the HTML in a browser, or print it to PDF. For shorter screenshots use
 
 To try another scenario, change `configs/generator/offline_transactions.json` or
 `streaming_transactions.json` and regenerate. The fixed seeds keep comparisons repeatable.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The report | `src/fraudstream/reports/data_quality.py` |
+| Generator settings | `configs/generator/` |
+| Tests | `tests/unit/test_data_quality_report.py` |

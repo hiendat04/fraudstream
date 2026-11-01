@@ -229,3 +229,13 @@ uv run --all-extras --group reference mutmut run && uv run --all-extras --group 
 cd mcp_servers && uv run pytest --cov            # 59 tests
 cd mcp_servers && uv run mutmut run && uv run mutmut results
 ```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Unit tests and coverage | `api/tests/`, `serving/tests/`, `mcp_servers/tests/` |
+| Boundary cases | `api/tests/test_boundaries.py` |
+| Properties | `api/tests/test_properties.py`, `serving/tests/test_predictor_properties.py`, `mcp_servers/tests/test_properties.py` |
+| Mutation testing settings | `api/pyproject.toml`, `mcp_servers/pyproject.toml` (`[tool.mutmut]`) |
+| Load test | `api/loadtest/` |

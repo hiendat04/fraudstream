@@ -121,9 +121,13 @@ docker compose up -d postgres postgres-schema-init
 Open `http://localhost:9002` (`datahub` / `datahub`). `publish.sh` is idempotent: it
 ingests the PostgreSQL schemas, then upserts lineage, contracts, assertions and results.
 
+## Where things are
+
 | Concern | Location |
 |---|---|
 | Pipeline and lineage model | `datahub/src/fraudstream_datahub/model.py` |
 | Metadata and assertion publisher | `datahub/src/fraudstream_datahub/publish.py` |
 | Contracts | `datahub/contracts/` |
 | Ingestion recipe | `datahub/recipes/postgres.dhub.yaml` |
+| Start, stop and publish | `datahub/scripts/` |
+| Tests | `datahub/tests/test_model.py` |

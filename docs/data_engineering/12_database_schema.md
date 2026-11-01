@@ -55,3 +55,11 @@ In short: Bronze says *what arrived*, Silver says *which record won and why*, Go
 The DDL is `infra/postgres/init/001_create_fraudstream_schema.sql`. Each Spark job writes
 its own tables over JDBC through `src/fraudstream/jobs/warehouse.py`. There is no separate
 publisher.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The schema | `infra/postgres/init/001_create_fraudstream_schema.sql` |
+| Writing tables over JDBC | `src/fraudstream/jobs/warehouse.py` |
+| Tests | `tests/unit/test_postgres_schema_sql.py`, `tests/unit/test_warehouse.py` |

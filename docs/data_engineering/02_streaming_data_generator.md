@@ -130,3 +130,12 @@ only; late-event decisions come from the watermarks. The full contract is in
 PYTHONPATH=src python -m unittest tests.unit.test_streaming_transactions tests.unit.test_stream_replay
 PYTHONPATH=src python -m compileall -q src tests main.py
 ```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The event log generator | `src/fraudstream/generators/streaming_transactions.py` |
+| Replay to Kafka | `src/fraudstream/producers/stream_replay.py` |
+| Its settings | `configs/generator/streaming_transactions.json` |
+| Tests | `tests/unit/test_streaming_transactions.py`, `tests/unit/test_stream_replay.py` |

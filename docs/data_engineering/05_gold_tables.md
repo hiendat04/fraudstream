@@ -190,3 +190,14 @@ Code: `src/fraudstream/jobs/warehouse.py` (shared config and write helpers),
 | Quality lineage | Warning rows stay visible through `quality_status` |
 | Aggregates | Daily counts reconcile to the fact |
 | Time safety | Features use only data from before their `event_timestamp` |
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Facts, dimensions, aggregates | `src/fraudstream/jobs/gold/transactions.py` |
+| Fraud labels | `src/fraudstream/jobs/gold/transaction_labels.py` |
+| Shared config and PostgreSQL writes | `src/fraudstream/jobs/warehouse.py` |
+| PostgreSQL tables | `infra/postgres/init/001_create_fraudstream_schema.sql` |
+| The DAG | `airflow/dags/bronze_to_silver_gold.py` |
+| Tests | `tests/unit/test_gold_transactions.py`, `tests/unit/test_transaction_labels.py` |

@@ -146,7 +146,7 @@ def validate(documents: list[Document]) -> list[str]:
             problems.append(f"{document.doc_id}: contains what looks like a card number")
     return problems
 
-
+# Validate card numbers with the Luhn algorithm, which is used by Visa, Mastercard, and others.
 def _luhn(digits: str) -> bool:
     total = 0
     for position, digit in enumerate(reversed(digits)):

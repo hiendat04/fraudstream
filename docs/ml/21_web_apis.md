@@ -365,3 +365,15 @@ pull from Docker Hub and fails.
 
 **The registry Secret is created by command, not stored in git.** A fresh
 cluster needs the `kubectl create secret` line above.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Inference API | `api/src/fraudstream_api/inference/` |
+| Drift detection API | `api/src/fraudstream_api/drift_detection/` |
+| Helm chart | `k8s/charts/fraudstream-api/` |
+| Values per API | `k8s/apis/` |
+| Images | `k8s/Dockerfile.inference`, `k8s/Dockerfile.drift-detection` |
+| Drift reference | `api/reference/` |
+| Tests | `api/tests/` |

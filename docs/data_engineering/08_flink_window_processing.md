@@ -28,3 +28,11 @@ the `10:00–10:05` window even if it reaches Flink later.
 Each call returns the feature stream and its too-late stream, so late events are kept as
 evidence. Watermarks, lateness and topics are covered in
 [07_flink_streaming_pipeline.md](07_flink_streaming_pipeline.md).
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The window function | `src/fraudstream/jobs/flink/runtime.py` (`FeatureWindowFunction`, `_build_feature_window`) |
+| Feature contracts | `src/fraudstream/jobs/flink/transactions.py` |
+| Tests | `tests/unit/test_flink_transactions.py` |

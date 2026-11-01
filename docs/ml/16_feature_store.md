@@ -136,3 +136,14 @@ the pipeline is genuinely incremental rather than a full reload each time:
    ![Redis DBSIZE increased by exactly 1](../../images/feature_store/16-incremental-demo-after-redis-dbsize-increased.png)
 5. The run summary confirms every feature view resumed in `"incremental"` mode with a non-null `watermark_before` — a full reload, not a resume.
    ![Materialization summary JSON: every view's mode is "incremental"](../../images/feature_store/17-incremental-demo-summary-json-mode-incremental.png)
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Entities and feature views | `feature_store/feature_repo/definitions.py` |
+| Registry, offline and online store | `feature_store/feature_repo/feature_store.yaml` |
+| Materialization | `feature_store/src/fraudstream_feast/materialize.py`, `airflow/dags/feature_store_materialize.py` |
+| Stream push job | `feature_store/src/fraudstream_feast/stream_push.py`, `feature_store/Dockerfile` |
+| Spark session for Feast | `feature_store/src/fraudstream_feast/spark.py` |
+| Tests | `feature_store/tests/` |

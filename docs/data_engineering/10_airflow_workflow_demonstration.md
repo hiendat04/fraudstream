@@ -39,3 +39,12 @@ Checks that core Gold is ready, builds the feature tables, and publishes the val
 asset only after the output checks pass.
 
 ![Offline feature ingest and validation flow](../../images/airflow/offline_features_graph.png)
+
+## Where things are
+
+| What | Where |
+|---|---|
+| DAGs | `airflow/dags/raw_to_bronze.py`, `airflow/dags/bronze_to_silver_gold.py`, `airflow/dags/offline_features.py` |
+| Assets that connect them | `airflow/include/fraudstream_airflow/assets.py` |
+| Shared task helpers | `airflow/include/fraudstream_airflow/dag_helpers.py` |
+| Quality gates | `src/fraudstream/orchestration/validation.py` |

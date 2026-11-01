@@ -119,3 +119,11 @@ Rank `1` goes to the main table. The rest go to the quality table as
 ```bash
 PYTHONPATH=src python -m unittest tests.unit.test_silver_transactions
 ```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The Silver job | `src/fraudstream/jobs/silver/transactions.py` |
+| The DAG | `airflow/dags/bronze_to_silver_gold.py` |
+| Tests | `tests/unit/test_silver_transactions.py` |

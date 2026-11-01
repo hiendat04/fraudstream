@@ -188,3 +188,15 @@ right way.
 step is shipped to the cluster as standalone source, so anything it needs must be
 imported inside the function or passed in as a parameter. This compiles happily
 and fails only once a pod runs it.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The pipeline | `pipelines/src/fraudstream_pipelines/pipeline.py` |
+| Its steps | `pipelines/src/fraudstream_pipelines/components.py` |
+| Uploading and starting a run | `pipelines/src/fraudstream_pipelines/submit.py` |
+| Distributed training | `ml/src/fraudstream_ml/distributed.py` |
+| Step image | `k8s/Dockerfile.ml` |
+| TrainJob permissions | `k8s/rbac/trainjob-access.yaml` |
+| Tests | `pipelines/tests/`, `ml/tests/test_distributed.py` |

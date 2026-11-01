@@ -92,3 +92,12 @@ mean amount before and after `drift_start_date`:
 PYTHONPATH=src python -m unittest tests.unit.test_offline_transactions
 PYTHONPATH=src python -m compileall -q src tests main.py
 ```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The generator | `src/fraudstream/generators/offline_transactions.py` |
+| Its settings | `configs/generator/offline_transactions.json` |
+| Writing to MinIO or local files | `src/fraudstream/storage.py` |
+| Tests | `tests/unit/test_offline_transactions.py` |

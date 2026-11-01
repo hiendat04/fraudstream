@@ -311,3 +311,14 @@ Delete and recreate the ScaledObject as well.
 **`docker stats` overstates the node's memory.** It counts page cache from the
 downloaded images. Here it reported 7.7 GiB when pods used 4.2 GiB. Use
 `kubectl top`.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| The cluster | `k8s/kind-cluster.yaml` |
+| Installing the platform | `k8s/bootstrap.sh`, `k8s/versions.sh` |
+| Platform settings | `k8s/platform/` |
+| The model server | `serving/src/fraudstream_serving/predictor.py`, `k8s/Dockerfile.serving` |
+| The InferenceService | `k8s/models/fraud-detection.yaml` |
+| Smoke tests | `k8s/smoke/` |

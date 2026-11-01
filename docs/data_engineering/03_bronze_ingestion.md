@@ -103,3 +103,13 @@ device, IP and authentication values, and enforces a clean schema.
 PYTHONPATH=src python -m unittest \
   tests.unit.test_bronze_ingest_transactions tests.unit.test_bronze_validate_transactions
 ```
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Ingest | `src/fraudstream/jobs/bronze/ingest_transactions.py` |
+| Validate | `src/fraudstream/jobs/bronze/validate_transactions.py` |
+| PostgreSQL copies | `src/fraudstream/jobs/warehouse.py` |
+| The DAG | `airflow/dags/raw_to_bronze.py` |
+| Tests | `tests/unit/test_bronze_ingest_transactions.py`, `tests/unit/test_bronze_validate_transactions.py` |

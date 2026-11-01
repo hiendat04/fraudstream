@@ -187,7 +187,7 @@ For the generated source, the counts should reconcile:
 valid deduplicated window memberships = accepted + too-late memberships
 ```
 
-## Code
+## Where things are
 
 | File | Does |
 |---|---|
@@ -196,3 +196,4 @@ valid deduplicated window memberships = accepted + too-late memberships
 | `src/fraudstream/jobs/flink/iceberg_sink.py` | Iceberg table DDL and sink wiring (see [doc 15](14_lakehouse_iceberg.md)) |
 | `src/fraudstream/jobs/flink/watermark_calibration.py` | Measures delay, writes the p95 profile |
 | `configs/flink/streaming_latency_profile.json` | Current local profile |
+| Tests | `tests/unit/test_flink_transactions.py`, `tests/unit/test_flink_iceberg_sink.py`, `tests/unit/test_flink_watermark_calibration.py` |

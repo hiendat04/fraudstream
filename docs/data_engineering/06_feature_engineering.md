@@ -188,3 +188,13 @@ The unit fixtures cover a customer straddling a window edge, a clear one-day mer
 burst, a normal amount and an outlier, one device reused by several customers, a `v1`
 row without device or IP, on-time, late, missing-delay and negative-delay transactions,
 and a future transaction that must not affect an earlier row.
+
+## Where things are
+
+| What | Where |
+|---|---|
+| Feature builders | `src/fraudstream/jobs/gold/transactions.py` (`_build_feat_*`) |
+| The offline features job | `src/fraudstream/jobs/gold/offline_features.py` |
+| Labels | `src/fraudstream/jobs/gold/transaction_labels.py` |
+| The DAG | `airflow/dags/offline_features.py` |
+| Tests | `tests/unit/test_gold_transactions.py` |
