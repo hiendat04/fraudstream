@@ -130,7 +130,7 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
     try:
         announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
-        # One gzipped file per day under transaction_date=…/ folders; the date is already a column.
+        # One file per day under transaction_date=…/ folders; the date is already a column.
         dataframe = (
             spark.read.schema(_label_schema())
             .option("header", "true")

@@ -56,10 +56,10 @@ rise over the last ~60 days. Numbers from older default runs are stale.
 ## What it writes
 
 ```text
-s3a://fraudstream/raw/offline_transactions/        # raw CSVs, in MinIO, one gzipped file per day
-  schema_version=v1|v2/transaction_date=YYYY-MM-DD/transactions.csv.gz
-s3a://fraudstream/raw/transaction_labels/          # label table, in MinIO, one gzipped file per day
-  transaction_date=YYYY-MM-DD/transaction_labels.csv.gz
+s3a://fraudstream/raw/offline_transactions/        # raw CSVs, in MinIO, one file per day
+  schema_version=v1|v2/transaction_date=YYYY-MM-DD/transactions.csv
+s3a://fraudstream/raw/transaction_labels/          # label table, in MinIO, one file per day
+  transaction_date=YYYY-MM-DD/transaction_labels.csv
 data/raw_source/offline_transactions/              # evidence, local
   _manifest.json  _quality_summary.json  _quality_summary.csv
 ```

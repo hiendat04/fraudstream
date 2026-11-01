@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import gzip
 import importlib.util
 import io
 import json
@@ -36,8 +35,8 @@ class BronzeTransactionValidationTest(TestCase):
             source_dir = root_dir / "raw_source" / "offline_transactions"
             bronze_dir = root_dir / "bronze" / "raw_transactions"
             report_path = bronze_dir / "_bronze_validation_summary.json"
-            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv.gz"
-            v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv.gz"
+            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
 
             _write_csv(v1_file, BASE_COLUMNS, [_padded_v1_row(), _uppercase_v1_row()])
             _write_csv(v2_file, RAW_COLUMNS, [_blank_v2_row()])
@@ -89,7 +88,7 @@ class BronzeTransactionValidationTest(TestCase):
 
 
 def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
-    """Write a tiny gzipped source partition, as the generator does (a local `file://` URI stands in for MinIO)."""
+    """Write a tiny source CSV partition, as the generator does (a local `file://` URI stands in for MinIO)."""
 
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
@@ -97,7 +96,7 @@ def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None
     writer.writerows(rows)
     path = Path(uri.removeprefix("file://"))
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_bytes(gzip.compress(buffer.getvalue().encode("utf-8")))
+    path.write_text(buffer.getvalue(), encoding="utf-8")
 
 
 def _write_manifest(source_dir: Path, files: list[str]) -> None:

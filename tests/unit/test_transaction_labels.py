@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import gzip
 import importlib.util
 import json
 from pathlib import Path
@@ -95,7 +94,7 @@ class TransactionLabelsTest(TestCase):
 
 
 def _write_label_fixture(labels_dir: Path, rows: list[tuple[str, str, str]]) -> None:
-    """Write one gzipped label file per day, laid out and headed as the generator writes them."""
+    """Write one label file per day, laid out and headed as the generator writes them."""
 
     labels_dir.mkdir(parents=True, exist_ok=True)
     days = sorted({event_timestamp[:10] for _, _, event_timestamp in rows}) or ["2026-01-01"]
@@ -104,7 +103,7 @@ def _write_label_fixture(labels_dir: Path, rows: list[tuple[str, str, str]]) -> 
         lines.extend(f"{tid},{label},{ts}" for tid, label, ts in rows if ts.startswith(day))
         day_dir = labels_dir / f"transaction_date={day}"
         day_dir.mkdir()
-        (day_dir / "transaction_labels.csv.gz").write_bytes(gzip.compress(("\n".join(lines) + "\n").encode("utf-8")))
+        (day_dir / "transaction_labels.csv").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
 
 def _read_iceberg_rows(table: str, iceberg_warehouse_uri: str):

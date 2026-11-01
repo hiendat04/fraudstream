@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import csv
-import gzip
 import json
 from datetime import date
 from pathlib import Path
@@ -66,8 +65,8 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertGreater(summary["schema_evolution"]["new_partition_row_count"], 0)
             self.assertTrue((config.output_dir / "_manifest.json").exists())
             self.assertTrue((config.output_dir / "_quality_summary.json").exists())
-            self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv.gz")))
-            self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv.gz")))
+            self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv")))
+            self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
 
     def test_generator_writes_label_table(self):
         """The generator writes a separate (transaction_id, is_fraud, event_timestamp) table."""
@@ -98,10 +97,10 @@ class OfflineTransactionGeneratorTest(TestCase):
 
             summary = generate_offline_transactions(config)
 
-            label_files = sorted(labels_dir.glob("transaction_date=*/transaction_labels.csv.gz"))
+            label_files = sorted(labels_dir.glob("transaction_date=*/transaction_labels.csv"))
             self.assertEqual(len(label_files), 20)
-            header = _read_gz_rows(label_files[0])[0]
-            data_rows = [row for path in label_files for row in _read_gz_rows(path)[1:]]
+            header = _read_rows(label_files[0])[0]
+            data_rows = [row for path in label_files for row in _read_rows(path)[1:]]
 
             self.assertEqual(header, ["transaction_id", "is_fraud", "event_timestamp"])
             self.assertEqual(len(data_rows), 300)
@@ -246,7 +245,7 @@ class OfflineTransactionGeneratorTest(TestCase):
 
 
 class DailyFilesTest(TestCase):
-    """The generator writes one gzipped file per day, so a day never has to fit in memory."""
+    """The generator writes one file per day, a chunk at a time, so a day never has to fit in memory."""
 
     def test_every_row_lands_in_its_day_file_with_unique_ids(self):
         with TemporaryDirectory() as tmp_dir:
@@ -254,14 +253,14 @@ class DailyFilesTest(TestCase):
 
             summary = generate_offline_transactions(config)
 
-            files = sorted(Path(tmp_dir, "raw").glob("schema_version=*/transaction_date=*/transactions.csv.gz"))
+            files = sorted(Path(tmp_dir, "raw").glob("schema_version=*/transaction_date=*/transactions.csv"))
             self.assertEqual(len(files), config.days_history)
             rows = []
             for path in files:
                 day = path.parent.name.removeprefix("transaction_date=")
                 expected_version = "v2" if date.fromisoformat(day) >= config.schema_change_date else "v1"
                 self.assertEqual(path.parent.parent.name, f"schema_version={expected_version}")
-                day_rows = _read_gz_rows(path)[1:]
+                day_rows = _read_rows(path)[1:]
                 self.assertTrue(all(row[11].startswith(day) for row in day_rows))
                 rows.extend(day_rows)
 
@@ -274,8 +273,8 @@ class DailyFilesTest(TestCase):
             generate_offline_transactions(_small_config(Path(one_dir)), workers=1)
             generate_offline_transactions(_small_config(Path(two_dir)), workers=2)
 
-            one = {p.relative_to(one_dir): _read_gz_rows(p) for p in Path(one_dir, "raw").rglob("*.csv.gz")}
-            two = {p.relative_to(two_dir): _read_gz_rows(p) for p in Path(two_dir, "raw").rglob("*.csv.gz")}
+            one = {p.relative_to(one_dir): _read_rows(p) for p in Path(one_dir, "raw").rglob("*.csv")}
+            two = {p.relative_to(two_dir): _read_rows(p) for p in Path(two_dir, "raw").rglob("*.csv")}
             self.assertEqual(one, two)
 
     def test_small_chunks_still_write_every_row(self):
@@ -284,7 +283,7 @@ class DailyFilesTest(TestCase):
 
             summary = generate_offline_transactions(config)
 
-            rows = [row for p in Path(tmp_dir, "raw").rglob("*.csv.gz") for row in _read_gz_rows(p)[1:]]
+            rows = [row for p in Path(tmp_dir, "raw").rglob("*.csv") for row in _read_rows(p)[1:]]
             self.assertEqual(len(rows), summary["row_count_after_duplicates"])
             self.assertEqual(len({row[0] for row in rows}), config.n_transactions)
 
@@ -313,8 +312,8 @@ def _small_config(root: Path) -> OfflineGeneratorConfig:
     )
 
 
-def _read_gz_rows(path: Path) -> list[list[str]]:
-    with gzip.open(path, "rt", encoding="utf-8", newline="") as file:
+def _read_rows(path: Path) -> list[list[str]]:
+    with path.open(encoding="utf-8", newline="") as file:
         return list(csv.reader(file))
 
 

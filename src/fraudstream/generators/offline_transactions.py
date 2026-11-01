@@ -6,7 +6,7 @@ offline data problems: skew, high-cardinality identifiers, schema evolution,
 duplicate records, late arrivals, bursty traffic, missing values, inconsistent
 formats, and fraud-ring behavior.
 
-Each day is written on its own, as one gzipped CSV, a chunk of rows at a time,
+Each day is written on its own, as one CSV, a chunk of rows at a time,
 so memory stays flat however many rows are asked for, and days can be
 generated in parallel.
 """
@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import gzip
 import json
 import multiprocessing
 import random
@@ -193,9 +192,6 @@ BURST_TRAFFIC_SHARE = 0.18
 
 # Rows generated, duplicated and shuffled together before they are written.
 CHUNK_ROWS = 100_000
-
-# gzip's default level 9 is several times slower for files only a few percent smaller.
-GZIP_LEVEL = 6
 
 
 @dataclass(frozen=True)
@@ -434,7 +430,7 @@ class OfflineGeneratorConfig:
 
 
 def generate_offline_transactions(config: OfflineGeneratorConfig, workers: int = 1) -> dict[str, Any]:
-    """Generate one gzipped transactions file and one label file per day, plus the evidence files.
+    """Generate one transactions CSV and one label CSV per day, plus the evidence files.
 
     `workers` days are generated at once. Every day draws from its own random
     stream, seeded by its date, so the data is the same whatever the worker count.
@@ -581,7 +577,7 @@ def _plan_days(config: OfflineGeneratorConfig, burst_dates: Sequence[date]) -> l
 
 
 def _generate_day(config: OfflineGeneratorConfig, plan: DayPlan) -> DayResult:
-    """Write one day's transactions and labels as gzipped CSVs, a chunk at a time, then upload them."""
+    """Write one day's transactions and labels as CSVs, a chunk at a time, then upload them."""
 
     context = _generation_context(config)
     rng = random.Random(f"{config.random_seed}:{plan.event_date}")
@@ -592,16 +588,16 @@ def _generate_day(config: OfflineGeneratorConfig, plan: DayPlan) -> DayResult:
         config.raw_uri,
         f"schema_version={schema_version}",
         f"transaction_date={plan.event_date}",
-        "transactions.csv.gz",
+        "transactions.csv",
     )
-    labels_uri = storage.join_uri(config.labels_uri, f"transaction_date={plan.event_date}", "transaction_labels.csv.gz")
+    labels_uri = storage.join_uri(config.labels_uri, f"transaction_date={plan.event_date}", "transaction_labels.csv")
 
     with TemporaryDirectory() as tmp_dir:
-        transactions_path = Path(tmp_dir, "transactions.csv.gz")
-        labels_path = Path(tmp_dir, "transaction_labels.csv.gz")
+        transactions_path = Path(tmp_dir, "transactions.csv")
+        labels_path = Path(tmp_dir, "transaction_labels.csv")
         with (
-            gzip.open(transactions_path, "wt", compresslevel=GZIP_LEVEL, encoding="utf-8", newline="") as transactions_file,
-            gzip.open(labels_path, "wt", compresslevel=GZIP_LEVEL, encoding="utf-8", newline="") as labels_file,
+            transactions_path.open("w", encoding="utf-8", newline="") as transactions_file,
+            labels_path.open("w", encoding="utf-8", newline="") as labels_file,
         ):
             transactions = csv.DictWriter(transactions_file, fieldnames=columns, extrasaction="ignore")
             labels = csv.writer(labels_file)
@@ -894,7 +890,7 @@ def _build_quality_summary(
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "output_dir": str(config.output_dir),
         "raw_uri": config.raw_uri,
-        "data_format": "partitioned_csv_gzip",
+        "data_format": "partitioned_csv",
         "written_file_count": len(results),
         "base_row_count": total.base_rows,
         "row_count_after_duplicates": total_rows,
