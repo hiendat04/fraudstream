@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
 import sys
 from dataclasses import dataclass, field
@@ -242,15 +241,15 @@ def _collect_source_stats(source_files: Sequence[str], warehouse: WarehouseConfi
         transaction_date = _extract_partition_value(uri, "transaction_date")
         partitions.add((schema_version, transaction_date))
 
-        text = storage.get_text(warehouse, uri)
-        reader = csv.DictReader(io.StringIO(text))
-        if reader.fieldnames is None:
-            raise ValueError(f"Source CSV file is missing a header: {uri}")
+        with storage.open_text(warehouse, uri) as file:
+            reader = csv.DictReader(file)
+            if reader.fieldnames is None:
+                raise ValueError(f"Source CSV file is missing a header: {uri}")
 
-        has_device_id_column = "device_id" in reader.fieldnames
-        for row in reader:
-            row_count += 1
-            _count_source_format_issues(format_issues, schema_version, has_device_id_column, row)
+            has_device_id_column = "device_id" in reader.fieldnames
+            for row in reader:
+                row_count += 1
+                _count_source_format_issues(format_issues, schema_version, has_device_id_column, row)
 
     return SourceValidationStats(
         row_count=row_count,

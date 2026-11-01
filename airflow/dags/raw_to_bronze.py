@@ -40,6 +40,7 @@ with DAG(
                 --output-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
                 --raw-uri "{{ var.value.fraudstream_raw_uri }}"
                 --labels-uri "{{ var.value.fraudstream_labels_uri }}"
+                --workers "{{ var.value.fraudstream_generator_workers }}"
                 """,
             ),
         )

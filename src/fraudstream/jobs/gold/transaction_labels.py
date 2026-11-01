@@ -10,7 +10,6 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
-from fraudstream import storage
 from fraudstream.generators.offline_transactions import DEFAULT_LABELS_URI
 from fraudstream.jobs.bronze.ingest_transactions import DEFAULT_MASTER, SUPPORTED_WRITE_MODES
 from fraudstream.jobs.gold.transactions import _parse_datetime, _to_utc_string
@@ -96,7 +95,6 @@ class TransactionLabelsResult:
     """Evidence summary for one transaction-labels load."""
 
     labels_uri: str
-    label_file: str
     iceberg_table: str
     row_count: int
     distinct_transaction_id_count: int
@@ -111,7 +109,6 @@ class TransactionLabelsResult:
 
         return {
             "labels_uri": self.labels_uri,
-            "label_file": self.label_file,
             "iceberg_table": self.iceberg_table,
             "row_count": self.row_count,
             "distinct_transaction_id_count": self.distinct_transaction_id_count,
@@ -124,7 +121,7 @@ class TransactionLabelsResult:
 
 
 def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabelsResult:
-    """Read the generator's raw label CSV and materialize `gold.transaction_labels`."""
+    """Read the generator's daily label files and materialize `gold.transaction_labels`."""
 
     from pyspark.sql import functions as spark_functions
 
@@ -133,8 +130,13 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
     try:
         announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
-        label_file = storage.join_uri(config.labels_uri, "transaction_labels.csv")
-        dataframe = spark.read.schema(_label_schema()).option("header", "true").csv(label_file)
+        # One gzipped file per day under transaction_date=…/ folders; the date is already a column.
+        dataframe = (
+            spark.read.schema(_label_schema())
+            .option("header", "true")
+            .option("recursiveFileLookup", "true")
+            .csv(config.labels_uri)
+        )
         dataframe.persist()
         try:
             set_spark_job_group(
@@ -150,7 +152,7 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
             ).first()
             row_count = int(metrics["row_count"])
             if row_count == 0:
-                raise RuntimeError(f"No label rows found at {label_file}; refusing to write an empty label table.")
+                raise RuntimeError(f"No label rows found under {config.labels_uri}; refusing to write an empty label table.")
             distinct_transaction_id_count = int(metrics["distinct_transaction_id_count"])
             fraud_row_count = int(metrics["fraud_row_count"])
 
@@ -161,7 +163,6 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
 
             result = TransactionLabelsResult(
                 labels_uri=config.labels_uri,
-                label_file=label_file,
                 iceberg_table=iceberg_table,
                 row_count=row_count,
                 distinct_transaction_id_count=distinct_transaction_id_count,

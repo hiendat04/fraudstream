@@ -13,7 +13,7 @@ rows with them. Fixing those is Silver's job.
 
 | What | Where |
 |---|---|
-| Source CSVs | `s3a://fraudstream/raw/offline_transactions/` (found through `_manifest.json`, or by listing `--source-uri`) |
+| Source CSVs | `s3a://fraudstream/raw/offline_transactions/`, one gzipped file per day (found through `_manifest.json`, or by listing `--source-uri`) |
 | Bronze table | `iceberg.bronze.raw_transactions`, data in MinIO under `s3a://fraudstream/warehouse/bronze/raw_transactions/`, catalog in PostgreSQL |
 | Copies in PostgreSQL | `bronze.raw_transactions` and `bronze.raw_transaction_ingest_runs`, one row per source record and per run |
 | Job summary | `data/bronze/raw_transactions/_bronze_ingestion_summary.json` |

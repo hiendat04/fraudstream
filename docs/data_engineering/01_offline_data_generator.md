@@ -11,7 +11,7 @@ owned by another team: raw, messy and untouched.
 | Skew | `city` leans toward `skew_city`, `merchant_category` toward `skew_merchant_category` |
 | High cardinality | Many unique transaction, customer, account, merchant and device IDs |
 | Schema change | Files before `schema_change_date` are `v1`, files from that date are `v2` with four more columns |
-| Duplicates | About `duplicate_rate` rows repeated (default: ~10,000 on 500,000) |
+| Duplicates | Each row repeated with probability `duplicate_rate` (default 2%) |
 | Bursty and late data | Peak hours, burst days, shuffled files, delayed `created_ts` |
 | Messy fields | Small rates of missing values and odd formats (padded cities, lowercase currency) |
 | Fraud | Rare labels, with higher risk for large, online, cross-border, late-night and fraud-ring activity |
@@ -20,12 +20,17 @@ owned by another team: raw, messy and untouched.
 ## Run it
 
 ```bash
-PYTHONPATH=src python -m fraudstream.generators.offline_transactions
+PYTHONPATH=src python -m fraudstream.generators.offline_transactions --workers 6
 # or override where things go
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions \
   --output-dir /tmp/fraudstream_offline_transactions \
   --raw-uri s3a://fraudstream/raw/offline_transactions_dev
 ```
+
+Each day is generated on its own and written a chunk of rows at a time, so memory stays
+flat however many rows the config asks for. `--workers` sets how many days are generated
+at once, one process each; the data is the same whatever the number, because every day
+draws from its own random stream, seeded by its date.
 
 Settings live in `configs/generator/offline_transactions.json`:
 
@@ -51,10 +56,10 @@ rise over the last ~60 days. Numbers from older default runs are stale.
 ## What it writes
 
 ```text
-s3a://fraudstream/raw/offline_transactions/        # raw CSVs, in MinIO
-  schema_version=v1|v2/transaction_date=YYYY-MM-DD/transactions.csv
-s3a://fraudstream/raw/transaction_labels/          # label table, in MinIO
-  transaction_labels.csv
+s3a://fraudstream/raw/offline_transactions/        # raw CSVs, in MinIO, one gzipped file per day
+  schema_version=v1|v2/transaction_date=YYYY-MM-DD/transactions.csv.gz
+s3a://fraudstream/raw/transaction_labels/          # label table, in MinIO, one gzipped file per day
+  transaction_date=YYYY-MM-DD/transaction_labels.csv.gz
 data/raw_source/offline_transactions/              # evidence, local
   _manifest.json  _quality_summary.json  _quality_summary.csv
 ```

@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
 import sys
 from dataclasses import dataclass, field
@@ -56,7 +55,7 @@ DEFAULT_SOURCE_SYSTEM = "fraudstream_generator"
 DEFAULT_SOURCE_DATASET = "offline_transactions"
 DEFAULT_WRITE_MODE = "overwrite"
 SUMMARY_FILE_NAME = "_bronze_ingestion_summary.json"
-TRANSACTION_FILE_SUFFIX = "transactions.csv"
+TRANSACTION_FILE_SUFFIX = "transactions.csv.gz"
 SCHEMA_VERSION_V1 = "v1"
 SCHEMA_VERSION_V2 = "v2"
 RAW_HASH_NULL_TOKEN = "<NULL>"
@@ -423,14 +422,13 @@ def _group_files_by_header(
 
 
 def _read_csv_header(uri: str, warehouse: WarehouseConfig) -> tuple[str, ...]:
-    """Read the physical CSV header from one source file in MinIO."""
+    """Read the physical CSV header from one source file in MinIO, without downloading the rest."""
 
-    text = storage.get_text(warehouse, uri)
-    reader = csv.reader(io.StringIO(text))
-    try:
-        return tuple(next(reader))
-    except StopIteration as exc:
-        raise ValueError(f"Source CSV file is empty: {uri}") from exc
+    with storage.open_text(warehouse, uri) as file:
+        header = file.readline()
+    if not header:
+        raise ValueError(f"Source CSV file is empty: {uri}")
+    return tuple(next(csv.reader([header])))
 
 
 def _validate_source_header(

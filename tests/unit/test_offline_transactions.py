@@ -3,12 +3,15 @@
 from __future__ import annotations
 
 import csv
+import gzip
 import json
 from datetime import date
 from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main
+from unittest.mock import patch
 
+from fraudstream.generators import offline_transactions
 from fraudstream.generators.offline_transactions import OfflineGeneratorConfig, generate_offline_transactions
 
 
@@ -48,7 +51,8 @@ class OfflineTransactionGeneratorTest(TestCase):
 
             summary = generate_offline_transactions(config)
 
-            self.assertEqual(summary["duplicate_row_count"], 10)
+            self.assertGreater(summary["duplicate_row_count"], 0)
+            self.assertEqual(summary["row_count_after_duplicates"], 500 + summary["duplicate_row_count"])
             self.assertGreater(summary["skew"]["city_distribution_pct"]["New York"], 60)
             self.assertGreater(summary["skew"]["merchant_category_distribution_pct"]["online_marketplace"], 50)
             self.assertGreater(summary["fraud"]["fraud_row_count"], 0)
@@ -62,8 +66,8 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertGreater(summary["schema_evolution"]["new_partition_row_count"], 0)
             self.assertTrue((config.output_dir / "_manifest.json").exists())
             self.assertTrue((config.output_dir / "_quality_summary.json").exists())
-            self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv")))
-            self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv")))
+            self.assertTrue(any(raw_dir.glob("schema_version=v1/transaction_date=*/transactions.csv.gz")))
+            self.assertTrue(any(raw_dir.glob("schema_version=v2/transaction_date=*/transactions.csv.gz")))
 
     def test_generator_writes_label_table(self):
         """The generator writes a separate (transaction_id, is_fraud, event_timestamp) table."""
@@ -94,13 +98,10 @@ class OfflineTransactionGeneratorTest(TestCase):
 
             summary = generate_offline_transactions(config)
 
-            label_path = labels_dir / "transaction_labels.csv"
-            self.assertTrue(label_path.exists())
-
-            with label_path.open() as f:
-                reader = csv.reader(f)
-                header = next(reader)
-                data_rows = list(reader)
+            label_files = sorted(labels_dir.glob("transaction_date=*/transaction_labels.csv.gz"))
+            self.assertEqual(len(label_files), 20)
+            header = _read_gz_rows(label_files[0])[0]
+            data_rows = [row for path in label_files for row in _read_gz_rows(path)[1:]]
 
             self.assertEqual(header, ["transaction_id", "is_fraud", "event_timestamp"])
             self.assertEqual(len(data_rows), 300)
@@ -111,11 +112,11 @@ class OfflineTransactionGeneratorTest(TestCase):
             self.assertEqual(
                 summary["label_table"]["columns"], ["transaction_id", "is_fraud", "event_timestamp"]
             )
-            self.assertEqual(summary["label_table"]["uri"], f"file://{labels_dir}/transaction_labels.csv")
+            self.assertEqual(summary["label_table"]["uri"], f"file://{labels_dir}")
 
             with (output_dir / "_manifest.json").open() as f:
                 manifest = json.load(f)
-            self.assertEqual(manifest["label_file"], summary["label_table"]["uri"])
+            self.assertEqual(manifest["label_files"], [f"file://{path}" for path in label_files])
 
     def test_drift_disabled_by_default(self):
         """With no drift_start_date configured, the drift section reports disabled."""
@@ -242,6 +243,79 @@ class OfflineTransactionGeneratorTest(TestCase):
             )
             with self.assertRaises(ValueError):
                 config.validate()
+
+
+class DailyFilesTest(TestCase):
+    """The generator writes one gzipped file per day, so a day never has to fit in memory."""
+
+    def test_every_row_lands_in_its_day_file_with_unique_ids(self):
+        with TemporaryDirectory() as tmp_dir:
+            config = _small_config(Path(tmp_dir))
+
+            summary = generate_offline_transactions(config)
+
+            files = sorted(Path(tmp_dir, "raw").glob("schema_version=*/transaction_date=*/transactions.csv.gz"))
+            self.assertEqual(len(files), config.days_history)
+            rows = []
+            for path in files:
+                day = path.parent.name.removeprefix("transaction_date=")
+                expected_version = "v2" if date.fromisoformat(day) >= config.schema_change_date else "v1"
+                self.assertEqual(path.parent.parent.name, f"schema_version={expected_version}")
+                day_rows = _read_gz_rows(path)[1:]
+                self.assertTrue(all(row[11].startswith(day) for row in day_rows))
+                rows.extend(day_rows)
+
+            self.assertEqual(len(rows), summary["row_count_after_duplicates"])
+            self.assertEqual(len({row[0] for row in rows}), config.n_transactions)
+            self.assertEqual(summary["written_file_count"], config.days_history)
+
+    def test_worker_count_does_not_change_the_data(self):
+        with TemporaryDirectory() as one_dir, TemporaryDirectory() as two_dir:
+            generate_offline_transactions(_small_config(Path(one_dir)), workers=1)
+            generate_offline_transactions(_small_config(Path(two_dir)), workers=2)
+
+            one = {p.relative_to(one_dir): _read_gz_rows(p) for p in Path(one_dir, "raw").rglob("*.csv.gz")}
+            two = {p.relative_to(two_dir): _read_gz_rows(p) for p in Path(two_dir, "raw").rglob("*.csv.gz")}
+            self.assertEqual(one, two)
+
+    def test_small_chunks_still_write_every_row(self):
+        with TemporaryDirectory() as tmp_dir, patch.object(offline_transactions, "CHUNK_ROWS", 7):
+            config = _small_config(Path(tmp_dir))
+
+            summary = generate_offline_transactions(config)
+
+            rows = [row for p in Path(tmp_dir, "raw").rglob("*.csv.gz") for row in _read_gz_rows(p)[1:]]
+            self.assertEqual(len(rows), summary["row_count_after_duplicates"])
+            self.assertEqual(len({row[0] for row in rows}), config.n_transactions)
+
+
+def _small_config(root: Path) -> OfflineGeneratorConfig:
+    return OfflineGeneratorConfig(
+        random_seed=11,
+        n_transactions=600,
+        n_customers=300,
+        n_accounts=320,
+        n_merchants=120,
+        start_date=date(2026, 1, 1),
+        days_history=6,
+        currency="USD",
+        skew_city="New York",
+        skew_city_ratio=0.5,
+        skew_merchant_category="online_marketplace",
+        skew_merchant_category_ratio=0.4,
+        duplicate_rate=0.05,
+        burst_day_count=2,
+        fraud_ring_count=2,
+        schema_change_date=date(2026, 1, 4),
+        output_dir=root / "evidence",
+        raw_uri=f"file://{root / 'raw'}",
+        labels_uri=f"file://{root / 'labels'}",
+    )
+
+
+def _read_gz_rows(path: Path) -> list[list[str]]:
+    with gzip.open(path, "rt", encoding="utf-8", newline="") as file:
+        return list(csv.reader(file))
 
 
 if __name__ == "__main__":

@@ -3,8 +3,8 @@
 `fraudstream.jobs.warehouse` configures *Spark's* view of MinIO (`s3a://`
 URIs consumed by Hadoop's S3A filesystem, wired into a `SparkSession`). This
 module is for code that has no Spark session at all -- the offline generator
-writing raw CSV partitions, and Bronze's raw-source discovery peeking at the
-manifest and sniffing one file's header before Spark reads it. Both reuse
+uploading its gzipped daily files, and Bronze reading one file's header (or
+streaming its rows) before Spark reads it. Both reuse
 `fraudstream.jobs.warehouse.WarehouseConfig` for endpoint/credentials, so
 there is one source of truth for MinIO connection settings.
 
@@ -18,9 +18,14 @@ Every function here accepts a URI with one of two schemes:
 
 from __future__ import annotations
 
+import gzip
+import io
+import shutil
+from collections.abc import Iterator
+from contextlib import contextmanager
 from functools import lru_cache
 from pathlib import Path
-from typing import Any
+from typing import Any, TextIO
 
 from fraudstream.jobs.warehouse import WarehouseConfig
 
@@ -68,6 +73,35 @@ def get_text(warehouse: WarehouseConfig, uri: str) -> str:
     bucket, key = parse_s3_uri(uri)
     response = _client(warehouse).get_object(Bucket=bucket, Key=key)
     return response["Body"].read().decode("utf-8")
+
+
+def put_file(warehouse: WarehouseConfig, uri: str, path: Path) -> None:
+    """Upload one local file, in parts when it is large, creating/overwriting the object."""
+
+    if uri.startswith(_FILE_SCHEME):
+        target = _local_path(uri)
+        target.parent.mkdir(parents=True, exist_ok=True)
+        shutil.copyfile(path, target)
+        return
+
+    bucket, key = parse_s3_uri(uri)
+    _client(warehouse).upload_file(str(path), bucket, key)
+
+
+@contextmanager
+def open_text(warehouse: WarehouseConfig, uri: str) -> Iterator[TextIO]:
+    """Stream one object as UTF-8 text, decompressing `.gz`, without reading it all into memory."""
+
+    if uri.startswith(_FILE_SCHEME):
+        raw = _local_path(uri).open("rb")
+    else:
+        bucket, key = parse_s3_uri(uri)
+        raw = _client(warehouse).get_object(Bucket=bucket, Key=key)["Body"]
+    try:
+        binary = gzip.GzipFile(fileobj=raw) if uri.endswith(".gz") else io.BufferedReader(raw)
+        yield io.TextIOWrapper(binary, encoding="utf-8", newline="")
+    finally:
+        raw.close()
 
 
 def object_exists(warehouse: WarehouseConfig, uri: str) -> bool:
@@ -155,8 +189,6 @@ def delete_prefix(warehouse: WarehouseConfig, uri_prefix: str) -> None:
     """
 
     if uri_prefix.startswith(_FILE_SCHEME):
-        import shutil
-
         root = _local_path(uri_prefix)
         if root.exists():
             shutil.rmtree(root)
