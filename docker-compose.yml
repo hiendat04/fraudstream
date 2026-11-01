@@ -30,7 +30,7 @@ x-airflow-common: &airflow-common
     FEAST_REPO_PATH: /opt/airflow/project/feature_store/feature_repo
     # Spark runs in local mode inside the scheduler: one JVM, so the driver memory is all of Spark's.
     PYSPARK_SUBMIT_ARGS: "--driver-memory 14g pyspark-shell"
-    SPARK_LOCAL_DIRS: /opt/spark-scratch
+    SPARK_LOCAL_DIRS: /opt/spark-temp
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
     MINIO_ENDPOINT: "http://minio:9000"
