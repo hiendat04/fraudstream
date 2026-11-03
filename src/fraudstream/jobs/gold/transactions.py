@@ -30,6 +30,7 @@ from fraudstream.jobs.spark_ui import (
     set_spark_job_group,
     spark_ui_config_from_args,
 )
+from fraudstream.jobs.spark_settings import add_spark_conf_argument, apply_spark_conf, parse_spark_conf
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
     PostgresJdbcConfig,
@@ -440,6 +441,7 @@ class GoldTransactionsConfig:
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
+    spark_conf: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
         """Raise when the Gold build cannot run with this config."""
@@ -491,6 +493,7 @@ class GoldTransactionsResult:
     processed_at: str
     completed_at: str
     table_results: tuple[GoldTableResult, ...]
+    spark_conf: dict[str, str] = field(default_factory=dict)
 
     @property
     def fact_transaction_count(self) -> int:
@@ -510,6 +513,7 @@ class GoldTransactionsResult:
             "write_mode": self.write_mode,
             "build_scope": self.build_scope,
             "spark_version": self.spark_version,
+            "spark_conf": self.spark_conf,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
             "fact_transaction_count": self.fact_transaction_count,
@@ -546,7 +550,9 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
     """Build core Gold tables and, when requested, offline feature tables."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
+    spark = _build_spark_session(
+        config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+    )
     persisted_frames: list[Any] = []
     try:
         announce_spark_ui(spark, config.spark_ui)
@@ -582,6 +588,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
             write_mode=config.write_mode,
             build_scope="all" if config.include_features else "core",
             spark_version=spark.version,
+            spark_conf=config.spark_conf,
             processed_at=_to_utc_string(processed_at),
             completed_at=_to_utc_string(datetime.now(UTC)),
             table_results=tuple(table_results),
@@ -602,6 +609,7 @@ def _build_spark_session(
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
+    spark_conf: dict[str, str] | None = None,
 ) -> Any:
     """Create a Spark session for Gold processing."""
 
@@ -623,7 +631,8 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
+    builder = configure_spark_builder(builder, spark_ui or SparkUIConfig())
+    return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
 def _prepare_silver_dataframe(silver_dataframe: Any) -> Any:
@@ -1760,6 +1769,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Build dimensions, facts, and daily aggregates without offline feature tables.",
     )
     add_spark_ui_arguments(parser)
+    add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
@@ -1781,6 +1791,7 @@ def main(argv: list[str] | None = None) -> int:
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
         include_features=not args.core_only,
         spark_ui=spark_ui_config_from_args(args),
+        spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),

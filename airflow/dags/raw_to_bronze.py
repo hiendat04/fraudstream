@@ -13,6 +13,7 @@ from fraudstream_airflow.dag_helpers import (
     MINIO_KWARGS,
     SPARK_POOL,
     project_python_command,
+    spark_job_command,
     verify_source_manifest,
 )
 from fraudstream.orchestration.validation import (
@@ -57,7 +58,7 @@ with DAG(
         ingest_bronze = BashOperator(
             task_id="ingest_bronze",
             pool=SPARK_POOL,
-            bash_command=project_python_command(
+            bash_command=spark_job_command(
                 "fraudstream.jobs.bronze.ingest_transactions",
                 """
                 --source-dir "{{ var.value.fraudstream_raw_transactions_dir }}"

@@ -39,6 +39,29 @@ class CredentialsTest(TestCase):
         self.assertEqual((warehouse.uri, warehouse.endpoint, warehouse.access_key, warehouse.secret_key),
                          ("s3a://bucket/warehouse", "http://minio:9000", "ak", "sk"))
 
+    def test_spark_commands_carry_the_conf_variable(self) -> None:
+        command = dag_helpers.spark_job_command("fraudstream.jobs.silver.transactions", "--write-mode overwrite")
+
+        self.assertIn("python -m fraudstream.jobs.silver.transactions --write-mode overwrite", command)
+        self.assertIn("var.json.get('fraudstream_spark_conf', {})", command)
+        self.assertIn("--spark-conf", command)
+
+        dags = os.path.join(os.path.dirname(__file__), "..", "..", "airflow", "dags")
+        for module in (
+            "fraudstream.jobs.bronze.ingest_transactions",
+            "fraudstream.jobs.silver.transactions",
+            "fraudstream.jobs.gold.transactions",
+            "fraudstream.jobs.gold.offline_features",
+            "fraudstream.jobs.gold.transaction_labels",
+        ):
+            with self.subTest(module=module):
+                sources = "".join(
+                    open(os.path.join(dags, name), encoding="utf-8").read()
+                    for name in os.listdir(dags)
+                    if name.endswith(".py")
+                )
+                self.assertIn(f'spark_job_command(\n                "{module}"', sources)
+
     def test_no_dag_reads_a_password_from_the_scheduler_environment(self) -> None:
         dags = os.path.join(os.path.dirname(__file__), "..", "..", "airflow", "dags")
         for name in os.listdir(dags):

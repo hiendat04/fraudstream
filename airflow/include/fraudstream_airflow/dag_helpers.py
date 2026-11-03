@@ -72,6 +72,20 @@ def project_python_command(module: str, arguments: str) -> str:
     )
 
 
+# The Variable is a JSON object of Spark settings, {} by default; each becomes one --spark-conf.
+SPARK_CONF_ARGUMENTS = (
+    "{% for key, value in var.json.get('fraudstream_spark_conf', {}).items() %}"
+    '--spark-conf "{{ key }}={{ value }}" '
+    "{% endfor %}"
+)
+
+
+def spark_job_command(module: str, arguments: str) -> str:
+    """Like project_python_command, plus the Spark settings from the `fraudstream_spark_conf` Variable."""
+
+    return project_python_command(module, f"{arguments}\n{SPARK_CONF_ARGUMENTS}")
+
+
 def rag_command(step: str, arguments: str) -> str:
     """Run one step of the RAG pipeline, with the lakehouse and Feast helpers it reuses on the path."""
 

@@ -40,6 +40,7 @@ from fraudstream.jobs.spark_ui import (
     set_spark_job_group,
     spark_ui_config_from_args,
 )
+from fraudstream.jobs.spark_settings import add_spark_conf_argument, apply_spark_conf, parse_spark_conf
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
     PostgresJdbcConfig,
@@ -157,6 +158,7 @@ class SilverTransactionsConfig:
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
+    spark_conf: dict[str, str] = field(default_factory=dict)
 
     def validate(self) -> None:
         """Raise when the Silver job cannot run with this config."""
@@ -212,6 +214,7 @@ class SilverTransactionsResult:
     spark_version: str
     processed_at: str
     completed_at: str
+    spark_conf: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable job summary."""
@@ -232,6 +235,7 @@ class SilverTransactionsResult:
             "event_date_count": self.event_date_count,
             "write_mode": self.write_mode,
             "spark_version": self.spark_version,
+            "spark_conf": self.spark_conf,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
         }
@@ -256,7 +260,9 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
     """Read Bronze transactions, deduplicate, and write Silver Parquet."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
+    spark = _build_spark_session(
+        config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+    )
     ranked_dataframe = None
     try:
         announce_spark_ui(spark, config.spark_ui)
@@ -318,6 +324,7 @@ def _build_spark_session(
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
+    spark_conf: dict[str, str] | None = None,
 ) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
@@ -336,7 +343,8 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
+    builder = configure_spark_builder(builder, spark_ui or SparkUIConfig())
+    return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
 def _clean_bronze_transactions(bronze_dataframe: Any, processed_at: datetime) -> Any:
@@ -691,6 +699,7 @@ def _build_result(
         event_date_count=metrics.event_date_count,
         write_mode=config.write_mode,
         spark_version=spark_version,
+        spark_conf=config.spark_conf,
         processed_at=_to_utc_string(processed_at),
         completed_at=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
@@ -884,6 +893,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _silver_processed_at.")
     add_spark_ui_arguments(parser)
+    add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
@@ -906,6 +916,7 @@ def main(argv: list[str] | None = None) -> int:
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
         spark_ui=spark_ui_config_from_args(args),
+        spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
