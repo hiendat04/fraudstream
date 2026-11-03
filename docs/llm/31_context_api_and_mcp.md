@@ -235,15 +235,15 @@ Failures have to be counted in the servers. A tool error is an MCP result with
 
 | What | Where |
 |---|---|
-| Context API | `api/src/fraudstream_api/context/` |
-| Its image and chart values | `k8s/Dockerfile.context`, `k8s/apis/context-api.yaml` |
-| Load test | `api/loadtest/context.py`, `api/loadtest/sla.py` |
-| MCP servers | `mcp_servers/src/fraudstream_mcp/` |
-| Their image, values and install | `k8s/Dockerfile.mcp`, `k8s/mcp/fraud-context.yaml`, `k8s/mcp/fraud-risk.yaml`, `k8s/mcp/install.sh` |
-| MCP gateway and its policy | `k8s/mcp/gateway.yaml`, `k8s/mcp/policy.yaml` |
-| Gateway check | `k8s/mcp/check.sh`, `mcp_servers/tools/check_gateway.py` |
-| Scraping | `k8s/observability/servicemonitors.yaml` |
-| CI/CD | `Jenkinsfile`, `cicd/test.sh`, `cicd/jenkins/jenkins.yaml` |
-| Tests | `api/tests/test_context_*.py`, `mcp_servers/tests/` |
-| Load test report | `reports/load_test_context_api.html` |
-| Screenshots | `images/mcp/` |
+| Context API | [`api/src/fraudstream_api/context/`](../../api/src/fraudstream_api/context/) |
+| Its image and chart values | [`k8s/Dockerfile.context`](../../k8s/Dockerfile.context), [`k8s/apis/context-api.yaml`](../../k8s/apis/context-api.yaml) |
+| Load test | [`api/loadtest/context.py`](../../api/loadtest/context.py), [`api/loadtest/sla.py`](../../api/loadtest/sla.py) |
+| MCP servers | [`mcp_servers/src/fraudstream_mcp/`](../../mcp_servers/src/fraudstream_mcp/) |
+| Their image, values and install | [`k8s/Dockerfile.mcp`](../../k8s/Dockerfile.mcp), [`k8s/mcp/fraud-context.yaml`](../../k8s/mcp/fraud-context.yaml), [`k8s/mcp/fraud-risk.yaml`](../../k8s/mcp/fraud-risk.yaml), [`k8s/mcp/install.sh`](../../k8s/mcp/install.sh) |
+| MCP gateway and its policy | [`k8s/mcp/gateway.yaml`](../../k8s/mcp/gateway.yaml), [`k8s/mcp/policy.yaml`](../../k8s/mcp/policy.yaml) |
+| Gateway check | [`k8s/mcp/check.sh`](../../k8s/mcp/check.sh), [`mcp_servers/tools/check_gateway.py`](../../mcp_servers/tools/check_gateway.py) |
+| Scraping | [`k8s/observability/servicemonitors.yaml`](../../k8s/observability/servicemonitors.yaml) |
+| CI/CD | [`Jenkinsfile`](../../Jenkinsfile), [`cicd/test.sh`](../../cicd/test.sh), [`cicd/jenkins/jenkins.yaml`](../../cicd/jenkins/jenkins.yaml) |
+| Tests | [`api/tests/test_context_*.py`](../../api/tests/), [`mcp_servers/tests/`](../../mcp_servers/tests/) |
+| Load test report | [`reports/load_test_context_api.html`](../../reports/load_test_context_api.html) |
+| Screenshots | [`images/mcp/`](../../images/mcp/) |

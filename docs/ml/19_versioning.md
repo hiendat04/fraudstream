@@ -181,8 +181,8 @@ than payment times need.
 
 | What | Where |
 |---|---|
-| Training data snapshots | `ml/src/fraudstream_ml/versioning.py` |
-| Registering the model | `ml/src/fraudstream_ml/registry.py`, `pipelines/src/fraudstream_pipelines/components.py` |
-| MLflow's database | `infra/postgres/init/002_create_mlflow_database.sql` |
-| MLflow service | `docker-compose.yml` |
-| Tests | `ml/tests/test_versioning.py`, `ml/tests/test_registry.py` |
+| Training data snapshots | [`ml/src/fraudstream_ml/versioning.py`](../../ml/src/fraudstream_ml/versioning.py) |
+| Registering the model | [`ml/src/fraudstream_ml/registry.py`](../../ml/src/fraudstream_ml/registry.py), [`pipelines/src/fraudstream_pipelines/components.py`](../../pipelines/src/fraudstream_pipelines/components.py) |
+| MLflow's database | [`infra/postgres/init/002_create_mlflow_database.sql`](../../infra/postgres/init/002_create_mlflow_database.sql) |
+| MLflow service | [`docker-compose.yml`](../../docker-compose.yml) |
+| Tests | [`ml/tests/test_versioning.py`](../../ml/tests/test_versioning.py), [`ml/tests/test_registry.py`](../../ml/tests/test_registry.py) |

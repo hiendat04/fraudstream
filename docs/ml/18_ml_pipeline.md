@@ -193,10 +193,10 @@ and fails only once a pod runs it.
 
 | What | Where |
 |---|---|
-| The pipeline | `pipelines/src/fraudstream_pipelines/pipeline.py` |
-| Its steps | `pipelines/src/fraudstream_pipelines/components.py` |
-| Uploading and starting a run | `pipelines/src/fraudstream_pipelines/submit.py` |
-| Distributed training | `ml/src/fraudstream_ml/distributed.py` |
-| Step image | `k8s/Dockerfile.ml` |
-| TrainJob permissions | `k8s/rbac/trainjob-access.yaml` |
-| Tests | `pipelines/tests/`, `ml/tests/test_distributed.py` |
+| The pipeline | [`pipelines/src/fraudstream_pipelines/pipeline.py`](../../pipelines/src/fraudstream_pipelines/pipeline.py) |
+| Its steps | [`pipelines/src/fraudstream_pipelines/components.py`](../../pipelines/src/fraudstream_pipelines/components.py) |
+| Uploading and starting a run | [`pipelines/src/fraudstream_pipelines/submit.py`](../../pipelines/src/fraudstream_pipelines/submit.py) |
+| Distributed training | [`ml/src/fraudstream_ml/distributed.py`](../../ml/src/fraudstream_ml/distributed.py) |
+| Step image | [`k8s/Dockerfile.ml`](../../k8s/Dockerfile.ml) |
+| TrainJob permissions | [`k8s/rbac/trainjob-access.yaml`](../../k8s/rbac/trainjob-access.yaml) |
+| Tests | [`pipelines/tests/`](../../pipelines/tests/), [`ml/tests/test_distributed.py`](../../ml/tests/test_distributed.py) |

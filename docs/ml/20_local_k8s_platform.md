@@ -316,9 +316,9 @@ downloaded images. Here it reported 7.7 GiB when pods used 4.2 GiB. Use
 
 | What | Where |
 |---|---|
-| The cluster | `k8s/kind-cluster.yaml` |
-| Installing the platform | `k8s/bootstrap.sh`, `k8s/versions.sh` |
-| Platform settings | `k8s/platform/` |
-| The model server | `serving/src/fraudstream_serving/predictor.py`, `k8s/Dockerfile.serving` |
-| The InferenceService | `k8s/models/fraud-detection.yaml` |
-| Smoke tests | `k8s/smoke/` |
+| The cluster | [`k8s/kind-cluster.yaml`](../../k8s/kind-cluster.yaml) |
+| Installing the platform | [`k8s/bootstrap.sh`](../../k8s/bootstrap.sh), [`k8s/versions.sh`](../../k8s/versions.sh) |
+| Platform settings | [`k8s/platform/`](../../k8s/platform/) |
+| The model server | [`serving/src/fraudstream_serving/predictor.py`](../../serving/src/fraudstream_serving/predictor.py), [`k8s/Dockerfile.serving`](../../k8s/Dockerfile.serving) |
+| The InferenceService | [`k8s/models/fraud-detection.yaml`](../../k8s/models/fraud-detection.yaml) |
+| Smoke tests | [`k8s/smoke/`](../../k8s/smoke/) |

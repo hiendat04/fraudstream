@@ -491,18 +491,18 @@ A/B tests for LLM versions and agent model configs are in
 
 | Area | Location |
 |---|---|
-| The split: model and share | `k8s/models/fraud-detection.yaml` |
-| The rollout policy | `k8s/models/rollout.yaml` |
-| Version and threshold in every answer | `serving/src/fraudstream_serving/predictor.py` |
-| Metrics by version | `api/src/fraudstream_api/inference/telemetry.py` |
-| The dashboard | `k8s/observability/dashboards/model-ab.yaml` |
-| Package the model into its image | `serving/src/fraudstream_serving/fetch.py`, `k8s/Dockerfile.model` |
-| Apply the model, wait for its share, move `production` | `cicd/apply_model.sh` |
-| Check who answers | `cicd/check_model_split.sh`, `api/tools/model_split.py` |
-| Deploy, check and start a rollout | `Jenkinsfile` (`Model server` stage) |
-| The rollout job | `cicd/jenkins/model-rollout.Jenkinsfile`, `cicd/jenkins/jenkins.yaml` |
-| The step loop | `monitoring/src/fraudstream_monitoring/rollout.py` |
-| Verdicts and thresholds | `monitoring/src/fraudstream_monitoring/rollout_analysis.py` |
-| Reading Prometheus | `monitoring/src/fraudstream_monitoring/rollout_metrics.py` |
-| Editing the manifest | `monitoring/src/fraudstream_monitoring/rollout_manifest.py` |
-| Real payments to replay | `api/tools/export_payments.py`, `api/tools/traffic.py`, `api/tools/payments.jsonl` |
+| The split: model and share | [`k8s/models/fraud-detection.yaml`](../../k8s/models/fraud-detection.yaml) |
+| The rollout policy | [`k8s/models/rollout.yaml`](../../k8s/models/rollout.yaml) |
+| Version and threshold in every answer | [`serving/src/fraudstream_serving/predictor.py`](../../serving/src/fraudstream_serving/predictor.py) |
+| Metrics by version | [`api/src/fraudstream_api/inference/telemetry.py`](../../api/src/fraudstream_api/inference/telemetry.py) |
+| The dashboard | [`k8s/observability/dashboards/model-ab.yaml`](../../k8s/observability/dashboards/model-ab.yaml) |
+| Package the model into its image | [`serving/src/fraudstream_serving/fetch.py`](../../serving/src/fraudstream_serving/fetch.py), [`k8s/Dockerfile.model`](../../k8s/Dockerfile.model) |
+| Apply the model, wait for its share, move `production` | [`cicd/apply_model.sh`](../../cicd/apply_model.sh) |
+| Check who answers | [`cicd/check_model_split.sh`](../../cicd/check_model_split.sh), [`api/tools/model_split.py`](../../api/tools/model_split.py) |
+| Deploy, check and start a rollout | [`Jenkinsfile`](../../Jenkinsfile) (`Model server` stage) |
+| The rollout job | [`cicd/jenkins/model-rollout.Jenkinsfile`](../../cicd/jenkins/model-rollout.Jenkinsfile), [`cicd/jenkins/jenkins.yaml`](../../cicd/jenkins/jenkins.yaml) |
+| The step loop | [`monitoring/src/fraudstream_monitoring/rollout.py`](../../monitoring/src/fraudstream_monitoring/rollout.py) |
+| Verdicts and thresholds | [`monitoring/src/fraudstream_monitoring/rollout_analysis.py`](../../monitoring/src/fraudstream_monitoring/rollout_analysis.py) |
+| Reading Prometheus | [`monitoring/src/fraudstream_monitoring/rollout_metrics.py`](../../monitoring/src/fraudstream_monitoring/rollout_metrics.py) |
+| Editing the manifest | [`monitoring/src/fraudstream_monitoring/rollout_manifest.py`](../../monitoring/src/fraudstream_monitoring/rollout_manifest.py) |
+| Real payments to replay | [`api/tools/export_payments.py`](../../api/tools/export_payments.py), [`api/tools/traffic.py`](../../api/tools/traffic.py), [`api/tools/payments.jsonl`](../../api/tools/payments.jsonl) |

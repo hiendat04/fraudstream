@@ -230,10 +230,10 @@ I wrote the three manifests: an Argo CD `Application` for `k8s/models`, the mode
 
 | Area | Location |
 |---|---|
-| The model's inputs | `ml/src/fraudstream_ml/dataset.py` |
-| Fraud rings in the generator | `src/fraudstream/generators/offline_transactions.py` (`FraudRing`) |
-| Streaming features into the online store | `feature_store/src/fraudstream_feast/stream_push.py` |
-| The risk agent's tools | `mcp_servers/src/fraudstream_mcp/risk_server.py` |
-| Today's canary rollout | `monitoring/src/fraudstream_monitoring/rollout*.py`, `k8s/models/rollout.yaml` |
-| The rollout job and the model deploy | `cicd/jenkins/model-rollout.Jenkinsfile`, `cicd/apply_model.sh`, `Jenkinsfile` (`Model server`) |
-| The model manifest | `k8s/models/fraud-detection.yaml` |
+| The model's inputs | [`ml/src/fraudstream_ml/dataset.py`](../../ml/src/fraudstream_ml/dataset.py) |
+| Fraud rings in the generator | [`src/fraudstream/generators/offline_transactions.py`](../../src/fraudstream/generators/offline_transactions.py) (`FraudRing`) |
+| Streaming features into the online store | [`feature_store/src/fraudstream_feast/stream_push.py`](../../feature_store/src/fraudstream_feast/stream_push.py) |
+| The risk agent's tools | [`mcp_servers/src/fraudstream_mcp/risk_server.py`](../../mcp_servers/src/fraudstream_mcp/risk_server.py) |
+| Today's canary rollout | [`monitoring/src/fraudstream_monitoring/rollout*.py`](../../monitoring/src/fraudstream_monitoring/), [`k8s/models/rollout.yaml`](../../k8s/models/rollout.yaml) |
+| The rollout job and the model deploy | [`cicd/jenkins/model-rollout.Jenkinsfile`](../../cicd/jenkins/model-rollout.Jenkinsfile), [`cicd/apply_model.sh`](../../cicd/apply_model.sh), [`Jenkinsfile`](../../Jenkinsfile) (`Model server`) |
+| The model manifest | [`k8s/models/fraud-detection.yaml`](../../k8s/models/fraud-detection.yaml) |

@@ -217,18 +217,18 @@ previous step's files from the run folder.
 
 | What | Where |
 |---|---|
-| Embedding model, pin and helpers | `rag/src/fraudstream_rag/embedding.py` |
-| Chunking | `rag/src/fraudstream_rag/chunking.py` |
-| Documents and validation | `rag/src/fraudstream_rag/documents.py`, `sources.py` |
-| Handbook | `rag/handbook/` |
-| Change plan | `rag/src/fraudstream_rag/changes.py` |
-| Iceberg and pgvector writes | `rag/src/fraudstream_rag/offline.py`, `online.py` |
-| Feast project | `rag/feature_repo/` |
-| Search and golden questions | `rag/src/fraudstream_rag/retrieval.py`, `rag/checks/golden_questions.yaml` |
-| The steps | `rag/src/fraudstream_rag/steps.py` |
-| DAG | `airflow/dags/rag_index.py` |
-| Image and settings | `airflow/Dockerfile`, `docker-compose.yml`, `airflow/config/variables.json` |
-| pgvector extension | `infra/pgvector/init/001_enable_vector.sql` |
-| DataHub contract and checks | `datahub/contracts/rag_index.contract.yaml`, `datahub/src/fraudstream_datahub/model.py` |
-| CI/CD | `Jenkinsfile`, `cicd/run_dag.sh`, `cicd/sync_airflow.sh` |
-| Screenshots | `images/rag/` |
+| Embedding model, pin and helpers | [`rag/src/fraudstream_rag/embedding.py`](../../rag/src/fraudstream_rag/embedding.py) |
+| Chunking | [`rag/src/fraudstream_rag/chunking.py`](../../rag/src/fraudstream_rag/chunking.py) |
+| Documents and validation | [`rag/src/fraudstream_rag/documents.py`](../../rag/src/fraudstream_rag/documents.py), [`sources.py`](../../rag/src/fraudstream_rag/sources.py) |
+| Handbook | [`rag/handbook/`](../../rag/handbook/) |
+| Change plan | [`rag/src/fraudstream_rag/changes.py`](../../rag/src/fraudstream_rag/changes.py) |
+| Iceberg and pgvector writes | [`rag/src/fraudstream_rag/offline.py`](../../rag/src/fraudstream_rag/offline.py), [`online.py`](../../rag/src/fraudstream_rag/online.py) |
+| Feast project | [`rag/feature_repo/`](../../rag/feature_repo/) |
+| Search and golden questions | [`rag/src/fraudstream_rag/retrieval.py`](../../rag/src/fraudstream_rag/retrieval.py), [`rag/checks/golden_questions.yaml`](../../rag/checks/golden_questions.yaml) |
+| The steps | [`rag/src/fraudstream_rag/steps.py`](../../rag/src/fraudstream_rag/steps.py) |
+| DAG | [`airflow/dags/rag_index.py`](../../airflow/dags/rag_index.py) |
+| Image and settings | [`airflow/Dockerfile`](../../airflow/Dockerfile), [`docker-compose.yml`](../../docker-compose.yml), [`airflow/config/variables.json`](../../airflow/config/variables.json) |
+| pgvector extension | [`infra/pgvector/init/001_enable_vector.sql`](../../infra/pgvector/init/001_enable_vector.sql) |
+| DataHub contract and checks | [`datahub/contracts/rag_index.contract.yaml`](../../datahub/contracts/rag_index.contract.yaml), [`datahub/src/fraudstream_datahub/model.py`](../../datahub/src/fraudstream_datahub/model.py) |
+| CI/CD | [`Jenkinsfile`](../../Jenkinsfile), [`cicd/run_dag.sh`](../../cicd/run_dag.sh), [`cicd/sync_airflow.sh`](../../cicd/sync_airflow.sh) |
+| Screenshots | [`images/rag/`](../../images/rag/) |

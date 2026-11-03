@@ -400,16 +400,16 @@ account, and no storage password exists.
 
 | Area | Location |
 |---|---|
-| Start, end and check a session | `infra/session.sh` |
-| Run one Terraform stack with `.env` | `infra/terraform/tf.sh` |
-| APIs, state bucket, budget | `infra/terraform/envs/dev/bootstrap/` |
-| Stacks | `infra/terraform/envs/dev/{network,registry,gke,stores-vm}/` |
-| Modules | `infra/terraform/modules/{network,registry,gke,vm}/` |
-| Ansible settings and inventory | `infra/ansible/ansible.cfg`, `infra/ansible/inventory/terraform.py` |
-| Playbook and roles | `infra/ansible/site.yml`, `infra/ansible/roles/` |
-| VM settings, and the password's Vault lookup | `infra/ansible/group_vars/stores.yml` |
-| Platform on GKE | `k8s/gke/platform.sh`, `k8s/gke/nginx-ingress-values.yaml` |
-| Deploy to GKE | `k8s/gke/deploy.sh`, `k8s/gke/env.sh` |
-| Stores seen from the cluster | `k8s/gke/stores.yaml` |
-| Model server on GKE | `k8s/gke/fraud-detection.yaml` |
-| Version pins, shared with kind | `k8s/versions.sh` |
+| Start, end and check a session | [`infra/session.sh`](../../infra/session.sh) |
+| Run one Terraform stack with `.env` | [`infra/terraform/tf.sh`](../../infra/terraform/tf.sh) |
+| APIs, state bucket, budget | [`infra/terraform/envs/dev/bootstrap/`](../../infra/terraform/envs/dev/bootstrap/) |
+| Stacks | [`infra/terraform/envs/dev/{network,registry,gke,stores-vm}/`](../../infra/terraform/envs/dev/) |
+| Modules | [`infra/terraform/modules/{network,registry,gke,vm}/`](../../infra/terraform/modules/) |
+| Ansible settings and inventory | [`infra/ansible/ansible.cfg`](../../infra/ansible/ansible.cfg), [`infra/ansible/inventory/terraform.py`](../../infra/ansible/inventory/terraform.py) |
+| Playbook and roles | [`infra/ansible/site.yml`](../../infra/ansible/site.yml), [`infra/ansible/roles/`](../../infra/ansible/roles/) |
+| VM settings, and the password's Vault lookup | [`infra/ansible/group_vars/stores.yml`](../../infra/ansible/group_vars/stores.yml) |
+| Platform on GKE | [`k8s/gke/platform.sh`](../../k8s/gke/platform.sh), [`k8s/gke/nginx-ingress-values.yaml`](../../k8s/gke/nginx-ingress-values.yaml) |
+| Deploy to GKE | [`k8s/gke/deploy.sh`](../../k8s/gke/deploy.sh), [`k8s/gke/env.sh`](../../k8s/gke/env.sh) |
+| Stores seen from the cluster | [`k8s/gke/stores.yaml`](../../k8s/gke/stores.yaml) |
+| Model server on GKE | [`k8s/gke/fraud-detection.yaml`](../../k8s/gke/fraud-detection.yaml) |
+| Version pins, shared with kind | [`k8s/versions.sh`](../../k8s/versions.sh) |

@@ -195,14 +195,14 @@ Grafana.
 
 | What | Where |
 |---|---|
-| The LLM split, `fraud-detection-llm` | `k8s/llm/gateway.yaml` |
-| The LLM keys, including risk-agent-b's | `k8s/llm/install.sh` |
-| Traffic for the LLM split | `k8s/llm/check-split.sh`, `k8s/llm/bench.sh` |
-| The agent split, its Services and the pinned card | `k8s/agents/a2a-gateway.yaml` |
-| Variant B and its model config | `k8s/agents/risk-agent-b.sh`, `k8s/agents/small-model-config.yaml` |
-| The agent cards' gateway address | `k8s/agents/kagent-values.yaml` |
-| The golden questions and the push | `agents/tools/check_agent.py`, `k8s/agents/check.sh` |
-| The rules and the report | `agents/src/fraudstream_agents/ab_testing.py`, `agents/tools/ab_testing_report.py`, `k8s/agents/ab-testing-report.sh` |
-| Tool calls per agent | `k8s/observability/jaeger.yaml` |
-| The dashboard | `k8s/observability/dashboards/ab-tests.yaml` |
-| Screenshots | `images/llm_ab_testing/` |
+| The LLM split, `fraud-detection-llm` | [`k8s/llm/gateway.yaml`](../../k8s/llm/gateway.yaml) |
+| The LLM keys, including risk-agent-b's | [`k8s/llm/install.sh`](../../k8s/llm/install.sh) |
+| Traffic for the LLM split | [`k8s/llm/check-split.sh`](../../k8s/llm/check-split.sh), [`k8s/llm/bench.sh`](../../k8s/llm/bench.sh) |
+| The agent split, its Services and the pinned card | [`k8s/agents/a2a-gateway.yaml`](../../k8s/agents/a2a-gateway.yaml) |
+| Variant B and its model config | [`k8s/agents/risk-agent-b.sh`](../../k8s/agents/risk-agent-b.sh), [`k8s/agents/small-model-config.yaml`](../../k8s/agents/small-model-config.yaml) |
+| The agent cards' gateway address | [`k8s/agents/kagent-values.yaml`](../../k8s/agents/kagent-values.yaml) |
+| The golden questions and the push | [`agents/tools/check_agent.py`](../../agents/tools/check_agent.py), [`k8s/agents/check.sh`](../../k8s/agents/check.sh) |
+| The rules and the report | [`agents/src/fraudstream_agents/ab_testing.py`](../../agents/src/fraudstream_agents/ab_testing.py), [`agents/tools/ab_testing_report.py`](../../agents/tools/ab_testing_report.py), [`k8s/agents/ab-testing-report.sh`](../../k8s/agents/ab-testing-report.sh) |
+| Tool calls per agent | [`k8s/observability/jaeger.yaml`](../../k8s/observability/jaeger.yaml) |
+| The dashboard | [`k8s/observability/dashboards/ab-tests.yaml`](../../k8s/observability/dashboards/ab-tests.yaml) |
+| Screenshots | [`images/llm_ab_testing/`](../../images/llm_ab_testing/) |

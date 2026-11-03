@@ -287,18 +287,18 @@ whole prompt: 24 s to the first token, against about 6 s once the prefix is cach
 
 | Area | Location |
 |---|---|
-| Install everything | `k8s/llm/install.sh` |
-| Pinned versions | `k8s/versions.sh` |
-| agentgateway values | `k8s/llm/agentgateway-values.yaml` |
-| Gateway, the two models and `fraud-detection-llm` | `k8s/llm/gateway.yaml` |
-| Checking the split between versions | `k8s/llm/check-split.sh` |
-| Keys, limits, telemetry labels and traces | `k8s/llm/policy.yaml` |
-| llm-d pickers | `k8s/llm/router-values.yaml` |
-| Model cache Job | `k8s/llm/models/fetch.yaml` |
-| Model servers | `k8s/llm/models/qwen3-4b.yaml`, `qwen3-1-7b.yaml` |
-| Acceptance check | `k8s/llm/check.sh`, `check-requests.sh` |
-| Benchmark | `k8s/llm/bench.sh`, `k8s/llm/bench/job.yaml` |
-| Benchmark results | `k8s/llm/bench/results/` |
-| Scraping | `k8s/observability/servicemonitors.yaml` |
-| LLM dashboard | `k8s/observability/dashboards/llm.yaml` |
-| Screenshots | `images/llm/` |
+| Install everything | [`k8s/llm/install.sh`](../../k8s/llm/install.sh) |
+| Pinned versions | [`k8s/versions.sh`](../../k8s/versions.sh) |
+| agentgateway values | [`k8s/llm/agentgateway-values.yaml`](../../k8s/llm/agentgateway-values.yaml) |
+| Gateway, the two models and `fraud-detection-llm` | [`k8s/llm/gateway.yaml`](../../k8s/llm/gateway.yaml) |
+| Checking the split between versions | [`k8s/llm/check-split.sh`](../../k8s/llm/check-split.sh) |
+| Keys, limits, telemetry labels and traces | [`k8s/llm/policy.yaml`](../../k8s/llm/policy.yaml) |
+| llm-d pickers | [`k8s/llm/router-values.yaml`](../../k8s/llm/router-values.yaml) |
+| Model cache Job | [`k8s/llm/models/fetch.yaml`](../../k8s/llm/models/fetch.yaml) |
+| Model servers | [`k8s/llm/models/qwen3-4b.yaml`](../../k8s/llm/models/qwen3-4b.yaml), [`qwen3-1-7b.yaml`](../../k8s/llm/models/qwen3-1-7b.yaml) |
+| Acceptance check | [`k8s/llm/check.sh`](../../k8s/llm/check.sh), [`check-requests.sh`](../../k8s/llm/check-requests.sh) |
+| Benchmark | [`k8s/llm/bench.sh`](../../k8s/llm/bench.sh), [`k8s/llm/bench/job.yaml`](../../k8s/llm/bench/job.yaml) |
+| Benchmark results | [`k8s/llm/bench/results/`](../../k8s/llm/bench/results/) |
+| Scraping | [`k8s/observability/servicemonitors.yaml`](../../k8s/observability/servicemonitors.yaml) |
+| LLM dashboard | [`k8s/observability/dashboards/llm.yaml`](../../k8s/observability/dashboards/llm.yaml) |
+| Screenshots | [`images/llm/`](../../images/llm/) |

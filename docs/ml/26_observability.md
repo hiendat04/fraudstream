@@ -430,20 +430,20 @@ refused before its key is read (401) is counted without one.
 
 | Area | Location |
 |---|---|
-| Install the whole stack | `k8s/observability/install.sh` |
-| Prometheus, Grafana, data sources | `k8s/observability/prometheus-values.yaml` |
-| Pushgateway | `k8s/observability/pushgateway-values.yaml` |
-| What Prometheus scrapes beyond the charts | `k8s/observability/servicemonitors.yaml` |
-| Dashboards | `k8s/observability/dashboards/{web-apis,compute,model-drift,llm,agents}.yaml` |
-| Jaeger, and agent calls from its spans | `k8s/observability/jaeger.yaml` |
-| Elasticsearch, Kibana, Fluent Bit | `k8s/observability/logging.yaml`, `logging-setup.yaml`, `fluent-bit-values.yaml` |
-| UIs behind the gateway | `k8s/observability/ingress.yaml`, `k8s/gateway/pipelines.yaml` |
-| Request metrics | `api/src/fraudstream_api/metrics.py` |
-| Model metrics | `api/src/fraudstream_api/inference/telemetry.py` |
-| Traces | `api/src/fraudstream_api/tracing.py` |
-| LLM metrics labels and traces | `k8s/llm/policy.yaml` (`llm-gateway-telemetry`) |
-| JSON logs | `api/src/fraudstream_api/logs.py`, `api/logging.json` |
-| Drift check | `monitoring/src/fraudstream_monitoring/drift.py`, `summary.py` |
-| Publish to the Pushgateway | `monitoring/src/fraudstream_monitoring/publish.py`, `gateway.py` |
-| Start a retrain | `monitoring/src/fraudstream_monitoring/retrain.py`, `kubeflow.py` |
-| The drift DAG | `airflow/dags/drift_monitoring.py` |
+| Install the whole stack | [`k8s/observability/install.sh`](../../k8s/observability/install.sh) |
+| Prometheus, Grafana, data sources | [`k8s/observability/prometheus-values.yaml`](../../k8s/observability/prometheus-values.yaml) |
+| Pushgateway | [`k8s/observability/pushgateway-values.yaml`](../../k8s/observability/pushgateway-values.yaml) |
+| What Prometheus scrapes beyond the charts | [`k8s/observability/servicemonitors.yaml`](../../k8s/observability/servicemonitors.yaml) |
+| Dashboards | [`k8s/observability/dashboards/{web-apis,compute,model-drift,llm,agents}.yaml`](../../k8s/observability/dashboards/) |
+| Jaeger, and agent calls from its spans | [`k8s/observability/jaeger.yaml`](../../k8s/observability/jaeger.yaml) |
+| Elasticsearch, Kibana, Fluent Bit | [`k8s/observability/logging.yaml`](../../k8s/observability/logging.yaml), [`logging-setup.yaml`](../../k8s/observability/logging-setup.yaml), [`fluent-bit-values.yaml`](../../k8s/observability/fluent-bit-values.yaml) |
+| UIs behind the gateway | [`k8s/observability/ingress.yaml`](../../k8s/observability/ingress.yaml), [`k8s/gateway/pipelines.yaml`](../../k8s/gateway/pipelines.yaml) |
+| Request metrics | [`api/src/fraudstream_api/metrics.py`](../../api/src/fraudstream_api/metrics.py) |
+| Model metrics | [`api/src/fraudstream_api/inference/telemetry.py`](../../api/src/fraudstream_api/inference/telemetry.py) |
+| Traces | [`api/src/fraudstream_api/tracing.py`](../../api/src/fraudstream_api/tracing.py) |
+| LLM metrics labels and traces | [`k8s/llm/policy.yaml`](../../k8s/llm/policy.yaml) (`llm-gateway-telemetry`) |
+| JSON logs | [`api/src/fraudstream_api/logs.py`](../../api/src/fraudstream_api/logs.py), [`api/logging.json`](../../api/logging.json) |
+| Drift check | [`monitoring/src/fraudstream_monitoring/drift.py`](../../monitoring/src/fraudstream_monitoring/drift.py), [`summary.py`](../../monitoring/src/fraudstream_monitoring/summary.py) |
+| Publish to the Pushgateway | [`monitoring/src/fraudstream_monitoring/publish.py`](../../monitoring/src/fraudstream_monitoring/publish.py), [`gateway.py`](../../monitoring/src/fraudstream_monitoring/gateway.py) |
+| Start a retrain | [`monitoring/src/fraudstream_monitoring/retrain.py`](../../monitoring/src/fraudstream_monitoring/retrain.py), [`kubeflow.py`](../../monitoring/src/fraudstream_monitoring/kubeflow.py) |
+| The drift DAG | [`airflow/dags/drift_monitoring.py`](../../airflow/dags/drift_monitoring.py) |

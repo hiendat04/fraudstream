@@ -192,9 +192,9 @@ cd ml && PYTHONPATH=../src:src uv run python -m unittest discover -s tests
 
 | What | Where |
 |---|---|
-| The notebook | `ml/notebooks/fraud_model_training.ipynb` |
-| Training set from Feast | `ml/src/fraudstream_ml/dataset.py` |
-| Model inputs | `ml/src/fraudstream_ml/features.py` |
-| Split by date | `ml/src/fraudstream_ml/split.py` |
-| Training and metrics | `ml/src/fraudstream_ml/train.py` |
-| Tests | `ml/tests/` |
+| The notebook | [`ml/notebooks/fraud_model_training.ipynb`](../../ml/notebooks/fraud_model_training.ipynb) |
+| Training set from Feast | [`ml/src/fraudstream_ml/dataset.py`](../../ml/src/fraudstream_ml/dataset.py) |
+| Model inputs | [`ml/src/fraudstream_ml/features.py`](../../ml/src/fraudstream_ml/features.py) |
+| Split by date | [`ml/src/fraudstream_ml/split.py`](../../ml/src/fraudstream_ml/split.py) |
+| Training and metrics | [`ml/src/fraudstream_ml/train.py`](../../ml/src/fraudstream_ml/train.py) |
+| Tests | [`ml/tests/`](../../ml/tests/) |

@@ -234,8 +234,8 @@ cd mcp_servers && uv run mutmut run && uv run mutmut results
 
 | What | Where |
 |---|---|
-| Unit tests and coverage | `api/tests/`, `serving/tests/`, `mcp_servers/tests/` |
-| Boundary cases | `api/tests/test_boundaries.py` |
-| Properties | `api/tests/test_properties.py`, `serving/tests/test_predictor_properties.py`, `mcp_servers/tests/test_properties.py` |
-| Mutation testing settings | `api/pyproject.toml`, `mcp_servers/pyproject.toml` (`[tool.mutmut]`) |
-| Load test | `api/loadtest/` |
+| Unit tests and coverage | [`api/tests/`](../../api/tests/), [`serving/tests/`](../../serving/tests/), [`mcp_servers/tests/`](../../mcp_servers/tests/) |
+| Boundary cases | [`api/tests/test_boundaries.py`](../../api/tests/test_boundaries.py) |
+| Properties | [`api/tests/test_properties.py`](../../api/tests/test_properties.py), [`serving/tests/test_predictor_properties.py`](../../serving/tests/test_predictor_properties.py), [`mcp_servers/tests/test_properties.py`](../../mcp_servers/tests/test_properties.py) |
+| Mutation testing settings | [`api/pyproject.toml`](../../api/pyproject.toml), [`mcp_servers/pyproject.toml`](../../mcp_servers/pyproject.toml) (`[tool.mutmut]`) |
+| Load test | [`api/loadtest/`](../../api/loadtest/) |
