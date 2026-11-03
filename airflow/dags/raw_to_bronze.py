@@ -67,6 +67,7 @@ with DAG(
                 --manifest-path "{{ var.value.fraudstream_raw_transactions_dir }}/_manifest.json"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_bronze_silver }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --ingest-run-id "{{ run_id }}"
                 --ingest-date "{{ (dag_run.logical_date or dag_run.start_date).strftime('%Y-%m-%d') }}"

@@ -54,7 +54,8 @@ from fraudstream.jobs.warehouse import (
     postgres_config_from_args,
     warehouse_config_from_args,
     write_iceberg_table,
-    write_jdbc_table,
+    postgres_window,
+    write_postgres_copy,
 )
 
 
@@ -159,6 +160,7 @@ class SilverTransactionsConfig:
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
     spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
 
     def validate(self) -> None:
         """Raise when the Silver job cannot run with this config."""
@@ -215,6 +217,7 @@ class SilverTransactionsResult:
     processed_at: str
     completed_at: str
     spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_rows: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable job summary."""
@@ -236,6 +239,7 @@ class SilverTransactionsResult:
             "write_mode": self.write_mode,
             "spark_version": self.spark_version,
             "spark_conf": self.spark_conf,
+            "postgres_rows": self.postgres_rows,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
         }
@@ -279,8 +283,10 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
             "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows to MinIO + PostgreSQL",
         )
         _write_silver_iceberg(silver_dataframe, config)
+        postgres_rows: dict[str, int] = {}
         if config.write_to_postgres:
-            write_jdbc_table(silver_dataframe, "silver.stg_transactions", config.postgres, mode=config.write_mode)
+            rows = postgres_window(spark.table(config.silver_table), "event_date", config.postgres_days)
+            postgres_rows["silver.stg_transactions"] = write_postgres_copy(rows, "silver.stg_transactions", config.postgres)
 
         set_spark_job_group(
             spark,
@@ -289,11 +295,13 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         )
         _write_quality_issue_iceberg(quality_issue_dataframe, config)
         if config.write_to_postgres:
-            write_jdbc_table(
-                quality_issue_dataframe,
-                "silver.stg_transaction_quality_issues",
-                config.postgres,
-                mode=config.write_mode,
+            issues = spark.table(config.silver_quality_table)
+            # Rows quarantined for a missing event time have no date to window on; keep them all.
+            rows = postgres_window(issues, "event_date", config.postgres_days)
+            if config.postgres_days > 0:
+                rows = rows.unionByName(issues.where(issues.event_date.isNull()))
+            postgres_rows["silver.stg_transaction_quality_issues"] = write_postgres_copy(
+                rows, "silver.stg_transaction_quality_issues", config.postgres
             )
 
         set_spark_job_group(
@@ -306,6 +314,7 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
             config=config,
             processed_at=processed_at,
             spark_version=spark.version,
+            postgres_rows=postgres_rows,
         )
         _write_summary(result, config.output_dir)
         _write_quality_report(_build_quality_report(ranked_dataframe, result), result.quality_report_path)
@@ -678,6 +687,7 @@ def _build_result(
     config: SilverTransactionsConfig,
     processed_at: datetime,
     spark_version: str,
+    postgres_rows: dict[str, int] | None = None,
 ) -> SilverTransactionsResult:
     """Build a compact summary for the completed Silver job."""
 
@@ -700,6 +710,7 @@ def _build_result(
         write_mode=config.write_mode,
         spark_version=spark_version,
         spark_conf=config.spark_conf,
+        postgres_rows=postgres_rows or {},
         processed_at=_to_utc_string(processed_at),
         completed_at=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
@@ -897,6 +908,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of the Silver tables; 0 keeps all.")
     parser.add_argument(
         "--skip-postgres-write",
         action="store_true",
@@ -921,6 +933,7 @@ def main(argv: list[str] | None = None) -> int:
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
     )
     try:
         result = build_silver_transactions(config)

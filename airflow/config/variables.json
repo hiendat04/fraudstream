@@ -14,6 +14,8 @@
   "fraudstream_spark_master": "local[4]",
   "fraudstream_spark_pool_slots": "1",
   "fraudstream_spark_conf": "{}",
+  "fraudstream_postgres_days_bronze_silver": "1",
+  "fraudstream_postgres_days_gold": "7",
   "fraudstream_write_mode": "overwrite",
   "fraudstream_feast_repo_path": "/opt/airflow/project/feature_store/feature_repo",
   "fraudstream_feature_store_start_timestamp": "2024-07-01T00:00:00+00:00",

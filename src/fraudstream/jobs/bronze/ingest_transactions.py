@@ -19,7 +19,7 @@ import argparse
 import csv
 import json
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Sequence
@@ -51,7 +51,9 @@ from fraudstream.jobs.warehouse import (
     truncate_tables_cascade,
     warehouse_config_from_args,
     write_iceberg_table,
+    postgres_window,
     write_jdbc_table,
+    write_postgres_copy,
 )
 
 
@@ -139,6 +141,7 @@ class BronzeIngestionConfig:
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
     spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
 
     def validate(self) -> None:
         """Raise ValueError when the ingestion config is not usable."""
@@ -218,6 +221,7 @@ class BronzeIngestionResult:
     spark_version: str
     completed_at: str
     spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_rows: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable ingestion summary."""
@@ -236,6 +240,7 @@ class BronzeIngestionResult:
             "write_mode": self.write_mode,
             "spark_version": self.spark_version,
             "spark_conf": self.spark_conf,
+            "postgres_rows": self.postgres_rows,
             "completed_at": self.completed_at,
         }
 
@@ -286,7 +291,8 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
                 "bronze-write-postgres",
                 "Bronze: write raw_transaction_ingest_runs and raw_transactions directly to PostgreSQL",
             )
-            _write_bronze_postgres(spark, bronze_dataframe, result, context, config)
+            postgres_rows = _write_bronze_postgres(spark, result, context, config)
+            result = replace(result, postgres_rows={"bronze.raw_transactions": postgres_rows})
 
         clear_spark_job_group(spark)
         _write_summary(result, config.output_dir)
@@ -574,17 +580,19 @@ def _write_bronze_iceberg(bronze_dataframe: Any, config: BronzeIngestionConfig) 
 
 def _write_bronze_postgres(
     spark: Any,
-    bronze_dataframe: Any,
     result: BronzeIngestionResult,
     context: BronzeRunContext,
     config: BronzeIngestionConfig,
-) -> None:
-    """Write the ingest-run audit row and raw Bronze rows directly to PostgreSQL.
+) -> int:
+    """Write the ingest-run audit row, then the newest days of raw Bronze rows, to PostgreSQL.
 
     `raw_transactions._ingest_run_id` references `raw_transaction_ingest_runs`,
     so on a full refresh both tables are truncated together first (PostgreSQL
     resolves the foreign-key order), then each table is appended in
-    parent-then-child order so the reference is always valid on insert.
+    parent-then-child order so the reference is always valid on insert. The
+    raw rows are a window read back from Iceberg, replaced on every run, so on
+    an append run only raw_transactions is truncated and the run history stays.
+    Returns the raw rows written.
     """
 
     ingest_runs_table = "bronze.raw_transaction_ingest_runs"
@@ -592,10 +600,15 @@ def _write_bronze_postgres(
 
     if config.write_mode == "overwrite":
         truncate_tables_cascade(spark, [raw_transactions_table, ingest_runs_table], config.postgres)
+    else:
+        truncate_tables_cascade(spark, [raw_transactions_table], config.postgres)
 
     ingest_run_dataframe = _build_ingest_run_dataframe(spark, result, context, config)
     write_jdbc_table(ingest_run_dataframe, ingest_runs_table, config.postgres, mode="append")
-    write_jdbc_table(_cast_bronze_dates_for_postgres(bronze_dataframe), raw_transactions_table, config.postgres, mode="append")
+    rows = postgres_window(
+        spark.table(f"{config.iceberg.catalog_name}.bronze.raw_transactions"), "transaction_date", config.postgres_days
+    )
+    return write_postgres_copy(_cast_bronze_dates_for_postgres(rows), raw_transactions_table, config.postgres, mode="append")
 
 
 def _cast_bronze_dates_for_postgres(bronze_dataframe: Any) -> Any:
@@ -813,6 +826,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of raw_transactions; 0 keeps all.")
     parser.add_argument(
         "--skip-postgres-write",
         action="store_true",
@@ -840,6 +854,7 @@ def main(argv: list[str] | None = None) -> int:
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
     )
     try:
         result = ingest_transactions_to_bronze(config)

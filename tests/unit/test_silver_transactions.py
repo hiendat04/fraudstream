@@ -336,6 +336,56 @@ class SilverTransactionsTest(TestCase):
             )
 
 
+    def test_postgres_keeps_the_newest_day_and_every_undated_issue(self) -> None:
+        """PostgreSQL gets the newest day of Silver; quality rows without an event date stay too."""
+
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            source_dir = root_dir / "raw_source" / "offline_transactions"
+            old_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            new_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-02/transactions.csv"
+            _write_csv(old_file, BASE_COLUMNS, [
+                _row(transaction_id="txn_old", amount="10.00", city="Boston", created_ts="2026-01-01T12:05:00"),
+                _row(transaction_id="txn_no_time", amount="11.00", city="Boston", event_timestamp="", created_ts="2026-01-01T12:06:00"),
+                _row(transaction_id="txn_old_bad", amount="not-a-number", city="Boston", created_ts="2026-01-01T12:07:00"),
+            ])
+            _write_csv(new_file, BASE_COLUMNS, [
+                _row(transaction_id="txn_new", amount="12.00", city="Boston",
+                     event_timestamp="2026-01-02T12:00:00", created_ts="2026-01-02T12:05:00"),
+                _row(transaction_id="txn_new_bad", amount="not-a-number", city="Boston",
+                     event_timestamp="2026-01-02T13:00:00", created_ts="2026-01-02T13:05:00"),
+            ])
+            _write_manifest(source_dir, [old_file, new_file])
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
+            ingest_transactions_to_bronze(BronzeIngestionConfig(
+                source_dir=source_dir, output_dir=root_dir / "bronze", ingest_run_id="test_postgres_window",
+                ingest_date="2026-01-03", write_mode="overwrite", warehouse=warehouse, iceberg=iceberg,
+                write_to_postgres=False,
+            ))
+
+            written: dict[str, list] = {}
+
+            def capture(rows, table, postgres, mode="overwrite"):
+                written[table] = rows.collect()
+                return len(written[table])
+
+            with patch("fraudstream.jobs.silver.transactions.write_postgres_copy", capture):
+                result = build_silver_transactions(SilverTransactionsConfig(
+                    output_dir=root_dir / "silver", write_mode="overwrite", warehouse=warehouse,
+                    iceberg=iceberg, postgres_days=1,
+                ))
+
+            self.assertEqual({row["transaction_id"] for row in written["silver.stg_transactions"]}, {"txn_new"})
+            issues = _read_iceberg_rows("iceberg.silver.stg_transaction_quality_issues", iceberg.warehouse_uri)
+            expected = [row for row in issues if row["event_date"] is None or str(row["event_date"]) == "2026-01-02"]
+            self.assertEqual(len(written["silver.stg_transaction_quality_issues"]), len(expected))
+            self.assertLess(len(expected), len(issues))
+            self.assertTrue(any(row["event_date"] is None for row in expected))
+            self.assertEqual(result.postgres_rows["silver.stg_transactions"], 1)
+
 def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
     """Write a tiny source CSV partition for tests, via the same `storage`
     module the generator uses (a local `file://` URI stands in for MinIO)."""

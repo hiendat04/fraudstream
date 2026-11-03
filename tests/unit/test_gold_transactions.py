@@ -204,6 +204,43 @@ class GoldTransactionsTest(TestCase):
         self.assertAlmostEqual(latest["merchant_vs_category_amount_ratio_30d"], 1.0)
 
 
+    def test_postgres_keeps_whole_dimensions_and_the_newest_facts(self) -> None:
+        """Dimensions go to PostgreSQL whole; facts and the tables keyed to them keep the newest day."""
+
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
+            _write_silver_fixture(iceberg)
+            written: dict[str, list] = {}
+
+            def capture(rows, table, postgres, mode="overwrite"):
+                written[table.removeprefix("gold.")] = rows.collect()
+                return len(written[table.removeprefix("gold.")])
+
+            with patch("fraudstream.jobs.gold.transactions.write_postgres_copy", capture), \
+                    patch("fraudstream.jobs.gold.transactions.truncate_tables_cascade"):
+                result = build_gold_transactions(GoldTransactionsConfig(
+                    output_dir=root_dir / "gold", write_mode="overwrite",
+                    processed_at=datetime.fromisoformat("2026-07-09T00:00:00+00:00"),
+                    warehouse=warehouse, iceberg=iceberg, postgres_days=1,
+                ))
+
+            iceberg_rows = {table.table_name: table.row_count for table in result.table_results}
+            for table_name, rows in written.items():
+                if table_name.startswith("dim_"):
+                    self.assertEqual(len(rows), iceberg_rows[table_name], table_name)
+            facts = written["fact_transactions"]
+            newest = max(row["event_date"] for row in facts)
+            self.assertTrue(all(row["event_date"] == newest for row in facts))
+            self.assertLess(len(facts), iceberg_rows["fact_transactions"])
+            fact_ids = {row["transaction_id"] for row in facts}
+            for table_name in ("fact_transaction_quality_issue", "feat_transaction_training"):
+                self.assertLessEqual({row["transaction_id"] for row in written[table_name]}, fact_ids, table_name)
+            self.assertEqual(result.to_dict()["tables"][0]["postgres_rows"], iceberg_rows["dim_date"])
+
 def _write_silver_fixture(iceberg: IcebergCatalogConfig) -> None:
     """Write a small Silver transaction fixture into the `silver.stg_transactions` Iceberg table."""
 
@@ -460,6 +497,23 @@ def _read_json(path: Path) -> dict:
 
     with path.open("r", encoding="utf-8") as file:
         return json.load(file)
+
+
+class PostgresWindowRulesTest(TestCase):
+    """Every Gold table PostgreSQL holds has a window rule, and the dimensions have none."""
+
+    def test_window_keeps_dimensions_whole(self) -> None:
+        import re
+
+        from fraudstream.jobs.gold.transactions import POSTGRES_FACT_KEYED_TABLES, POSTGRES_WINDOW_COLUMNS
+
+        schema = (Path(__file__).parents[2] / "infra/postgres/init/001_create_fraudstream_schema.sql").read_text()
+        tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS gold\.(\w+)", schema)) - {"transaction_labels"}
+        windowed = set(POSTGRES_WINDOW_COLUMNS) | POSTGRES_FACT_KEYED_TABLES
+
+        self.assertFalse({table for table in windowed if table.startswith("dim_")})
+        self.assertEqual({table for table in tables if not table.startswith("dim_")}, windowed)
+        self.assertFalse(set(POSTGRES_WINDOW_COLUMNS) & POSTGRES_FACT_KEYED_TABLES)
 
 
 if __name__ == "__main__":

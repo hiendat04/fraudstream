@@ -45,11 +45,27 @@ from fraudstream.jobs.warehouse import (
     truncate_tables_cascade,
     warehouse_config_from_args,
     write_iceberg_table,
+    postgres_window,
     write_jdbc_table,
+    write_postgres_copy,
 )
 
 
 APP_NAME = "FraudStreamGoldTransactions"
+# PostgreSQL keeps the newest days of these tables, by this date column; the dimensions stay whole.
+POSTGRES_WINDOW_COLUMNS = {
+    "fact_transactions": "event_date",
+    "fact_customer_daily": "feature_date",
+    "fact_account_daily": "feature_date",
+    "fact_merchant_daily": "feature_date",
+    "fact_city_category_daily": "feature_date",
+    "fact_device_ip_daily": "feature_date",
+    "feat_customer_rolling": "feature_date",
+    "feat_merchant_risk_rolling": "feature_date",
+    "feat_customer_total_orders_90d": "event_timestamp",
+}
+# These reference fact_transactions, so they keep exactly the windowed facts' transactions.
+POSTGRES_FACT_KEYED_TABLES = {"fact_transaction_quality_issue", "feat_transaction_training"}
 DEFAULT_OUTPUT_DIR = Path("data/gold")
 DEFAULT_WRITE_MODE = "overwrite"
 SUMMARY_FILE_NAME = "_gold_transactions_summary.json"
@@ -442,6 +458,7 @@ class GoldTransactionsConfig:
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
     spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
 
     def validate(self) -> None:
         """Raise when the Gold build cannot run with this config."""
@@ -470,6 +487,7 @@ class GoldTableResult:
     table_name: str
     iceberg_table: str
     row_count: int
+    postgres_rows: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable table result."""
@@ -478,6 +496,7 @@ class GoldTableResult:
             "table_name": self.table_name,
             "iceberg_table": self.iceberg_table,
             "row_count": self.row_count,
+            "postgres_rows": self.postgres_rows,
         }
 
 
@@ -1694,8 +1713,9 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
             ]
         )
 
-    if config.write_to_postgres and config.write_mode == "overwrite":
-        spark = table_writes[0][1].sparkSession
+    spark = table_writes[0][1].sparkSession
+    if config.write_to_postgres:
+        # The PostgreSQL copy is replaced on every run, whatever the Iceberg write mode.
         truncate_tables_cascade(spark, [f"gold.{name}" for name, _, _ in table_writes], config.postgres)
 
     results: list[GoldTableResult] = []
@@ -1709,13 +1729,35 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
         )
         row_count = selected_dataframe.count()
         write_iceberg_table(selected_dataframe, iceberg_table, partition_columns, config.write_mode)
+        postgres_rows = None
         if config.write_to_postgres:
             # The cascade truncate above already cleared every gold table together
             # (foreign keys span dims -> facts -> daily aggregates -> features), so
             # each table is appended here in that same dependency-respecting order.
-            write_jdbc_table(selected_dataframe, f"gold.{table_name}", config.postgres, mode="append")
-        results.append(GoldTableResult(table_name=table_name, iceberg_table=iceberg_table, row_count=row_count))
+            postgres_rows = write_postgres_copy(
+                _postgres_rows(spark, config, table_name, selected_dataframe), f"gold.{table_name}", config.postgres, mode="append"
+            )
+        results.append(
+            GoldTableResult(table_name=table_name, iceberg_table=iceberg_table, row_count=row_count, postgres_rows=postgres_rows)
+        )
     return results
+
+
+def _postgres_rows(spark: Any, config: GoldTransactionsConfig, table_name: str, dataframe: Any) -> Any:
+    """The rows of one Gold table that PostgreSQL keeps: dimensions whole, the rest the newest days."""
+
+    if table_name in POSTGRES_WINDOW_COLUMNS:
+        return postgres_window(spark.table(config.gold_table_name(table_name)), POSTGRES_WINDOW_COLUMNS[table_name], config.postgres_days)
+    if table_name in POSTGRES_FACT_KEYED_TABLES:
+        return windowed_to_facts(spark, config.gold_table_name, table_name, config.postgres_days)
+    return dataframe
+
+
+def windowed_to_facts(spark: Any, gold_table_name: Any, table_name: str, days: int) -> Any:
+    """A fact-keyed table's rows whose transaction is in the windowed fact_transactions."""
+
+    facts = postgres_window(spark.table(gold_table_name("fact_transactions")), "event_date", days)
+    return spark.table(gold_table_name(table_name)).join(facts.select("transaction_id"), "transaction_id", "left_semi")
 
 
 def _select_gold_columns(dataframe: Any, table_name: str) -> Any:
@@ -1768,6 +1810,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Build dimensions, facts, and daily aggregates without offline feature tables.",
     )
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of facts, aggregates and features; 0 keeps all.")
     add_spark_ui_arguments(parser)
     add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
@@ -1796,6 +1839,7 @@ def main(argv: list[str] | None = None) -> int:
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
     )
     try:
         result = build_gold_transactions(config)

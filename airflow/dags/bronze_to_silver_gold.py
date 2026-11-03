@@ -49,6 +49,7 @@ with DAG(
                 --quality-output-dir "{{ var.value.fraudstream_silver_quality_dir }}"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_bronze_silver }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
                 """,
@@ -78,6 +79,7 @@ with DAG(
                 --output-dir "{{ var.value.fraudstream_gold_dir }}"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_gold }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
                 --core-only

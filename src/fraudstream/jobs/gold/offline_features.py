@@ -30,7 +30,9 @@ from fraudstream.jobs.gold.transactions import (
     _build_merchant_category_rolling,
     _parse_datetime,
     _select_gold_columns,
+    POSTGRES_WINDOW_COLUMNS,
     _to_utc_string,
+    windowed_to_facts,
 )
 from fraudstream.jobs.spark_ui import (
     SparkUIConfig,
@@ -56,7 +58,8 @@ from fraudstream.jobs.warehouse import (
     postgres_config_from_args,
     warehouse_config_from_args,
     write_iceberg_table,
-    write_jdbc_table,
+    postgres_window,
+    write_postgres_copy,
 )
 
 
@@ -80,6 +83,7 @@ class OfflineFeatureConfig:
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
     spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
 
     def validate(self) -> None:
         """Raise when required core Gold inputs or runtime values are invalid."""
@@ -102,6 +106,7 @@ class OfflineFeatureTableResult:
     table_name: str
     iceberg_table: str
     row_count: int
+    postgres_rows: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable table result."""
@@ -110,6 +115,7 @@ class OfflineFeatureTableResult:
             "table_name": self.table_name,
             "iceberg_table": self.iceberg_table,
             "row_count": self.row_count,
+            "postgres_rows": self.postgres_rows,
         }
 
 
@@ -336,13 +342,20 @@ def _write_feature_tables(
                 row_count = selected_dataframe.count()
 
             write_iceberg_table(selected_dataframe, iceberg_table, partition_columns, config.write_mode)
+            postgres_rows = None
             if config.write_to_postgres:
-                write_jdbc_table(selected_dataframe, f"gold.{table_name}", config.postgres, mode=config.write_mode)
+                spark = selected_dataframe.sparkSession
+                if table_name in POSTGRES_WINDOW_COLUMNS:
+                    rows = postgres_window(spark.table(iceberg_table), POSTGRES_WINDOW_COLUMNS[table_name], config.postgres_days)
+                else:
+                    rows = windowed_to_facts(spark, config.gold_table_name, table_name, config.postgres_days)
+                postgres_rows = write_postgres_copy(rows, f"gold.{table_name}", config.postgres)
             results.append(
                 OfflineFeatureTableResult(
                     table_name=table_name,
                     iceberg_table=iceberg_table,
                     row_count=row_count,
+                    postgres_rows=postgres_rows,
                 )
             )
         finally:
@@ -382,6 +395,7 @@ def build_parser() -> argparse.ArgumentParser:
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of the feature tables; 0 keeps all.")
     parser.add_argument(
         "--skip-postgres-write",
         action="store_true",
@@ -405,6 +419,7 @@ def main(argv: list[str] | None = None) -> int:
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
     )
     try:
         result = build_offline_features(config)

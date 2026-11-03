@@ -2,8 +2,10 @@
 
 from __future__ import annotations
 
+import importlib.util
 import os
-from unittest import TestCase, main
+from datetime import date, datetime, timedelta
+from unittest import TestCase, main, skipUnless
 from unittest.mock import patch
 
 import fraudstream.jobs.warehouse as warehouse_module
@@ -17,6 +19,7 @@ from fraudstream.jobs.warehouse import (
     WarehouseConfig,
     configure_iceberg_catalog,
     configure_object_storage,
+    postgres_window,
     required_env,
     write_iceberg_table,
 )
@@ -229,6 +232,34 @@ class RequiredSecretsTest(TestCase):
             self.assertFalse(hasattr(warehouse_module, name), name)
         self.assertEqual((PostgresJdbcConfig().user, PostgresJdbcConfig().password), ("", ""))
         self.assertEqual((WarehouseConfig().access_key, WarehouseConfig().secret_key), ("", ""))
+
+
+@skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
+class PostgresWindowTest(TestCase):
+    """PostgreSQL keeps only the newest days of a table; Iceberg keeps everything."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        from pyspark.sql import SparkSession
+
+        cls.spark = SparkSession.builder.master("local[1]").appName("postgres-window-test").getOrCreate()
+        first = date(2026, 6, 21)
+        cls.rows = cls.spark.createDataFrame(
+            [(f"t{day}", first + timedelta(days=day), datetime(2026, 6, 21, 12) + timedelta(days=day)) for day in range(10)],
+            ["transaction_id", "event_date", "event_timestamp"],
+        )
+
+    def test_window_keeps_the_newest_days(self) -> None:
+        kept = postgres_window(self.rows, "event_date", 7)
+
+        self.assertEqual(kept.count(), 7)
+        self.assertEqual(min(row.event_date for row in kept.collect()), date(2026, 6, 24))
+
+    def test_window_reads_a_timestamp_column_by_its_date(self) -> None:
+        self.assertEqual(postgres_window(self.rows, "event_timestamp", 1).count(), 1)
+
+    def test_zero_days_keeps_everything(self) -> None:
+        self.assertEqual(postgres_window(self.rows, "event_date", 0).count(), 10)
 
 
 if __name__ == "__main__":
