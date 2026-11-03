@@ -13,15 +13,13 @@ from fraudstream.reports.data_quality import render_html_report
 class DataQualityReportTests(unittest.TestCase):
     """Verify that measured evidence is rendered without scanning source rows."""
 
-    def test_renders_offline_metrics_and_silver_dedup_result(self) -> None:
-        """Show skew, cardinality, evolution, and before/after dedup evidence."""
+    def test_renders_offline_metrics_with_size_from_the_profile(self) -> None:
+        """Show skew, cardinality, evolution and duplicates, with the stored size the profile measured."""
 
         with tempfile.TemporaryDirectory() as temp_dir:
             root = Path(temp_dir)
             offline_dir = root / "offline"
-            silver_dir = root / "silver"
             offline_dir.mkdir()
-            silver_dir.mkdir()
             config_path = root / "offline_config.json"
 
             _write_json(
@@ -46,17 +44,14 @@ class DataQualityReportTests(unittest.TestCase):
                         "new_partition_row_count": 52,
                         "old_partition_missing_columns": ["device_id", "ip_address"],
                     },
-                    "late_arrivals": {"late_arrival_rate_actual": 0.04},
+                    "late_arrivals": {"late_arrival_rate_actual": 0.04, "max_arrival_delay_hours": 72.02},
                     "raw_quality_issues": {
                         "missing_value_rate_actual": 0.015,
                         "inconsistent_format_rate_actual": 0.01,
                     },
                 },
             )
-            _write_json(
-                silver_dir / "_silver_transactions_summary.json",
-                {"output_row_count": 100, "duplicate_rows_removed_count": 2},
-            )
+            _write_json(offline_dir / "_data_profile.json", {"bytes": 114_751_147_911})
             _write_json(
                 config_path,
                 {
@@ -76,7 +71,6 @@ class DataQualityReportTests(unittest.TestCase):
             report = render_html_report(
                 dataset="offline",
                 offline_dir=offline_dir,
-                silver_dir=silver_dir,
                 streaming_dir=root / "unused_stream",
                 offline_config=config_path,
                 streaming_config=root / "unused_stream_config.json",
@@ -88,7 +82,9 @@ class DataQualityReportTests(unittest.TestCase):
             self.assertIn("transaction_id", report)
             self.assertIn("50 per evolved column", report)
             self.assertIn("2 / 102 (1.96%)", report)
-            self.assertIn("0 retained", report)
+            self.assertIn("106.9 GiB", report)
+            self.assertIn("72.02 hours", report)
+            self.assertNotIn("Silver", report)
 
     def test_renders_measured_streaming_problem_rates(self) -> None:
         """Show measured burst, late, duplicate, and out-of-order metrics."""
@@ -113,6 +109,12 @@ class DataQualityReportTests(unittest.TestCase):
                         "burst_event_rate_actual": 0.2941,
                         "late_event_count": 6,
                         "late_event_rate_actual": 0.0588,
+                        "lateness": {
+                            "p50_minutes": 379.6,
+                            "p95_minutes": 687.9,
+                            "max_minutes": 729.2,
+                            "buckets": {"under_120": 1, "120_to_240": 1, "240_to_480": 2, "480_and_over": 2},
+                        },
                         "observed_out_of_order_event_count": 8,
                     },
                     "event_time_windows": {
@@ -127,7 +129,6 @@ class DataQualityReportTests(unittest.TestCase):
             report = render_html_report(
                 dataset="streaming",
                 offline_dir=root / "unused_offline",
-                silver_dir=root / "unused_silver",
                 streaming_dir=stream_dir,
                 offline_config=root / "unused_offline_config.json",
                 streaming_config=config_path,
@@ -139,6 +140,8 @@ class DataQualityReportTests(unittest.TestCase):
             self.assertIn("5.88%", report)
             self.assertIn("1.96%", report)
             self.assertIn("Observed out-of-order events", report)
+            self.assertIn("379.6 min", report)
+            self.assertIn("Delay 480 and over min", report)
 
     def test_labels_config_as_target_when_stream_summary_is_missing(self) -> None:
         """Avoid presenting configured rates as measured observations."""
@@ -151,7 +154,6 @@ class DataQualityReportTests(unittest.TestCase):
             report = render_html_report(
                 dataset="streaming",
                 offline_dir=root / "unused_offline",
-                silver_dir=root / "unused_silver",
                 streaming_dir=root / "missing",
                 offline_config=root / "unused_offline_config.json",
                 streaming_config=config_path,
