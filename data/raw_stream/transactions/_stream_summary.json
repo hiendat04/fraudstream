@@ -1,5 +1,5 @@
 {
-  "generated_at": "2026-09-11T15:58:31Z",
+  "generated_at": "2026-11-03T00:17:59Z",
   "sink_type": "local_jsonl",
   "topic": "financial_transactions",
   "event_log_path": "data/raw_stream/transactions/topic=financial_transactions/events.jsonl",
@@ -37,6 +37,17 @@
   "stream_problems": {
     "late_event_count": 33341,
     "late_event_rate_actual": 0.0651,
+    "lateness": {
+      "p50_minutes": 379.6,
+      "p95_minutes": 687.9,
+      "max_minutes": 729.2,
+      "buckets": {
+        "under_120": 3720,
+        "120_to_240": 6073,
+        "240_to_480": 11728,
+        "480_and_over": 11820
+      }
+    },
     "out_of_order_flag_count": 26323,
     "observed_out_of_order_event_count": 66107,
     "duplicate_flag_count": 12500,
