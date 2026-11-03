@@ -1,6 +1,7 @@
 {
   "fraudstream_project_root": "/opt/airflow/project",
   "fraudstream_offline_generator_config": "/opt/airflow/project/configs/generator/offline_transactions.json",
+  "fraudstream_generator_workers": "6",
   "fraudstream_raw_transactions_dir": "/opt/airflow/project/data/raw_source/offline_transactions",
   "fraudstream_raw_uri": "s3a://fraudstream/raw/offline_transactions",
   "fraudstream_labels_uri": "s3a://fraudstream/raw/transaction_labels",
@@ -14,7 +15,7 @@
   "fraudstream_spark_pool_slots": "1",
   "fraudstream_write_mode": "overwrite",
   "fraudstream_feast_repo_path": "/opt/airflow/project/feature_store/feature_repo",
-  "fraudstream_feature_store_start_timestamp": "2026-01-01T00:00:00+00:00",
+  "fraudstream_feature_store_start_timestamp": "2024-07-01T00:00:00+00:00",
   "fraudstream_feature_store_summary_path": "/opt/airflow/project/data/gold/_feature_store_materialization_summary.json",
   "fraudstream_drift_reference_path": "/opt/airflow/project/api/reference/fraud-detection-v2.json",
   "fraudstream_drift_summary_dir": "/opt/airflow/project/data/monitoring/drift",

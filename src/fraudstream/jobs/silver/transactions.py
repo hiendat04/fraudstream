@@ -4,6 +4,14 @@ Silver is the first layer that changes business values. This job standardizes
 raw strings, casts analytical types, assigns quality issue codes, deduplicates
 by transaction_id with deterministic tie-breaking, and writes clean Parquet for
 downstream feature and analytics work.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.silver.transactions --write-mode overwrite
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.silver.transactions --write-mode overwrite
 """
 
 from __future__ import annotations

@@ -236,13 +236,13 @@ checks the gateway takes the new one.
 
 | Area | Location |
 |---|---|
-| Vault server, TLS, unseal | `infra/vault/compose.yml`, `config.hcl`, `tls.sh`, `init.sh`, `unseal.sh` |
-| Policies and logins | `infra/vault/policies/`, `infra/vault/configure.sh` |
-| Copying today's secrets in | `infra/vault/seed.sh` |
-| Making and rotating keys | `infra/vault/new-key.sh`, `infra/vault/rotate-key.sh` |
-| External Secrets | `k8s/secrets/`, `k8s/*/secrets.yaml` |
-| Compose's secrets | `infra/vault/env.sh` |
-| Jenkins | `cicd/jenkins/jenkins.yaml`, `cicd/jenkins/entrypoint.sh` |
-| Airflow | `docker-compose.yml` (`x-airflow-common`), `airflow/include/fraudstream_airflow/dag_helpers.py` |
-| Ansible and GKE | `infra/ansible/group_vars/stores.yml`, `k8s/gke/deploy.sh` |
-| The checks | `infra/vault/check.sh` |
+| Vault server, TLS, unseal | [`infra/vault/compose.yml`](../../infra/vault/compose.yml), [`config.hcl`](../../infra/vault/config.hcl), [`tls.sh`](../../infra/vault/tls.sh), [`init.sh`](../../infra/vault/init.sh), [`unseal.sh`](../../infra/vault/unseal.sh) |
+| Policies and logins | [`infra/vault/policies/`](../../infra/vault/policies/), [`infra/vault/configure.sh`](../../infra/vault/configure.sh) |
+| Copying today's secrets in | [`infra/vault/seed.sh`](../../infra/vault/seed.sh) |
+| Making and rotating keys | [`infra/vault/new-key.sh`](../../infra/vault/new-key.sh), [`infra/vault/rotate-key.sh`](../../infra/vault/rotate-key.sh) |
+| External Secrets | [`k8s/secrets/`](../../k8s/secrets/), `k8s/*/secrets.yaml` |
+| Compose's secrets | [`infra/vault/env.sh`](../../infra/vault/env.sh) |
+| Jenkins | [`cicd/jenkins/jenkins.yaml`](../../cicd/jenkins/jenkins.yaml), [`cicd/jenkins/entrypoint.sh`](../../cicd/jenkins/entrypoint.sh) |
+| Airflow | [`docker-compose.yml`](../../docker-compose.yml) (`x-airflow-common`), [`airflow/include/fraudstream_airflow/dag_helpers.py`](../../airflow/include/fraudstream_airflow/dag_helpers.py) |
+| Ansible and GKE | [`infra/ansible/group_vars/stores.yml`](../../infra/ansible/group_vars/stores.yml), [`k8s/gke/deploy.sh`](../../k8s/gke/deploy.sh) |
+| The checks | [`infra/vault/check.sh`](../../infra/vault/check.sh) |

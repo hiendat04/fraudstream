@@ -1,9 +1,10 @@
 """Asks the agents their golden questions through port-forwards, and checks the tool calls and the answers.
 
-    python tools/check_agent.py --controller http://127.0.0.1:18083 --context-api http://127.0.0.1:18093 \
-        --inference-api http://127.0.0.1:18092 [--agent risk-agent]...
-    python tools/check_agent.py --controller ... --context-api ... --inference-api ... --agent context-agent --load 3
-    python tools/check_agent.py --controller ... --context-api ... --inference-api ... --agent context-agent --load 10 --concurrency 2
+Run from the repo root:
+
+    PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 --agent risk-agent
+    PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 --agent context-agent --load 3
+    PYTHONPATH=agents/src uv run --project agents python agents/tools/check_agent.py --controller http://127.0.0.1:18083 --context-api http://127.0.0.1:18093 --inference-api http://127.0.0.1:18092 --agent context-agent --load 10 --concurrency 2
 
 Every agent's questions are asked when no --agent is given; risk-agent-b, the risk
 agent on another model config, is asked the risk agent's questions when it is

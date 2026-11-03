@@ -5,6 +5,7 @@ datahub/.venv/
 images/flow_dots.py
 docs/mlops
 docs/superpowers/
+docs/data_engineering
 .env
 data/
 .idea

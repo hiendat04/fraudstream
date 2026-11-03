@@ -4,13 +4,20 @@ This tool is intentionally independent from the ingestion summary. It reads the
 raw source files and the Bronze Parquet output, then verifies that Bronze kept
 the same row coverage, source-file coverage, partition coverage, and raw format
 issues expected from a preservation layer.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.bronze.validate_transactions
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.bronze.validate_transactions
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
 import sys
 from dataclasses import dataclass, field
@@ -242,15 +249,15 @@ def _collect_source_stats(source_files: Sequence[str], warehouse: WarehouseConfi
         transaction_date = _extract_partition_value(uri, "transaction_date")
         partitions.add((schema_version, transaction_date))
 
-        text = storage.get_text(warehouse, uri)
-        reader = csv.DictReader(io.StringIO(text))
-        if reader.fieldnames is None:
-            raise ValueError(f"Source CSV file is missing a header: {uri}")
+        with storage.open_text(warehouse, uri) as file:
+            reader = csv.DictReader(file)
+            if reader.fieldnames is None:
+                raise ValueError(f"Source CSV file is missing a header: {uri}")
 
-        has_device_id_column = "device_id" in reader.fieldnames
-        for row in reader:
-            row_count += 1
-            _count_source_format_issues(format_issues, schema_version, has_device_id_column, row)
+            has_device_id_column = "device_id" in reader.fieldnames
+            for row in reader:
+                row_count += 1
+                _count_source_format_issues(format_issues, schema_version, has_device_id_column, row)
 
     return SourceValidationStats(
         row_count=row_count,

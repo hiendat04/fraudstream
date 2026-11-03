@@ -5,6 +5,9 @@ duplicates.count,12500
 duplicates.rate_actual,0.0244
 late_events.count,33341
 late_events.rate_actual,0.0651
+late_events.p50_minutes,379.6
+late_events.p95_minutes,687.9
+late_events.max_minutes,729.2
 out_of_order.flag_count,26323
 out_of_order.observed_count,66107
 burst_events.count,153776

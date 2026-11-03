@@ -4,8 +4,9 @@ Nothing here reads a label. Nobody knows yet which of these payments were fraud,
 so the check can only say whether the model's inputs still look like the rows it
 learned from. It scores them with the drift detection API's own compare().
 
-    python -m fraudstream_monitoring.drift --repo-path feature_store/feature_repo \\
-        --reference api/reference/fraud-detection-v2.json --window-days 7 --out /tmp/drift.json
+Run from the repo root:
+
+    PYTHONPATH=monitoring/src:api/src:ml/src uv run --project monitoring python -m fraudstream_monitoring.drift --repo-path feature_store/feature_repo --reference api/reference/fraud-detection-v2.json --window-days 7 --out /tmp/drift.json
 """
 
 import argparse

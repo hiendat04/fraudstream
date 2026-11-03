@@ -296,9 +296,9 @@ inside the cluster).
 
 | Area | Location |
 |---|---|
-| Ingress with the gateway annotations | `k8s/charts/fraudstream-api/templates/ingress.yaml` |
-| Gateway defaults | `k8s/charts/fraudstream-api/values.yaml` (`ingress:`) |
-| Password Secret, synced from Vault | `k8s/apis/secrets.yaml` (`gateway-htpasswd`) |
-| Local CA and issuer | `k8s/platform/local-ca-issuer.yaml` |
-| Outside-in check | `cicd/check_gateway.sh`, `cicd/gateway.sh` |
-| Client settings for the tools | `api/tools/gateway.py` |
+| Ingress with the gateway annotations | [`k8s/charts/fraudstream-api/templates/ingress.yaml`](../../k8s/charts/fraudstream-api/templates/ingress.yaml) |
+| Gateway defaults | [`k8s/charts/fraudstream-api/values.yaml`](../../k8s/charts/fraudstream-api/values.yaml) (`ingress:`) |
+| Password Secret, synced from Vault | [`k8s/apis/secrets.yaml`](../../k8s/apis/secrets.yaml) (`gateway-htpasswd`) |
+| Local CA and issuer | [`k8s/platform/local-ca-issuer.yaml`](../../k8s/platform/local-ca-issuer.yaml) |
+| Outside-in check | [`cicd/check_gateway.sh`](../../cicd/check_gateway.sh), [`cicd/gateway.sh`](../../cicd/gateway.sh) |
+| Client settings for the tools | [`api/tools/gateway.py`](../../api/tools/gateway.py) |

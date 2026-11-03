@@ -5,21 +5,36 @@ ingested into a future Bronze zone. It intentionally simulates practical
 offline data problems: skew, high-cardinality identifiers, schema evolution,
 duplicate records, late arrivals, bursty traffic, missing values, inconsistent
 formats, and fraud-ring behavior.
+
+Each day is written on its own, as one CSV, a chunk of rows at a time,
+so memory stays flat however many rows are asked for, and days can be
+generated in parallel.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`.
+
+    PYTHONPATH=src uv run --extra storage python -m fraudstream.generators.offline_transactions --workers 6
+
+Inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.generators.offline_transactions --workers 6
 """
 
 from __future__ import annotations
 
 import argparse
 import csv
-import io
 import json
+import multiprocessing
 import random
 from collections import Counter
+from concurrent.futures import ProcessPoolExecutor
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
+from functools import lru_cache
+from itertools import repeat
 from pathlib import Path
-from statistics import mean
+from tempfile import TemporaryDirectory
 from typing import Any, Mapping, Sequence
 
 from fraudstream import storage
@@ -178,6 +193,13 @@ MERCHANT_RISK_WEIGHTS = {
 
 FRAUD_RING_CATEGORIES = {"electronics", "cash_transfer", "online_marketplace", "travel"}
 LATE_ARRIVAL_THRESHOLD_MINUTES = 60
+LABEL_COLUMNS = ["transaction_id", "is_fraud", "event_timestamp"]
+
+# Share of all traffic that lands on burst days, split evenly between them.
+BURST_TRAFFIC_SHARE = 0.18
+
+# Rows generated, duplicated and shuffled together before they are written.
+CHUNK_ROWS = 100_000
 
 
 @dataclass(frozen=True)
@@ -219,6 +241,77 @@ class GenerationContext:
     merchants: Sequence[MerchantProfile]
     burst_dates: Sequence[date]
     fraud_rings: Sequence[FraudRing]
+
+
+@dataclass(frozen=True)
+class DayPlan:
+    """Which day to generate, and which slice of transaction ids it owns."""
+
+    event_date: date
+    first_index: int
+    row_count: int
+
+
+@dataclass
+class DayStats:
+    """Counts describing one day's written rows; days add up into the run's quality summary."""
+
+    base_rows: int = 0
+    rows: int = 0
+    fraud_rows: int = 0
+    late_rows: int = 0
+    max_delay_minutes: float = 0.0
+    missing_value_rows: int = 0
+    inconsistent_format_rows: int = 0
+    ring_rows: int = 0
+    ring_devices: set[str] = field(default_factory=set)
+    amount_total: float = 0.0
+    cities: Counter[str] = field(default_factory=Counter)
+    categories: Counter[str] = field(default_factory=Counter)
+    hours: Counter[str] = field(default_factory=Counter)
+
+    def add(self, base_rows: Sequence[TransactionRow], written_rows: Sequence[TransactionRow], currency: str) -> None:
+        """Count one chunk: its generated rows and the rows written, duplicates included."""
+
+        self.base_rows += len(base_rows)
+        self.rows += len(written_rows)
+        for row in written_rows:
+            delay = _arrival_delay_minutes(row)
+            self.fraud_rows += row["is_fraud"] == "1"
+            self.late_rows += delay > LATE_ARRIVAL_THRESHOLD_MINUTES
+            self.max_delay_minutes = max(self.max_delay_minutes, delay)
+            self.missing_value_rows += _has_missing_values(row)
+            self.inconsistent_format_rows += bool(_has_inconsistent_format(row, currency))
+            if row.get("device_id", "").startswith("dev_ring_"):
+                self.ring_rows += 1
+                self.ring_devices.add(row["device_id"])
+            self.amount_total += float(row["amount"])
+            self.cities[row["city"]] += 1
+            self.categories[row["merchant_category"]] += 1
+            self.hours[row["event_timestamp"][11:13]] += 1
+
+    def merge(self, other: "DayStats") -> None:
+        """Add another day's counts to these."""
+
+        for name in ("base_rows", "rows", "fraud_rows", "late_rows", "missing_value_rows",
+                     "inconsistent_format_rows", "ring_rows", "amount_total"):
+            setattr(self, name, getattr(self, name) + getattr(other, name))
+        self.max_delay_minutes = max(self.max_delay_minutes, other.max_delay_minutes)
+        self.ring_devices |= other.ring_devices
+        self.cities += other.cities
+        self.categories += other.categories
+        self.hours += other.hours
+
+
+@dataclass(frozen=True)
+class DayResult:
+    """One generated day: where its files went, and what was in them."""
+
+    event_date: date
+    schema_version: str
+    transactions_uri: str
+    labels_uri: str
+    stats: DayStats
 
 
 @dataclass(frozen=True)
@@ -344,31 +437,29 @@ class OfflineGeneratorConfig:
                 raise ValueError("drift_start_date must fall inside the generated history window")
 
 
-def generate_offline_transactions(config: OfflineGeneratorConfig) -> dict[str, Any]:
-    """Generate partitioned raw CSV files and data-quality summary artifacts."""
+def generate_offline_transactions(config: OfflineGeneratorConfig, workers: int = 1) -> dict[str, Any]:
+    """Generate one transactions CSV and one label CSV per day, plus the evidence files.
+
+    `workers` days are generated at once. Every day draws from its own random
+    stream, seeded by its date, so the data is the same whatever the worker count.
+    """
 
     config.validate()
-    rng = random.Random(config.random_seed)
     _prepare_output_dir(config.output_dir)
     storage.delete_prefix(config.warehouse, config.raw_uri)
     storage.delete_prefix(config.warehouse, config.labels_uri)
 
-    context = _build_generation_context(config, rng)
-    rows = [_generate_transaction(index, config, context, rng) for index in range(config.n_transactions)]
-    duplicated_rows = _duplicate_rows(rows, config.duplicate_rate, rng)
-    all_rows = [*rows, *duplicated_rows]
-    rng.shuffle(all_rows)
+    burst_dates = _generation_context(config).burst_dates
+    plans = _plan_days(config, burst_dates)
+    if workers == 1:
+        results = [_generate_day(config, plan) for plan in plans]
+    else:
+        with ProcessPoolExecutor(workers, mp_context=multiprocessing.get_context("spawn")) as pool:
+            results = list(pool.map(_generate_day, repeat(config), plans))
 
-    written_files = _write_partitioned_csv(all_rows, config)
-    label_file = _write_label_table(rows, config)
-    summary = _build_quality_summary(rows, all_rows, config, written_files, context.burst_dates)
-    summary["label_table"] = {
-        "uri": label_file,
-        "row_count": len(rows),
-        "columns": ["transaction_id", "is_fraud", "event_timestamp"],
-    }
+    summary = _build_quality_summary(config, results, burst_dates)
     _write_summary_artifacts(summary, config.output_dir)
-    _write_manifest(config, summary, written_files, label_file)
+    _write_manifest(config, summary, results)
     return summary
 
 
@@ -386,6 +477,13 @@ def _prepare_output_dir(output_dir: Path) -> None:
         artifact_path = output_dir / artifact
         if artifact_path.exists():
             artifact_path.unlink()
+
+
+@lru_cache(maxsize=1)
+def _generation_context(config: OfflineGeneratorConfig) -> GenerationContext:
+    """Build the run's customers, merchants, burst days and rings once per process, from the seed."""
+
+    return _build_generation_context(config, random.Random(config.random_seed))
 
 
 def _build_generation_context(config: OfflineGeneratorConfig, rng: random.Random) -> GenerationContext:
@@ -464,18 +562,84 @@ def _generate_fraud_rings(config: OfflineGeneratorConfig, rng: random.Random) ->
     return rings
 
 
+def _plan_days(config: OfflineGeneratorConfig, burst_dates: Sequence[date]) -> list[DayPlan]:
+    """Share the transactions out over the days, with burst days getting extra traffic."""
+
+    days = [config.start_date + timedelta(days=offset) for offset in range(config.days_history)]
+    normal_share = 1 - BURST_TRAFFIC_SHARE if burst_dates else 1.0
+    shares = [
+        normal_share / len(days) + (BURST_TRAFFIC_SHARE / len(burst_dates) if day in burst_dates else 0.0)
+        for day in days
+    ]
+    counts = [int(config.n_transactions * share) for share in shares]
+    # Rounding down leaves a few transactions over; the first days take one each.
+    for position in range(config.n_transactions - sum(counts)):
+        counts[position % len(counts)] += 1
+
+    plans: list[DayPlan] = []
+    first_index = 0
+    for day, count in zip(days, counts, strict=True):
+        plans.append(DayPlan(day, first_index, count))
+        first_index += count
+    return plans
+
+
+def _generate_day(config: OfflineGeneratorConfig, plan: DayPlan) -> DayResult:
+    """Write one day's transactions and labels as CSVs, a chunk at a time, then upload them."""
+
+    context = _generation_context(config)
+    rng = random.Random(f"{config.random_seed}:{plan.event_date}")
+    schema_version = "v2" if plan.event_date >= config.schema_change_date else "v1"
+    columns = EVOLVED_COLUMNS if schema_version == "v2" else BASE_COLUMNS
+    stats = DayStats()
+    transactions_uri = storage.join_uri(
+        config.raw_uri,
+        f"schema_version={schema_version}",
+        f"transaction_date={plan.event_date}",
+        "transactions.csv",
+    )
+    labels_uri = storage.join_uri(config.labels_uri, f"transaction_date={plan.event_date}", "transaction_labels.csv")
+
+    with TemporaryDirectory() as tmp_dir:
+        transactions_path = Path(tmp_dir, "transactions.csv")
+        labels_path = Path(tmp_dir, "transaction_labels.csv")
+        with (
+            transactions_path.open("w", encoding="utf-8", newline="") as transactions_file,
+            labels_path.open("w", encoding="utf-8", newline="") as labels_file,
+        ):
+            transactions = csv.DictWriter(transactions_file, fieldnames=columns, extrasaction="ignore")
+            labels = csv.writer(labels_file)
+            transactions.writeheader()
+            labels.writerow(LABEL_COLUMNS)
+            for chunk_start in range(0, plan.row_count, CHUNK_ROWS):
+                chunk_end = min(chunk_start + CHUNK_ROWS, plan.row_count)
+                rows = [
+                    _generate_transaction(plan.first_index + offset, plan.event_date, config, context, rng)
+                    for offset in range(chunk_start, chunk_end)
+                ]
+                labels.writerows([row[column] for column in LABEL_COLUMNS] for row in rows)
+                written_rows = [*rows, *_duplicate_rows(rows, config.duplicate_rate, rng)]
+                rng.shuffle(written_rows)
+                transactions.writerows(written_rows)
+                stats.add(rows, written_rows, config.currency)
+
+        storage.put_file(config.warehouse, transactions_uri, transactions_path)
+        storage.put_file(config.warehouse, labels_uri, labels_path)
+    return DayResult(plan.event_date, schema_version, transactions_uri, labels_uri, stats)
+
+
 def _generate_transaction(
     index: int,
+    event_date: date,
     config: OfflineGeneratorConfig,
     context: GenerationContext,
     rng: random.Random,
 ) -> TransactionRow:
-    """Create one synthetic transaction row."""
+    """Create one synthetic transaction row on the given day."""
 
     customer = rng.choice(context.customers)
     merchant = rng.choice(context.merchants)
-    event_time = _sample_event_time(config, context.burst_dates, rng)
-    event_date = event_time.date()
+    event_time = _sample_event_time(event_date, rng)
     created_ts = _sample_created_timestamp(event_time, config.late_arrival_rate, rng)
     drift_multiplier = _drift_multiplier(event_date, config)
     amount = _sample_amount(merchant.merchant_category, rng, drift_multiplier)
@@ -531,13 +695,8 @@ def _generate_transaction(
     return row
 
 
-def _sample_event_time(config: OfflineGeneratorConfig, burst_dates: Sequence[date], rng: random.Random) -> datetime:
-    """Sample event time with daily seasonality, peaks, and occasional burst days."""
-
-    if burst_dates and rng.random() < 0.18:
-        event_date = rng.choice(burst_dates)
-    else:
-        event_date = config.start_date + timedelta(days=rng.randrange(config.days_history))
+def _sample_event_time(event_date: date, rng: random.Random) -> datetime:
+    """Sample a time of day with daily seasonality and peak hours."""
 
     hour = int(_sample_weighted_value(PEAK_HOUR_LABEL_WEIGHTS, rng))
     minute = rng.randrange(60)
@@ -715,161 +874,65 @@ def _duplicate_rows(
     duplicate_rate: float,
     rng: random.Random,
 ) -> list[TransactionRow]:
-    """Create duplicate source records by repeating sampled transaction rows."""
+    """Repeat each row with probability `duplicate_rate`, so the rate holds however small the chunk."""
 
-    duplicate_count = round(len(rows) * duplicate_rate)
-    return [dict(row) for row in rng.sample(rows, duplicate_count)]
-
-
-def _write_partitioned_csv(rows: list[TransactionRow], config: OfflineGeneratorConfig) -> list[str]:
-    """Write raw rows partitioned by schema version and transaction date to MinIO.
-
-    Returns the `s3a://` (or `file://`, in tests) URI of each partition file
-    written, in the same role the old local `Path` strings played -- the
-    manifest stores exactly these URIs for Bronze to read back.
-    """
-
-    partitions: dict[tuple[str, str], list[TransactionRow]] = {}
-    for row in rows:
-        event_date = row["event_timestamp"][:10]
-        schema_version = "v2" if date.fromisoformat(event_date) >= config.schema_change_date else "v1"
-        partitions.setdefault((schema_version, event_date), []).append(row)
-
-    written_files: list[str] = []
-    for (schema_version, event_date), partition_rows in sorted(partitions.items()):
-        uri = storage.join_uri(
-            config.raw_uri, f"schema_version={schema_version}", f"transaction_date={event_date}", "transactions.csv"
-        )
-        columns = EVOLVED_COLUMNS if schema_version == "v2" else BASE_COLUMNS
-        buffer = io.StringIO()
-        writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
-        writer.writeheader()
-        writer.writerows(partition_rows)
-        storage.put_text(config.warehouse, uri, buffer.getvalue())
-        written_files.append(uri)
-    return written_files
-
-
-def _write_label_table(rows: list[TransactionRow], config: OfflineGeneratorConfig) -> str:
-    """Write the (transaction_id, is_fraud, event_timestamp) table joined with features for training.
-
-    Kept separate from the raw transaction partitions -- and from Gold's own
-    `is_fraud` column -- on purpose: feature tables should carry features only,
-    with the label joined in separately at training time.
-    """
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["transaction_id", "is_fraud", "event_timestamp"])
-    for row in rows:
-        writer.writerow([row["transaction_id"], row["is_fraud"], row["event_timestamp"]])
-
-    uri = storage.join_uri(config.labels_uri, "transaction_labels.csv")
-    storage.put_text(config.warehouse, uri, buffer.getvalue())
-    return uri
-
-
-def _build_drift_summary(all_rows: list[TransactionRow], config: OfflineGeneratorConfig) -> dict[str, Any]:
-    """Report mean amount before and after the drift start date, or that drift is off."""
-
-    if config.drift_start_date is None:
-        return {"enabled": False}
-
-    pre_drift_amounts: list[float] = []
-    post_drift_amounts: list[float] = []
-    for row in all_rows:
-        amount = float(row["amount"])
-        if _event_date(row) < config.drift_start_date:
-            pre_drift_amounts.append(amount)
-        else:
-            post_drift_amounts.append(amount)
-
-    return {
-        "enabled": True,
-        "drift_start_date": config.drift_start_date.isoformat(),
-        "drift_amount_multiplier_end": config.drift_amount_multiplier_end,
-        "mean_amount_before_drift": round(mean(pre_drift_amounts), 2) if pre_drift_amounts else None,
-        "mean_amount_after_drift": round(mean(post_drift_amounts), 2) if post_drift_amounts else None,
-    }
+    return [dict(row) for row in rows if rng.random() < duplicate_rate]
 
 
 def _build_quality_summary(
-    base_rows: list[TransactionRow],
-    all_rows: list[TransactionRow],
     config: OfflineGeneratorConfig,
-    written_files: list[str],
+    results: Sequence[DayResult],
     burst_dates: Sequence[date],
 ) -> dict[str, Any]:
-    """Calculate evidence metrics for generated source data."""
+    """Add the days' counts up into the evidence metrics for the generated source data."""
 
-    total_rows = len(all_rows)
-    event_dates = [_event_date(row) for row in all_rows]
-    burst_date_set = set(burst_dates)
-    new_rows = [
-        row
-        for row, event_date in zip(all_rows, event_dates, strict=True)
-        if event_date >= config.schema_change_date
-    ]
-    old_partition_row_count = total_rows - len(new_rows)
-
-    city_counts = Counter(row["city"] for row in all_rows)
-    category_counts = Counter(row["merchant_category"] for row in all_rows)
-    hour_counts = Counter(row["event_timestamp"][11:13] for row in all_rows)
-    transaction_counts = Counter(row["transaction_id"] for row in all_rows)
-
-    duplicate_rows = sum(count - 1 for count in transaction_counts.values() if count > 1)
-    fraud_row_count = sum(1 for row in all_rows if row["is_fraud"] == "1")
-    arrival_delays = [_arrival_delay_minutes(row) for row in all_rows]
-    late_arrival_row_count = sum(delay > LATE_ARRIVAL_THRESHOLD_MINUTES for delay in arrival_delays)
-    burst_row_count = sum(event_date in burst_date_set for event_date in event_dates)
-    missing_value_rows = sum(1 for row in all_rows if _has_missing_values(row))
-    inconsistent_format_rows = sum(1 for row in all_rows if _has_inconsistent_format(row, config.currency))
-    fraud_ring_rows = sum(1 for row in new_rows if row.get("device_id", "").startswith("dev_ring_"))
-    fraud_ring_devices = {
-        row.get("device_id")
-        for row in new_rows
-        if row.get("device_id", "").startswith("dev_ring_")
-    }
+    total = DayStats()
+    for result in results:
+        total.merge(result.stats)
+    total_rows = total.rows
+    duplicate_rows = total.rows - total.base_rows
+    burst_rows = sum(result.stats.rows for result in results if result.event_date in burst_dates)
+    new_partition_rows = sum(result.stats.rows for result in results if result.schema_version == "v2")
 
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
         "output_dir": str(config.output_dir),
         "raw_uri": config.raw_uri,
         "data_format": "partitioned_csv",
-        "written_file_count": len(written_files),
-        "base_row_count": len(base_rows),
+        "written_file_count": len(results),
+        "base_row_count": total.base_rows,
         "row_count_after_duplicates": total_rows,
         "duplicate_row_count": duplicate_rows,
         "duplicate_rate_actual": _rate(duplicate_rows, total_rows),
         "skew": {
-            "city_distribution_pct": _to_percentages(city_counts, total_rows),
-            "merchant_category_distribution_pct": _to_percentages(category_counts, total_rows),
+            "city_distribution_pct": _to_percentages(total.cities, total_rows),
+            "merchant_category_distribution_pct": _to_percentages(total.categories, total_rows),
         },
         "fraud": {
-            "fraud_row_count": fraud_row_count,
-            "fraud_rate_actual": _rate(fraud_row_count, total_rows),
-            "fraud_ring_row_count": fraud_ring_rows,
-            "fraud_ring_device_count": len(fraud_ring_devices),
+            "fraud_row_count": total.fraud_rows,
+            "fraud_rate_actual": _rate(total.fraud_rows, total_rows),
+            "fraud_ring_row_count": total.ring_rows,
+            "fraud_ring_device_count": len(total.ring_devices),
         },
-        "drift": _build_drift_summary(all_rows, config),
+        "drift": _build_drift_summary(config, results),
         "traffic_patterns": {
             "burst_dates": [item.isoformat() for item in sorted(burst_dates)],
-            "burst_row_count": burst_row_count,
-            "burst_row_pct": _percentage(burst_row_count, total_rows),
-            "hour_distribution_pct": _to_percentages(hour_counts, total_rows),
+            "burst_row_count": burst_rows,
+            "burst_row_pct": _percentage(burst_rows, total_rows),
+            "hour_distribution_pct": _to_percentages(total.hours, total_rows),
         },
         "late_arrivals": {
             "late_arrival_threshold_minutes": LATE_ARRIVAL_THRESHOLD_MINUTES,
-            "late_arrival_row_count": late_arrival_row_count,
-            "late_arrival_rate_actual": _rate(late_arrival_row_count, total_rows),
-            "max_arrival_delay_hours": round(max(arrival_delays, default=0) / 60, 2),
+            "late_arrival_row_count": total.late_rows,
+            "late_arrival_rate_actual": _rate(total.late_rows, total_rows),
+            "max_arrival_delay_hours": round(total.max_delay_minutes / 60, 2),
             "file_order_note": "Rows are shuffled before writing, so source file order is not event-time order.",
         },
         "raw_quality_issues": {
-            "missing_value_row_count": missing_value_rows,
-            "missing_value_rate_actual": _rate(missing_value_rows, total_rows),
-            "inconsistent_format_row_count": inconsistent_format_rows,
-            "inconsistent_format_rate_actual": _rate(inconsistent_format_rows, total_rows),
+            "missing_value_row_count": total.missing_value_rows,
+            "missing_value_rate_actual": _rate(total.missing_value_rows, total_rows),
+            "inconsistent_format_row_count": total.inconsistent_format_rows,
+            "inconsistent_format_rate_actual": _rate(total.inconsistent_format_rows, total_rows),
             "examples": [
                 "blank device_id/ip/city/merchant_id",
                 "uppercase or padded city",
@@ -877,19 +940,20 @@ def _build_quality_summary(
                 "uppercase status",
             ],
         },
-        "high_cardinality": {
-            "approx_count_distinct_transaction_id": len(transaction_counts),
-            "approx_count_distinct_customer_id": _count_distinct_nonblank(all_rows, "customer_id"),
-            "approx_count_distinct_account_id": _count_distinct_nonblank(all_rows, "account_id"),
-            "approx_count_distinct_merchant_id": _count_distinct_nonblank(all_rows, "merchant_id"),
-            "approx_count_distinct_device_id": _count_distinct_nonblank(new_rows, "device_id"),
-        },
+        # Every generated transaction has its own id. Distinct customers, accounts,
+        # merchants and devices are measured from the stored files by the profile job.
+        "high_cardinality": {"approx_count_distinct_transaction_id": total.base_rows},
         "schema_evolution": {
             "schema_change_date": config.schema_change_date.isoformat(),
-            "old_partition_row_count": old_partition_row_count,
-            "new_partition_row_count": len(new_rows),
+            "old_partition_row_count": total_rows - new_partition_rows,
+            "new_partition_row_count": new_partition_rows,
             "old_partition_missing_columns": EVOLVED_ONLY_COLUMNS,
             "new_partition_added_columns": EVOLVED_ONLY_COLUMNS,
+        },
+        "label_table": {
+            "uri": config.labels_uri,
+            "row_count": total.base_rows,
+            "columns": LABEL_COLUMNS,
         },
         "bronze_ingestion_notes": {
             "dedup_key": "transaction_id",
@@ -905,10 +969,23 @@ def _build_quality_summary(
     }
 
 
-def _event_date(row: TransactionRow) -> date:
-    """Extract the business event date from a transaction row."""
+def _build_drift_summary(config: OfflineGeneratorConfig, results: Sequence[DayResult]) -> dict[str, Any]:
+    """Report mean amount before and after the drift start date, or that drift is off."""
 
-    return date.fromisoformat(row["event_timestamp"][:10])
+    if config.drift_start_date is None:
+        return {"enabled": False}
+
+    def mean_amount(days: list[DayResult]) -> float | None:
+        rows = sum(day.stats.rows for day in days)
+        return round(sum(day.stats.amount_total for day in days) / rows, 2) if rows else None
+
+    return {
+        "enabled": True,
+        "drift_start_date": config.drift_start_date.isoformat(),
+        "drift_amount_multiplier_end": config.drift_amount_multiplier_end,
+        "mean_amount_before_drift": mean_amount([r for r in results if r.event_date < config.drift_start_date]),
+        "mean_amount_after_drift": mean_amount([r for r in results if r.event_date >= config.drift_start_date]),
+    }
 
 
 def _arrival_delay_minutes(row: TransactionRow) -> float:
@@ -948,12 +1025,6 @@ def _has_inconsistent_format(row: TransactionRow, expected_currency: str) -> boo
         or row["currency"] != expected_currency
         or row["transaction_status"] not in TRANSACTION_STATUS_WEIGHTS
     )
-
-
-def _count_distinct_nonblank(rows: Sequence[TransactionRow], field_name: str) -> int:
-    """Count distinct nonblank values for a field."""
-
-    return len({row[field_name] for row in rows if row.get(field_name)})
 
 
 def _to_percentages(counts: Counter[str], total: int) -> dict[str, float]:
@@ -1000,9 +1071,7 @@ def _write_summary_artifacts(summary: dict[str, Any], output_dir: Path) -> None:
         writer.writerows(rows)
 
 
-def _write_manifest(
-    config: OfflineGeneratorConfig, summary: dict[str, Any], written_files: list[str], label_file: str
-) -> None:
+def _write_manifest(config: OfflineGeneratorConfig, summary: dict[str, Any], results: Sequence[DayResult]) -> None:
     """Write a manifest that future Bronze ingestion jobs can consume."""
 
     manifest = {
@@ -1023,8 +1092,8 @@ def _write_manifest(
             "drift_amount_multiplier_end": config.drift_amount_multiplier_end,
             "labels_uri": config.labels_uri,
         },
-        "files": written_files,
-        "label_file": label_file,
+        "files": [result.transactions_uri for result in results],
+        "label_files": [result.labels_uri for result in results],
     }
     with (config.output_dir / "_manifest.json").open("w", encoding="utf-8") as file:
         json.dump(manifest, file, indent=2)
@@ -1056,6 +1125,12 @@ def build_parser() -> argparse.ArgumentParser:
         help=f"Optional MinIO URI override for the id/label training table. Defaults to {DEFAULT_LABELS_URI} "
         "(or the config file's labels_uri, if set).",
     )
+    parser.add_argument(
+        "--workers",
+        type=int,
+        default=1,
+        help="Days generated at once, one process each. Defaults to 1.",
+    )
     add_warehouse_arguments(parser)
     return parser
 
@@ -1072,7 +1147,7 @@ def main(argv: list[str] | None = None) -> int:
     if args.labels_uri:
         config = replace(config, labels_uri=args.labels_uri)
     config = replace(config, warehouse=warehouse_config_from_args(args))
-    summary = generate_offline_transactions(config)
+    summary = generate_offline_transactions(config, workers=args.workers)
     print(json.dumps(summary, indent=2))
     return 0
 

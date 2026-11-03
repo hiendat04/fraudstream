@@ -8,6 +8,10 @@ trained on.
 This predictor keeps the names. Fields are matched by name and put back in the
 model's own order, so a request that lists its fields in a different order still
 gets the right score.
+
+KServe runs it in the serving image. To try it from the repo root, on a folder `fetch` made:
+
+    MODEL_URI=/tmp/model PYTHONPATH=serving/src uv run --project serving python -m fraudstream_serving.predictor
 """
 
 from __future__ import annotations

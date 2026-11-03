@@ -141,9 +141,9 @@ the pipeline is genuinely incremental rather than a full reload each time:
 
 | What | Where |
 |---|---|
-| Entities and feature views | `feature_store/feature_repo/definitions.py` |
-| Registry, offline and online store | `feature_store/feature_repo/feature_store.yaml` |
-| Materialization | `feature_store/src/fraudstream_feast/materialize.py`, `airflow/dags/feature_store_materialize.py` |
-| Stream push job | `feature_store/src/fraudstream_feast/stream_push.py`, `feature_store/Dockerfile` |
-| Spark session for Feast | `feature_store/src/fraudstream_feast/spark.py` |
-| Tests | `feature_store/tests/` |
+| Entities and feature views | [`feature_store/feature_repo/definitions.py`](../../feature_store/feature_repo/definitions.py) |
+| Registry, offline and online store | [`feature_store/feature_repo/feature_store.yaml`](../../feature_store/feature_repo/feature_store.yaml) |
+| Materialization | [`feature_store/src/fraudstream_feast/materialize.py`](../../feature_store/src/fraudstream_feast/materialize.py), [`airflow/dags/feature_store_materialize.py`](../../airflow/dags/feature_store_materialize.py) |
+| Stream push job | [`feature_store/src/fraudstream_feast/stream_push.py`](../../feature_store/src/fraudstream_feast/stream_push.py), [`feature_store/Dockerfile`](../../feature_store/Dockerfile) |
+| Spark session for Feast | [`feature_store/src/fraudstream_feast/spark.py`](../../feature_store/src/fraudstream_feast/spark.py) |
+| Tests | [`feature_store/tests/`](../../feature_store/tests/) |

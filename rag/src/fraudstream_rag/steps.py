@@ -12,7 +12,9 @@ file there, so a failed task can be retried on its own:
     check           retrieval.json   the golden questions through Feast; exits 1 below the bar
     summarize       the run in one file, which DataHub's checks read
 
-    python -m fraudstream_rag.steps chunk --run-dir data/rag/runs/manual
+Run from the repo root:
+
+    PYTHONPATH=rag/src uv run --project rag python -m fraudstream_rag.steps chunk --run-dir data/rag/runs/manual
 """
 
 from __future__ import annotations

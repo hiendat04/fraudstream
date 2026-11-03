@@ -9,7 +9,10 @@ batching/caching behavior added for efficiency.
 
 from __future__ import annotations
 
+import gzip
 import importlib.util
+import io
+from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
 from unittest.mock import MagicMock, patch
@@ -105,6 +108,26 @@ class LocalFileSchemeTest(TestCase):
             self.assertFalse(storage.object_exists(warehouse, gone))
             self.assertTrue(storage.object_exists(warehouse, keep))
 
+    def test_open_text_streams_a_gzipped_object(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            path = Path(tmp_dir, "day", "transactions.csv.gz")
+            path.parent.mkdir()
+            path.write_bytes(gzip.compress(b"id,amount\n1,9.50\n"))
+
+            with storage.open_text(WarehouseConfig(), f"file://{path}") as file:
+                self.assertEqual(file.readline(), "id,amount\n")
+                self.assertEqual(file.read(), "1,9.50\n")
+
+    def test_put_file_copies_a_local_file(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            source = Path(tmp_dir, "source.bin")
+            source.write_bytes(b"\x1f\x8b data")
+            uri = f"file://{tmp_dir}/nested/copy.bin"
+
+            storage.put_file(WarehouseConfig(), uri, source)
+
+            self.assertEqual(Path(tmp_dir, "nested", "copy.bin").read_bytes(), b"\x1f\x8b data")
+
     def test_delete_prefix_on_a_missing_root_is_a_no_op(self) -> None:
         with TemporaryDirectory() as tmp_dir:
             storage.delete_prefix(WarehouseConfig(), f"file://{tmp_dir}/never-written")
@@ -128,6 +151,17 @@ class _StreamStub:
 
     def read(self) -> bytes:
         return self._data
+
+
+class _CountingBody(io.BytesIO):
+    """A response body that records how many bytes were read from it."""
+
+    bytes_read = 0
+
+    def read(self, size: int = -1) -> bytes:
+        data = super().read(size)
+        self.bytes_read += len(data)
+        return data
 
 
 @skipUnless(importlib.util.find_spec("boto3"), "boto3 is not installed")
@@ -174,6 +208,26 @@ class S3SchemeTest(TestCase):
         storage.delete_object(WarehouseConfig(), "s3a://bucket/rag/handbook/a.md")
 
         mock_client.delete_object.assert_called_once_with(Bucket="bucket", Key="rag/handbook/a.md")
+
+    def test_open_text_reads_only_the_start_of_a_large_gzipped_object(self) -> None:
+        _, mock_client = self._patch_boto3_client()
+        lines = "".join(f"{n},{n * 7919 % 100003}\n" for n in range(400_000))
+        compressed = gzip.compress(("id,value\n" + lines).encode())
+        body = _CountingBody(compressed)
+        mock_client.get_object.return_value = {"Body": body}
+
+        with storage.open_text(WarehouseConfig(), "s3a://bucket/day/transactions.csv.gz") as file:
+            header = file.readline()
+
+        self.assertEqual(header, "id,value\n")
+        self.assertLess(body.bytes_read, len(compressed) / 4)
+
+    def test_put_file_uploads_the_file(self) -> None:
+        _, mock_client = self._patch_boto3_client()
+
+        storage.put_file(WarehouseConfig(), "s3a://bucket/raw/a.csv.gz", Path("/tmp/a.csv.gz"))
+
+        mock_client.upload_file.assert_called_once_with("/tmp/a.csv.gz", "bucket", "raw/a.csv.gz")
 
     def test_get_text_decodes_the_response_body(self) -> None:
         _, mock_client = self._patch_boto3_client()

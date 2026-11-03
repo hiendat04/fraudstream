@@ -10,7 +10,6 @@ from pathlib import Path
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
 
-from fraudstream import storage
 from fraudstream.jobs.bronze.ingest_transactions import (
     BASE_COLUMNS,
     RAW_COLUMNS,
@@ -137,14 +136,15 @@ class BronzeTransactionIngestionTest(TestCase):
 
 
 def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
-    """Write a tiny source CSV partition for tests, via the same `storage`
-    module the generator uses (a local `file://` URI stands in for MinIO)."""
+    """Write a tiny source CSV partition, as the generator does (a local `file://` URI stands in for MinIO)."""
 
     buffer = io.StringIO()
     writer = csv.DictWriter(buffer, fieldnames=columns, extrasaction="ignore")
     writer.writeheader()
     writer.writerows(rows)
-    storage.put_text(WarehouseConfig(), uri, buffer.getvalue())
+    path = Path(uri.removeprefix("file://"))
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(buffer.getvalue(), encoding="utf-8")
 
 
 def _write_manifest(source_dir: Path, files: list[str]) -> None:

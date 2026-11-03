@@ -304,11 +304,11 @@ Parameters → DEPLOY_ALL** redeploys everything without a code change.
 
 | What | Where |
 |---|---|
-| The pipeline | `Jenkinsfile` |
-| Deploying one agent through its prompt gate | `cicd/deploy_agent.sh` |
-| The prompts and their MLflow aliases | `agents/prompts/`, `agents/src/fraudstream_agents/prompts.py` |
-| The eval questions | `agents/src/fraudstream_agents/evals.py`, `k8s/agents/check.sh --agent` |
-| Publishing to agentregistry | `k8s/agents/publish.sh` |
-| The MCP servers' install and check | `k8s/mcp/install.sh`, `k8s/mcp/check.sh` |
-| The gateway check | `cicd/check_gateway.sh` |
-| Credentials read from Vault | `cicd/jenkins/jenkins.yaml` (`hashicorpVault`), `cicd/jenkins/entrypoint.sh` |
+| The pipeline | [`Jenkinsfile`](../../Jenkinsfile) |
+| Deploying one agent through its prompt gate | [`cicd/deploy_agent.sh`](../../cicd/deploy_agent.sh) |
+| The prompts and their MLflow aliases | [`agents/prompts/`](../../agents/prompts/), [`agents/src/fraudstream_agents/prompts.py`](../../agents/src/fraudstream_agents/prompts.py) |
+| The eval questions | [`agents/src/fraudstream_agents/evals.py`](../../agents/src/fraudstream_agents/evals.py), [`k8s/agents/check.sh --agent`](../../k8s/agents/check.sh) |
+| Publishing to agentregistry | [`k8s/agents/publish.sh`](../../k8s/agents/publish.sh) |
+| The MCP servers' install and check | [`k8s/mcp/install.sh`](../../k8s/mcp/install.sh), [`k8s/mcp/check.sh`](../../k8s/mcp/check.sh) |
+| The gateway check | [`cicd/check_gateway.sh`](../../cicd/check_gateway.sh) |
+| Credentials read from Vault | [`cicd/jenkins/jenkins.yaml`](../../cicd/jenkins/jenkins.yaml) (`hashicorpVault`), [`cicd/jenkins/entrypoint.sh`](../../cicd/jenkins/entrypoint.sh) |

@@ -4,9 +4,10 @@ answer against the same sums worked out offline.
 Both sides call the same compare(), so a difference means the window in Redis
 does not hold what was sent.
 
-    cd api && set -a && . ../.env && set +a
-    PYTHONPATH=src:../ml/src uv run --group reference \\
-        python tools/replay.py --start 2026-06-15 --end 2026-07-01
+Run from the repo root:
+
+    set -a && . ./.env && set +a
+    PYTHONPATH=api/src:ml/src uv run --project api --group reference python api/tools/replay.py --start 2026-06-15 --end 2026-07-01 --reference api/reference/fraud-detection-v2.json
 """
 
 import argparse

@@ -212,14 +212,14 @@ it reconnects them.
 
 | What | Where |
 |---|---|
-| Substrate's install and the Valkey reconnect | `k8s/agents/substrate.sh` |
-| kagent's Substrate settings and the worker pool | `k8s/agents/kagent-values.yaml` |
-| The sandboxed agents | `k8s/agents/context-agent.yaml`, `k8s/agents/risk-agent.yaml` |
-| The prompt version on each agent | `k8s/agents/apply.sh` |
-| Deploying an agent and waiting for its golden snapshot | `cicd/deploy_agent.sh` |
-| The gateway's route and allow-list to the sandboxes | `k8s/agents/a2a-gateway.yaml`, `k8s/agents/a2a-policy.yaml` |
-| The workers' network rules | `k8s/agents/network.yaml` |
-| The fleet report | `k8s/agents/fleet.sh` |
-| The atelet metrics | `k8s/observability/servicemonitors.yaml` |
-| The A2A client and the check's retry | `agents/src/fraudstream_agents/a2a.py`, `agents/tools/check_agent.py` |
-| Screenshots | `images/agent_fleet/` |
+| Substrate's install and the Valkey reconnect | [`k8s/agents/substrate.sh`](../../k8s/agents/substrate.sh) |
+| kagent's Substrate settings and the worker pool | [`k8s/agents/kagent-values.yaml`](../../k8s/agents/kagent-values.yaml) |
+| The sandboxed agents | [`k8s/agents/context-agent.yaml`](../../k8s/agents/context-agent.yaml), [`k8s/agents/risk-agent.yaml`](../../k8s/agents/risk-agent.yaml) |
+| The prompt version on each agent | [`k8s/agents/apply.sh`](../../k8s/agents/apply.sh) |
+| Deploying an agent and waiting for its golden snapshot | [`cicd/deploy_agent.sh`](../../cicd/deploy_agent.sh) |
+| The gateway's route and allow-list to the sandboxes | [`k8s/agents/a2a-gateway.yaml`](../../k8s/agents/a2a-gateway.yaml), [`k8s/agents/a2a-policy.yaml`](../../k8s/agents/a2a-policy.yaml) |
+| The workers' network rules | [`k8s/agents/network.yaml`](../../k8s/agents/network.yaml) |
+| The fleet report | [`k8s/agents/fleet.sh`](../../k8s/agents/fleet.sh) |
+| The atelet metrics | [`k8s/observability/servicemonitors.yaml`](../../k8s/observability/servicemonitors.yaml) |
+| The A2A client and the check's retry | [`agents/src/fraudstream_agents/a2a.py`](../../agents/src/fraudstream_agents/a2a.py), [`agents/tools/check_agent.py`](../../agents/tools/check_agent.py) |
+| Screenshots | [`images/agent_fleet/`](../../images/agent_fleet/) |

@@ -6,6 +6,9 @@ RUN apt-get update \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# Spark's temp space; the spark-temp volume mounted here inherits this owner.
+RUN install -d -o airflow -g root -m 775 /opt/spark-temp
+
 ENV JAVA_HOME=/usr/lib/jvm/default-java
 
 USER airflow

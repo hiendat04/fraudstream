@@ -2,10 +2,9 @@
 
 Run on the host, where Trino is reachable:
 
-    cd api && PYTHONPATH=src:../ml/src uv run --group reference \\
-        python -m fraudstream_api.drift_detection.build_reference \\
-        --snapshot 3023861480409485916 --start 2026-01-01 --end 2026-05-05 \\
-        --model-version 2 --out reference/fraud-detection-v2.json
+Run from the repo root:
+
+    PYTHONPATH=api/src:ml/src uv run --project api --group reference python -m fraudstream_api.drift_detection.build_reference --snapshot 3023861480409485916 --start 2026-01-01 --end 2026-05-05 --model-version 2 --out api/reference/fraud-detection-v2.json
 """
 
 import argparse

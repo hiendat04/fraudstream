@@ -1,6 +1,8 @@
 """Runs one MCP server. MCP_SERVER=context runs fraud-context; MCP_SERVER=risk runs fraud-risk.
 
-    MCP_SERVER=context python -m fraudstream_mcp
+    Run from the repo root:
+
+    MCP_SERVER=context PYTHONPATH=mcp_servers/src uv run --project mcp_servers python -m fraudstream_mcp
 """
 
 import httpx

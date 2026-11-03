@@ -1,4 +1,9 @@
-"""Generate Kafka-like streaming transaction events with realistic stream problems."""
+"""Generate Kafka-like streaming transaction events with realistic stream problems.
+
+Run from the repo root:
+
+    PYTHONPATH=src uv run python -m fraudstream.generators.streaming_transactions
+"""
 
 from __future__ import annotations
 
@@ -7,6 +12,7 @@ import copy
 import csv
 import hashlib
 import json
+import math
 import random
 import shutil
 from collections import Counter
@@ -26,6 +32,8 @@ STREAM_SCHEMA_VERSION = "stream_v1"
 STREAM_PRODUCER = "fraudstream_streaming_generator"
 SUMMARY_ARTIFACTS = ("_manifest.json", "_stream_summary.json", "_stream_summary.csv")
 SECONDS_PER_MINUTE = 60
+# Delay buckets for late events, as (label, lower bound in minutes).
+LATENESS_BUCKETS = [("under_120", 0), ("120_to_240", 120), ("240_to_480", 240), ("480_and_over", 480)]
 
 CITY_POOL = [
     "New York",
@@ -719,6 +727,12 @@ def _build_stream_summary(
     window_counts = Counter(record["value"]["event_window_start"] for record in all_records)
     partition_counts = Counter(str(record["partition"]) for record in all_records)
     out_of_order_count = _count_observed_out_of_order_events(all_records, config.window_minutes)
+    late_delays = [
+        (datetime.fromisoformat(record["produced_at"])
+         - datetime.fromisoformat(record["value"]["event_timestamp"])).total_seconds() / 60
+        for record in all_records
+        if "late" in record["headers"]["problem_flags"]
+    ]
 
     return {
         "generated_at": datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
@@ -734,6 +748,7 @@ def _build_stream_summary(
         "stream_problems": {
             "late_event_count": flag_counts["late"],
             "late_event_rate_actual": _rate(flag_counts["late"], total_records),
+            "lateness": lateness_distribution(late_delays),
             "out_of_order_flag_count": flag_counts["out_of_order"],
             "observed_out_of_order_event_count": out_of_order_count,
             "duplicate_flag_count": flag_counts["duplicate"],
@@ -764,6 +779,30 @@ def _build_stream_summary(
             "event_timestamp_field": "value.event_timestamp",
             "arrival_timestamp_field": "produced_at",
         },
+    }
+
+
+def lateness_distribution(delays_minutes: Sequence[float]) -> dict[str, Any]:
+    """How late the late events arrived: nearest-rank percentiles and counts per delay bucket.
+
+    Buckets include their lower bound. The first starts at zero rather than at the
+    late threshold, because the threshold is configurable.
+    """
+
+    ordered = sorted(delays_minutes)
+    buckets = Counter(
+        next(label for label, lower in reversed(LATENESS_BUCKETS) if delay >= lower)
+        for delay in ordered
+    )
+
+    def percentile(share: float) -> float:
+        return round(ordered[max(math.ceil(share * len(ordered)) - 1, 0)], 1) if ordered else 0.0
+
+    return {
+        "p50_minutes": percentile(0.5),
+        "p95_minutes": percentile(0.95),
+        "max_minutes": round(ordered[-1], 1) if ordered else 0.0,
+        "buckets": {label: buckets[label] for label, _ in LATENESS_BUCKETS},
     }
 
 
@@ -802,6 +841,9 @@ def _write_summary_artifacts(summary: dict[str, Any], output_dir: Path) -> None:
         ("duplicates.rate_actual", summary["duplicate_rate_actual"]),
         ("late_events.count", summary["stream_problems"]["late_event_count"]),
         ("late_events.rate_actual", summary["stream_problems"]["late_event_rate_actual"]),
+        ("late_events.p50_minutes", summary["stream_problems"]["lateness"]["p50_minutes"]),
+        ("late_events.p95_minutes", summary["stream_problems"]["lateness"]["p95_minutes"]),
+        ("late_events.max_minutes", summary["stream_problems"]["lateness"]["max_minutes"]),
         ("out_of_order.flag_count", summary["stream_problems"]["out_of_order_flag_count"]),
         (
             "out_of_order.observed_count",

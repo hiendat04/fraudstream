@@ -1,8 +1,13 @@
 """Generate a readable HTML report of generated data characteristics.
 
-The report reads JSON evidence already produced by the offline generator,
-streaming generator, and Silver transaction job. It does not scan transaction
-contents or start Spark, so it remains fast and dependency-free.
+The report reads JSON evidence already produced by the offline generator, its
+Spark profile and the streaming generator. It does not scan transaction contents
+or start Spark, so it remains fast and dependency-free. The offline rows live in
+MinIO, so their stored size comes from the profile, not from a local folder.
+
+Run from the repo root:
+
+    PYTHONPATH=src uv run python -m fraudstream.reports.data_quality --dataset all --output reports/data_quality_report.html
 """
 
 from __future__ import annotations
@@ -16,7 +21,6 @@ from typing import Any, Mapping, Sequence
 
 
 DEFAULT_OFFLINE_DIR = Path("data/raw_source/offline_transactions")
-DEFAULT_SILVER_DIR = Path("data/silver/transactions")
 DEFAULT_STREAMING_DIR = Path("data/raw_stream/transactions")
 DEFAULT_OFFLINE_CONFIG = Path("configs/generator/offline_transactions.json")
 DEFAULT_STREAMING_CONFIG = Path("configs/generator/streaming_transactions.json")
@@ -121,7 +125,6 @@ def _html_config(config: Mapping[str, Any], keys: Sequence[str]) -> str:
 
 def _offline_html(
     offline_dir: Path,
-    silver_dir: Path,
     config_path: Path,
     top_n: int,
 ) -> str:
@@ -130,35 +133,21 @@ def _offline_html(
     summary_path = offline_dir / "_quality_summary.json"
     summary = _load_json(summary_path)
     config = _load_json(config_path)
-    silver = _load_json(silver_dir / "_silver_transactions_summary.json", required=False)
+    profile = _load_json(offline_dir / "_data_profile.json", required=False)
     assert summary is not None and config is not None
 
     skew = summary["skew"]
     evolution = summary["schema_evolution"]
+    late = summary["late_arrivals"]
     old_rows = int(evolution["old_partition_row_count"])
-    duplicate_after = (
-        "0 retained"
-        if silver is not None
-        else "Not available — run Silver first"
-    )
-    silver_rows = _number(silver["output_row_count"]) if silver is not None else "n/a"
-    removed_rows = _number(silver["duplicate_rows_removed_count"]) if silver is not None else "n/a"
+    stored_size = _bytes(profile["bytes"]) if profile is not None else "n/a — run the raw profile"
 
     storage_rows: list[tuple[str, object]] = [
-        ("Raw format", "Partitioned CSV"),
+        ("Raw format", "Plain CSV in MinIO, one file per day"),
         ("Raw rows", _number(summary["row_count_after_duplicates"])),
-        ("CSV partitions", _number(summary["written_file_count"])),
-        ("Raw size on disk", _bytes(_directory_size(offline_dir))),
+        ("Daily files", _number(summary["written_file_count"])),
+        ("Stored size", stored_size),
     ]
-    if silver is not None:
-        storage_rows.extend(
-            [
-                ("Silver format", "Parquet"),
-                ("Silver rows", silver_rows),
-                ("Silver Parquet files", _number(_data_file_count(silver_dir, ".parquet"))),
-                ("Silver size on disk", _bytes(_directory_size(silver_dir))),
-            ]
-        )
 
     cardinality_rows = [
         (key.removeprefix("approx_count_distinct_"), _number(value))
@@ -180,21 +169,21 @@ def _offline_html(
     return f"""
     <section>
       <div class="section-heading">
-        <div><span class="eyebrow">Offline source → Silver</span><h2>Offline data characteristics</h2></div>
+        <div><span class="eyebrow">Offline source</span><h2>Offline data characteristics</h2></div>
         <span class="badge measured">Measured</span>
       </div>
       <div class="metric-grid">
-        <article class="metric"><span>Raw rows</span><strong>{_number(summary['row_count_after_duplicates'])}</strong><small>Partitioned CSV</small></article>
+        <article class="metric"><span>Raw rows</span><strong>{_number(summary['row_count_after_duplicates'])}</strong><small>Plain CSV in MinIO</small></article>
         <article class="metric"><span>Dominant city</span><strong>{next(iter(skew['city_distribution_pct'].values())):.2f}%</strong><small>{_html_value(next(iter(skew['city_distribution_pct'].keys())))}</small></article>
         <article class="metric"><span>Raw duplicates</span><strong>{_percent_from_rate(summary['duplicate_rate_actual'])}</strong><small>{_number(summary['duplicate_row_count'])} rows</small></article>
-        <article class="metric"><span>After dedup</span><strong>{_html_value(duplicate_after)}</strong><small>{silver_rows} Silver rows</small></article>
+        <article class="metric"><span>Stored size</span><strong>{_html_value(stored_size)}</strong><small>{_number(summary['written_file_count'])} daily files</small></article>
       </div>
       <div class="two-column">
         <article><h3>Storage and volume</h3>{_html_table(storage_rows)}</article>
-        <article><h3>Duplicate handling</h3>{_html_table([
-            ('Before Silver', f"{_number(summary['duplicate_row_count'])} / {_number(summary['row_count_after_duplicates'])} ({_percent_from_rate(summary['duplicate_rate_actual'])})"),
-            ('Removed by Silver', removed_rows),
-            ('Retained duplicates', duplicate_after),
+        <article><h3>Duplicates and late arrivals</h3>{_html_table([
+            ('Duplicate rows', f"{_number(summary['duplicate_row_count'])} / {_number(summary['row_count_after_duplicates'])} ({_percent_from_rate(summary['duplicate_rate_actual'])})"),
+            ('Late-arrival rate (over 60 minutes)', _percent_from_rate(late['late_arrival_rate_actual'])),
+            ('Latest arrival', f"{late['max_arrival_delay_hours']} hours after the event"),
         ])}</article>
       </div>
       <div class="two-column">
@@ -213,7 +202,6 @@ def _offline_html(
       </div>
       <div class="two-column">
         <article><h3>Other source problems</h3>{_html_table([
-            ('Late-arrival rate', _percent_from_rate(summary['late_arrivals']['late_arrival_rate_actual'])),
             ('Missing-value row rate', _percent_from_rate(summary['raw_quality_issues']['missing_value_rate_actual'])),
             ('Inconsistent-format rate', _percent_from_rate(summary['raw_quality_issues']['inconsistent_format_rate_actual'])),
         ])}</article>
@@ -275,6 +263,7 @@ def _streaming_html(streaming_dir: Path, config_path: Path) -> str:
 
     problems = summary["stream_problems"]
     windows = summary["event_time_windows"]
+    lateness = problems["lateness"]
     measured_rates = [
         ("Burst events", problems["burst_event_rate_actual"], problems["burst_event_count"]),
         ("Late events", problems["late_event_rate_actual"], problems["late_event_count"]),
@@ -315,12 +304,20 @@ def _streaming_html(streaming_dir: Path, config_path: Path) -> str:
         <article><h3>Measured problem rates</h3>{problem_bars}</article>
       </div>
       <div class="two-column">
+        <article><h3>How late the late events are</h3>{_html_table([
+            ('Median delay', f"{lateness['p50_minutes']} min"),
+            ('95th percentile', f"{lateness['p95_minutes']} min"),
+            ('Latest', f"{lateness['max_minutes']} min"),
+            *[(f"Delay {bucket.replace('_', ' ')} min", _number(count)) for bucket, count in lateness['buckets'].items()],
+        ])}</article>
         <article><h3>Event-time behavior</h3>{_html_table([
             ('Window length', f"{windows['window_minutes']} minutes"),
             ('Distinct windows', _number(windows['window_count'])),
             ('Maximum records in one window', _number(windows['max_records_in_window'])),
             ('Observed out-of-order events', _number(problems['observed_out_of_order_event_count'])),
         ])}</article>
+      </div>
+      <div class="two-column">
         <article><h3>Generator configuration</h3>{_html_config(config, config_keys)}</article>
       </div>
       <p class="source">Evidence: <code>{_html_value(summary_path)}</code> · Config: <code>{_html_value(config_path)}</code></p>
@@ -331,7 +328,6 @@ def render_html_report(
     *,
     dataset: str,
     offline_dir: Path,
-    silver_dir: Path,
     streaming_dir: Path,
     offline_config: Path,
     streaming_config: Path,
@@ -341,7 +337,7 @@ def render_html_report(
 
     sections: list[str] = []
     if dataset in ("all", "offline"):
-        sections.append(_offline_html(offline_dir, silver_dir, offline_config, top_n))
+        sections.append(_offline_html(offline_dir, offline_config, top_n))
     if dataset in ("all", "streaming"):
         sections.append(_streaming_html(streaming_dir, streaming_config))
     generated_at = datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z")
@@ -399,7 +395,7 @@ def render_html_report(
 </head>
 <body>
   <main>
-    <header><span class="eyebrow">FraudStream evidence</span><h1>Generated Data Quality Report</h1><p class="subtitle">Measured offline and streaming characteristics from reproducible generator and Silver evidence artifacts.</p></header>
+    <header><span class="eyebrow">FraudStream evidence</span><h1>Generated Data Quality Report</h1><p class="subtitle">Measured offline and streaming characteristics from reproducible generator evidence.</p></header>
     {''.join(sections)}
     <footer>Generated {generated_at}</footer>
   </main>
@@ -416,7 +412,6 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--dataset", choices=("all", "offline", "streaming"), default="all")
     parser.add_argument("--offline-dir", type=Path, default=DEFAULT_OFFLINE_DIR)
-    parser.add_argument("--silver-dir", type=Path, default=DEFAULT_SILVER_DIR)
     parser.add_argument("--streaming-dir", type=Path, default=DEFAULT_STREAMING_DIR)
     parser.add_argument("--offline-config", type=Path, default=DEFAULT_OFFLINE_CONFIG)
     parser.add_argument("--streaming-config", type=Path, default=DEFAULT_STREAMING_CONFIG)
@@ -440,7 +435,6 @@ def main(argv: list[str] | None = None) -> int:
     report = render_html_report(
         dataset=args.dataset,
         offline_dir=args.offline_dir,
-        silver_dir=args.silver_dir,
         streaming_dir=args.streaming_dir,
         offline_config=args.offline_config,
         streaming_config=args.streaming_config,

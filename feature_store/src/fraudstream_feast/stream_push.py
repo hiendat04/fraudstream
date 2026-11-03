@@ -12,6 +12,10 @@ together in `flush_batch`.
 Records are batched rather than pushed individually because the offline half
 of a flush is an Iceberg commit: one commit per record would produce a data
 file per record and make the table unreadable in short order.
+
+Run from the repo root, with Kafka and the Flink job up. Credentials come from `. infra/vault/env.sh`.
+
+    PYTHONPATH=feature_store/src:src uv run --project feature_store python -m fraudstream_feast.stream_push --repo-path feature_store/feature_repo --max-batches 1
 """
 
 from __future__ import annotations

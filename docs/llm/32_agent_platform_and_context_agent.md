@@ -267,16 +267,16 @@ More in [22_validation_and_verification.md](../ml/22_validation_and_verification
 
 | What | Where |
 |---|---|
-| kagent, the model config and the install | `k8s/agents/kagent-values.yaml`, `k8s/agents/install.sh` |
-| The context agent and its tools | `k8s/agents/context-agent.yaml` |
+| kagent, the model config and the install | [`k8s/agents/kagent-values.yaml`](../../k8s/agents/kagent-values.yaml), [`k8s/agents/install.sh`](../../k8s/agents/install.sh) |
+| The context agent and its tools | [`k8s/agents/context-agent.yaml`](../../k8s/agents/context-agent.yaml) |
 | The agent fleet it runs on | [34_agent_fleet.md](34_agent_fleet.md) |
-| Network rules for every agent | `k8s/agents/network.yaml` |
-| Its prompt and the prompt tool | `agents/prompts/context-agent.md`, `agents/src/fraudstream_agents/prompts.py` |
-| The registry and its records | `k8s/agents/agentregistry-values.yaml`, `k8s/agents/registry.yaml` |
-| The UIs behind NGINX | `k8s/agents/ingress.yaml` |
-| Agent call metrics and the dashboard | `k8s/observability/jaeger.yaml`, `k8s/observability/servicemonitors.yaml`, `k8s/observability/dashboards/agents.yaml` |
-| The model servers and the PII guard | `k8s/llm/models/`, `k8s/llm/gateway.yaml` |
-| The end-to-end check | `k8s/agents/check.sh`, `agents/tools/check_agent.py`, `agents/src/fraudstream_agents/a2a.py` |
-| Gateway check | `cicd/check_gateway.sh` |
-| Tests | `agents/tests/` |
-| Screenshots | `images/agents/` |
+| Network rules for every agent | [`k8s/agents/network.yaml`](../../k8s/agents/network.yaml) |
+| Its prompt and the prompt tool | [`agents/prompts/context-agent.md`](../../agents/prompts/context-agent.md), [`agents/src/fraudstream_agents/prompts.py`](../../agents/src/fraudstream_agents/prompts.py) |
+| The registry and its records | [`k8s/agents/agentregistry-values.yaml`](../../k8s/agents/agentregistry-values.yaml), [`k8s/agents/registry.yaml`](../../k8s/agents/registry.yaml) |
+| The UIs behind NGINX | [`k8s/agents/ingress.yaml`](../../k8s/agents/ingress.yaml) |
+| Agent call metrics and the dashboard | [`k8s/observability/jaeger.yaml`](../../k8s/observability/jaeger.yaml), [`k8s/observability/servicemonitors.yaml`](../../k8s/observability/servicemonitors.yaml), [`k8s/observability/dashboards/agents.yaml`](../../k8s/observability/dashboards/agents.yaml) |
+| The model servers and the PII guard | [`k8s/llm/models/`](../../k8s/llm/models/), [`k8s/llm/gateway.yaml`](../../k8s/llm/gateway.yaml) |
+| The end-to-end check | [`k8s/agents/check.sh`](../../k8s/agents/check.sh), [`agents/tools/check_agent.py`](../../agents/tools/check_agent.py), [`agents/src/fraudstream_agents/a2a.py`](../../agents/src/fraudstream_agents/a2a.py) |
+| Gateway check | [`cicd/check_gateway.sh`](../../cicd/check_gateway.sh) |
+| Tests | [`agents/tests/`](../../agents/tests/) |
+| Screenshots | [`images/agents/`](../../images/agents/) |

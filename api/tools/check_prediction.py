@@ -3,9 +3,10 @@
 Both answers must match. The API is reached through the gateway, the model through
 Kourier, so this also checks the two front doors.
 
-    cd api && set -a && . ../.env && set +a
-    POSTGRES_HOST=localhost REDIS_HOST=localhost PYTHONPATH=src:../ml/src \
-        uv run python tools/check_prediction.py
+Run from the repo root:
+
+    set -a && . ./.env && set +a
+    POSTGRES_HOST=localhost REDIS_HOST=localhost PYTHONPATH=api/src:ml/src uv run --project api python api/tools/check_prediction.py
 """
 
 import asyncio

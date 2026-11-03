@@ -3,7 +3,9 @@
 Each window is its own group, so a later check never hides an earlier one, and a
 second check of the same window replaces the first.
 
-    python -m fraudstream_monitoring.publish --summary /tmp/drift.json
+Run from the repo root:
+
+    PYTHONPATH=monitoring/src uv run --project monitoring python -m fraudstream_monitoring.publish --summary /tmp/drift.json
 Needs PUSHGATEWAY_URL, GATEWAY_USER and GATEWAY_PASSWORD, and GATEWAY_CA for the local CA.
 """
 

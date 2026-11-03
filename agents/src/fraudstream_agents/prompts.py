@@ -5,11 +5,13 @@ new MLflow version only when that text changed and can point an alias at it,
 promote moves the version one alias holds to another, unalias drops an alias,
 and render writes the ConfigMap the kagent Agent reads its system prompt from.
 
-    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --promote
-    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts register context-agent --alias candidate
-    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts promote context-agent --from candidate
-    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts unalias context-agent --alias candidate
-    PYTHONPATH=src MLFLOW_TRACKING_URI=http://localhost:18085 python -m fraudstream_agents.prompts render context-agent | kubectl apply -f -
+Run from the repo root:
+
+    PYTHONPATH=agents/src MLFLOW_TRACKING_URI=http://localhost:18085 uv run --project agents python -m fraudstream_agents.prompts register context-agent --promote
+    PYTHONPATH=agents/src MLFLOW_TRACKING_URI=http://localhost:18085 uv run --project agents python -m fraudstream_agents.prompts register context-agent --alias candidate
+    PYTHONPATH=agents/src MLFLOW_TRACKING_URI=http://localhost:18085 uv run --project agents python -m fraudstream_agents.prompts promote context-agent --from candidate
+    PYTHONPATH=agents/src MLFLOW_TRACKING_URI=http://localhost:18085 uv run --project agents python -m fraudstream_agents.prompts unalias context-agent --alias candidate
+    PYTHONPATH=agents/src MLFLOW_TRACKING_URI=http://localhost:18085 uv run --project agents python -m fraudstream_agents.prompts render context-agent | kubectl apply -f -
 """
 
 import argparse

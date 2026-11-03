@@ -1,4 +1,9 @@
-"""Measure source event-time latency and persist a p95 watermark profile."""
+"""Measure source event-time latency and persist a p95 watermark profile.
+
+Run from the repo root, after generating the stream:
+
+    PYTHONPATH=src uv run python -m fraudstream.jobs.flink.watermark_calibration
+"""
 
 from __future__ import annotations
 

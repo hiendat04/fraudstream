@@ -2,8 +2,9 @@
 
 The A/B test replays them, so both model versions see a realistic mix.
 
-    cd api && PYTHONPATH=src:../ml/src uv run --group reference \\
-        python tools/export_payments.py --count 3000
+Run from the repo root (writes api/tools/payments.jsonl):
+
+    PYTHONPATH=api/src:ml/src uv run --project api --group reference python api/tools/export_payments.py --count 3000
 """
 
 import argparse

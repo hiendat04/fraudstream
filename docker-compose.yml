@@ -28,7 +28,9 @@ x-airflow-common: &airflow-common
     REDIS_PORT: "6379"
     FEAST_SPARK_MASTER: "local[4]"
     FEAST_REPO_PATH: /opt/airflow/project/feature_store/feature_repo
-    PYSPARK_SUBMIT_ARGS: "--driver-memory 4g pyspark-shell"
+    # Spark runs in local mode inside the scheduler: one JVM, so the driver memory is all of Spark's.
+    PYSPARK_SUBMIT_ARGS: "--driver-memory 14g pyspark-shell"
+    SPARK_LOCAL_DIRS: /opt/spark-temp
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
     MINIO_ENDPOINT: "http://minio:9000"
@@ -50,6 +52,7 @@ x-airflow-common: &airflow-common
     - ${AIRFLOW_PROJECT_DIR:-.}/airflow/scripts:/opt/airflow/scripts:ro
     - ./airflow/logs:/opt/airflow/logs
     - ./infra/vault/tls/ca.crt:/opt/airflow/vault-ca.crt:ro
+    - spark-temp:/opt/spark-temp
   extra_hosts:
     - "pushgateway.fraudstream.localhost:host-gateway"
     - "pipelines.fraudstream.localhost:host-gateway"
@@ -448,6 +451,9 @@ services:
     <<: *airflow-common
     container_name: fraudstream-airflow-scheduler
     command: scheduler
+    # The Spark UI of whichever job is running; jobs keep it open with --spark-ui-retain-seconds.
+    ports:
+      - "127.0.0.1:4040:4040"
     depends_on:
       airflow-db:
         condition: service_healthy
@@ -538,6 +544,7 @@ volumes:
   kafka-data:
   postgres-data:
   minio-data:
+  spark-temp:
   airflow-db-data:
   redis-data:
   pgvector-data:

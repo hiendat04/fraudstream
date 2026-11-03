@@ -9,7 +9,9 @@ BAAI/bge-base-en-v1.5: 768 dimensions, 512 tokens, about 436 MB as ONNX, run wit
 onnxruntime on the CPU. Questions are embedded the same way as documents: on the
 golden questions, its query instruction made no difference.
 
-    python -m fraudstream_rag.embedding /opt/models/bge-base-en-v1.5 --check
+Run from the repo root (the folder is where the model was downloaded):
+
+    PYTHONPATH=rag/src uv run --project rag python -m fraudstream_rag.embedding /opt/models/bge-base-en-v1.5 --check
 """
 
 from __future__ import annotations

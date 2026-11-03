@@ -12,6 +12,7 @@ from unittest import TestCase, main
 from fraudstream.generators.streaming_transactions import (
     StreamingGeneratorConfig,
     generate_streaming_transactions,
+    lateness_distribution,
 )
 
 
@@ -35,6 +36,9 @@ class StreamingTransactionGeneratorTest(TestCase):
             self.assertGreater(summary["stream_problems"]["out_of_order_flag_count"], 0)
             self.assertGreater(summary["stream_problems"]["observed_out_of_order_event_count"], 0)
             self.assertGreater(summary["stream_problems"]["burst_event_count"], 0)
+            lateness = summary["stream_problems"]["lateness"]
+            self.assertEqual(sum(lateness["buckets"].values()), summary["stream_problems"]["late_event_count"])
+            self.assertGreater(lateness["p50_minutes"], config.late_event_threshold_minutes)
             self.assertEqual(summary["event_time_windows"]["window_minutes"], 5)
             self.assertTrue(event_log_path.exists())
             self.assertTrue((output_dir / "_manifest.json").exists())
@@ -47,6 +51,19 @@ class StreamingTransactionGeneratorTest(TestCase):
             self.assertIn("value", first_record)
             self.assertIn("event_window_start", first_record["value"])
             self.assertIn("event_window_end", first_record["value"])
+
+    def test_lateness_distribution_buckets_and_percentiles(self) -> None:
+        """Late delays should land in their buckets, with nearest-rank percentiles."""
+
+        lateness = lateness_distribution([50, 100, 130, 300, 700])
+
+        self.assertEqual(
+            lateness["buckets"],
+            {"under_120": 2, "120_to_240": 1, "240_to_480": 1, "480_and_over": 1},
+        )
+        self.assertEqual(lateness["p50_minutes"], 130)
+        self.assertEqual(lateness["p95_minutes"], 700)
+        self.assertEqual(lateness["max_minutes"], 700)
 
     def test_config_validation_rejects_inconsistent_timing_rules(self) -> None:
         """Late-event thresholds must leave room for out-of-order backdating."""

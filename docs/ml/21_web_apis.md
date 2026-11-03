@@ -370,10 +370,10 @@ cluster needs the `kubectl create secret` line above.
 
 | What | Where |
 |---|---|
-| Inference API | `api/src/fraudstream_api/inference/` |
-| Drift detection API | `api/src/fraudstream_api/drift_detection/` |
-| Helm chart | `k8s/charts/fraudstream-api/` |
-| Values per API | `k8s/apis/` |
-| Images | `k8s/Dockerfile.inference`, `k8s/Dockerfile.drift-detection` |
-| Drift reference | `api/reference/` |
-| Tests | `api/tests/` |
+| Inference API | [`api/src/fraudstream_api/inference/`](../../api/src/fraudstream_api/inference/) |
+| Drift detection API | [`api/src/fraudstream_api/drift_detection/`](../../api/src/fraudstream_api/drift_detection/) |
+| Helm chart | [`k8s/charts/fraudstream-api/`](../../k8s/charts/fraudstream-api/) |
+| Values per API | [`k8s/apis/`](../../k8s/apis/) |
+| Images | [`k8s/Dockerfile.inference`](../../k8s/Dockerfile.inference), [`k8s/Dockerfile.drift-detection`](../../k8s/Dockerfile.drift-detection) |
+| Drift reference | [`api/reference/`](../../api/reference/) |
+| Tests | [`api/tests/`](../../api/tests/) |

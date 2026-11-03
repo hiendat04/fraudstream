@@ -1,4 +1,13 @@
-"""Publish FraudStream pipelines, lineage, contracts, and validation to DataHub."""
+"""Publish FraudStream pipelines, lineage, contracts, and validation to DataHub.
+
+Run from the repo root. `publish.sh` sets the DataHub and PostgreSQL environment from Vault, then runs this:
+
+    ./datahub/scripts/publish.sh
+
+With that environment set, one pipeline on its own:
+
+    PYTHONPATH=datahub/src uv run --project datahub --python 3.11 python -m fraudstream_datahub.publish --pipeline fraudstream_rag_index
+"""
 
 from __future__ import annotations
 

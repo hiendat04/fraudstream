@@ -7,9 +7,9 @@ Every change is a commit, so Git always says what the cluster does. A person who
 looked at a hold can accept the difference (--accept-behavior): behavior no longer
 holds, but health still rolls back and too little traffic still holds.
 
-    cd monitoring && PYTHONPATH=src uv run python -m fraudstream_monitoring.rollout \\
-        --policy ../k8s/models/rollout.yaml --manifest ../k8s/models/fraud-detection.yaml \\
-        --prometheus-url http://localhost:19090
+Run from the repo root:
+
+    PYTHONPATH=monitoring/src uv run --project monitoring python -m fraudstream_monitoring.rollout --policy k8s/models/rollout.yaml --manifest k8s/models/fraud-detection.yaml --prometheus-url http://localhost:19090
 --roll-back sets the canary to 0% at once, for a person who decided against it.
 Exits 0 promoted, 10 rolled back, 11 stopped without changing the split, 12 held.
 Python itself exits 1 on a crash and 2 on bad arguments, so those mean neither.
@@ -143,7 +143,7 @@ def main() -> int:
     parser.add_argument("--should-start", action="store_true", help="exit 0 if this commit should start a rollout")
     parser.add_argument("--subject", default="", help="the commit subject, with --should-start")
     parser.add_argument("--accept-behaviour", action="store_true", help="a person accepted the difference")
-    parser.add_argument("--roll-back", action="store_true", help="set the canary to 0% now")
+    parser.add_argument("--roll-back", action="store_true", help="set the canary to 0%% now")
     parser.add_argument("--lock", help="a file locked around every change of the split")
     arguments = parser.parse_args()
 

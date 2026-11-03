@@ -5,11 +5,11 @@ by the app version and by the model version that gave them. Exits 1 if anything
 failed. --body repeats one request; --payments replays a file of real payments
 in a loop, each send with a fresh transaction id.
 
-    cd api && set -a && . ../.env && set +a
-    uv run python tools/traffic.py --host inference.fraudstream.localhost \
-        --body tools/transaction.json --rate 10 --seconds 150
-    uv run python tools/traffic.py --host inference.fraudstream.localhost \
-        --payments tools/payments.jsonl --rate 10 --seconds 1800
+Run from the repo root:
+
+    set -a && . ./.env && set +a
+    PYTHONPATH=api/src uv run --project api python api/tools/traffic.py --host inference.fraudstream.localhost --body api/tools/transaction.json --rate 10 --seconds 150
+    PYTHONPATH=api/src uv run --project api python api/tools/traffic.py --host inference.fraudstream.localhost --payments api/tools/payments.jsonl --rate 10 --seconds 1800
 """
 
 import argparse

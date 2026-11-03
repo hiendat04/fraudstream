@@ -352,20 +352,20 @@ Jenkins deploys each agent through its eval questions on a push; see [CI/CD](../
 
 | What | Where |
 |---|---|
-| The risk agent and its tools | `k8s/agents/risk-agent.yaml` |
+| The risk agent and its tools | [`k8s/agents/risk-agent.yaml`](../../k8s/agents/risk-agent.yaml) |
 | The agent fleet the specialists run on | [34_agent_fleet.md](34_agent_fleet.md) |
-| The coordinator and its scaler | `k8s/agents/coordinator-agent.yaml` |
-| The prompts | `agents/prompts/risk-agent.md`, `agents/prompts/coordinator-agent.md` |
-| The A2A gateway, its routes and policy | `k8s/agents/a2a-gateway.yaml`, `k8s/agents/a2a-policy.yaml` |
-| kagent's proxy setting | `k8s/agents/kagent-values.yaml` |
-| Network rules for every agent | `k8s/agents/network.yaml` |
-| Keys, install and checks | `k8s/agents/install.sh`, `k8s/agents/check.sh` |
-| Registry records | `k8s/agents/registry.yaml` |
-| The UI's timeout | `k8s/agents/ingress.yaml` |
-| The eval questions and the A2A client | `agents/src/fraudstream_agents/evals.py`, `agents/src/fraudstream_agents/a2a.py`, `agents/tools/check_agent.py` |
-| Calls counted at each agent | `k8s/observability/jaeger.yaml` |
-| Deploying an agent from Jenkins | `cicd/deploy_agent.sh`, `Jenkinsfile` |
-| The A2A metrics and panel | `k8s/observability/servicemonitors.yaml`, `k8s/observability/dashboards/agents.yaml` |
-| The search fix | `rag/src/fraudstream_rag/retrieval.py` |
-| Tests | `agents/tests/`, `rag/tests/test_retrieval.py` |
-| Screenshots | `images/multi_agents/` |
+| The coordinator and its scaler | [`k8s/agents/coordinator-agent.yaml`](../../k8s/agents/coordinator-agent.yaml) |
+| The prompts | [`agents/prompts/risk-agent.md`](../../agents/prompts/risk-agent.md), [`agents/prompts/coordinator-agent.md`](../../agents/prompts/coordinator-agent.md) |
+| The A2A gateway, its routes and policy | [`k8s/agents/a2a-gateway.yaml`](../../k8s/agents/a2a-gateway.yaml), [`k8s/agents/a2a-policy.yaml`](../../k8s/agents/a2a-policy.yaml) |
+| kagent's proxy setting | [`k8s/agents/kagent-values.yaml`](../../k8s/agents/kagent-values.yaml) |
+| Network rules for every agent | [`k8s/agents/network.yaml`](../../k8s/agents/network.yaml) |
+| Keys, install and checks | [`k8s/agents/install.sh`](../../k8s/agents/install.sh), [`k8s/agents/check.sh`](../../k8s/agents/check.sh) |
+| Registry records | [`k8s/agents/registry.yaml`](../../k8s/agents/registry.yaml) |
+| The UI's timeout | [`k8s/agents/ingress.yaml`](../../k8s/agents/ingress.yaml) |
+| The eval questions and the A2A client | [`agents/src/fraudstream_agents/evals.py`](../../agents/src/fraudstream_agents/evals.py), [`agents/src/fraudstream_agents/a2a.py`](../../agents/src/fraudstream_agents/a2a.py), [`agents/tools/check_agent.py`](../../agents/tools/check_agent.py) |
+| Calls counted at each agent | [`k8s/observability/jaeger.yaml`](../../k8s/observability/jaeger.yaml) |
+| Deploying an agent from Jenkins | [`cicd/deploy_agent.sh`](../../cicd/deploy_agent.sh), [`Jenkinsfile`](../../Jenkinsfile) |
+| The A2A metrics and panel | [`k8s/observability/servicemonitors.yaml`](../../k8s/observability/servicemonitors.yaml), [`k8s/observability/dashboards/agents.yaml`](../../k8s/observability/dashboards/agents.yaml) |
+| The search fix | [`rag/src/fraudstream_rag/retrieval.py`](../../rag/src/fraudstream_rag/retrieval.py) |
+| Tests | [`agents/tests/`](../../agents/tests/), [`rag/tests/test_retrieval.py`](../../rag/tests/test_retrieval.py) |
+| Screenshots | [`images/multi_agents/`](../../images/multi_agents/) |
