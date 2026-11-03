@@ -1,7 +1,9 @@
 """Checks the MCP gateway from outside, through a port-forward.
 
-    python tools/check_gateway.py http://127.0.0.1:18090/mcp
-    python tools/check_gateway.py http://127.0.0.1:18090/mcp --loop 120
+Run from the repo root:
+
+    PYTHONPATH=mcp_servers/src uv run --project mcp_servers python mcp_servers/tools/check_gateway.py http://127.0.0.1:18090/mcp
+    PYTHONPATH=mcp_servers/src uv run --project mcp_servers python mcp_servers/tools/check_gateway.py http://127.0.0.1:18090/mcp --loop 120
 
 Reads CONTEXT_AGENT_KEY, RISK_AGENT_KEY and MCP_CHECK_KEY. Exits 1 if any check
 fails. --loop only calls search_handbook every 0.6 s for that many seconds and

@@ -5,8 +5,9 @@ download at start, no MLflow to reach, and rolling back means running the previo
 image. The folder holds the MLflow model and a card with what the predictor would
 otherwise ask the registry for: the version and the decision threshold.
 
-    cd serving && MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD=false PYTHONPATH=src uv run python -m \
-        fraudstream_serving.fetch models:/fraud-detection/4 /tmp/model --tracking-uri http://localhost:18085
+Run from the repo root:
+
+    MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD=false PYTHONPATH=serving/src uv run --project serving python -m fraudstream_serving.fetch models:/fraud-detection/4 /tmp/model --tracking-uri http://localhost:18085
 """
 
 from __future__ import annotations

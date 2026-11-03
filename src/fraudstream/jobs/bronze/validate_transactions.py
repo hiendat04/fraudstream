@@ -4,6 +4,14 @@ This tool is intentionally independent from the ingestion summary. It reads the
 raw source files and the Bronze Parquet output, then verifies that Bronze kept
 the same row coverage, source-file coverage, partition coverage, and raw format
 issues expected from a preservation layer.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.bronze.validate_transactions
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.bronze.validate_transactions
 """
 
 from __future__ import annotations

@@ -3,6 +3,10 @@
 
 The VM is created again every session with a new IP, so the inventory comes
 from the stores-vm stack's outputs rather than from a file.
+
+Ansible runs it; to see what it returns, from the repo root:
+
+    ansible-inventory -i infra/ansible/inventory/terraform.py --list
 """
 
 import json

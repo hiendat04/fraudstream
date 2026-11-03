@@ -1,4 +1,9 @@
-"""Generate Kafka-like streaming transaction events with realistic stream problems."""
+"""Generate Kafka-like streaming transaction events with realistic stream problems.
+
+Run from the repo root:
+
+    PYTHONPATH=src uv run python -m fraudstream.generators.streaming_transactions
+"""
 
 from __future__ import annotations
 

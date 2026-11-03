@@ -3,6 +3,14 @@
 Bronze is a raw-preservation layer. This job reads the source CSV partitions
 produced by the offline generator, keeps business values as raw strings, adds
 source metadata, and writes partitioned Parquet for later Silver processing.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.bronze.ingest_transactions --write-mode overwrite
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.bronze.ingest_transactions --write-mode overwrite
 """
 
 from __future__ import annotations

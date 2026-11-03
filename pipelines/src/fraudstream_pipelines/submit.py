@@ -3,11 +3,13 @@
 Reach the endpoint first with:
     kubectl port-forward -n kubeflow svc/ml-pipeline-ui 8080:80
 
-Then:
-    uv run python -m fraudstream_pipelines.submit --num-nodes 2
+Then, from the repo root:
+
+    PYTHONPATH=pipelines/src uv run --project pipelines python -m fraudstream_pipelines.submit --num-nodes 2 --output pipelines/fraud_training_pipeline.yaml
 
 CI registers a version instead of starting a run:
-    uv run python -m fraudstream_pipelines.submit --host http://localhost:8888 --upload-version 9f789a7
+
+    PYTHONPATH=pipelines/src uv run --project pipelines python -m fraudstream_pipelines.submit --host http://localhost:8888 --upload-version 9f789a7 --output pipelines/fraud_training_pipeline.yaml
 """
 
 import argparse

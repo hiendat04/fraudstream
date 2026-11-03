@@ -4,7 +4,10 @@ It starts the newest version CI registered, trained on a window that ends where
 the checked window ends. The new model is registered in MLflow like any other.
 Deciding to serve it stays with a person.
 
-    python -m fraudstream_monitoring.retrain --summary /tmp/drift.json [--force]
+Run from the repo root:
+
+    PYTHONPATH=monitoring/src uv run --project monitoring python -m fraudstream_monitoring.retrain --summary /tmp/drift.json
+    PYTHONPATH=monitoring/src uv run --project monitoring python -m fraudstream_monitoring.retrain --summary /tmp/drift.json --force
 Needs PIPELINES_URL, PUSHGATEWAY_URL, GATEWAY_USER, GATEWAY_PASSWORD and GATEWAY_CA.
 
 Exits 99 when there is nothing to do or a retrain must wait. Airflow shows that as skipped.

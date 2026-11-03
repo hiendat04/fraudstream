@@ -1,4 +1,13 @@
-"""Build offline fraud feature tables from persisted core Gold facts."""
+"""Build offline fraud feature tables from persisted core Gold facts.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.gold.offline_features --write-mode overwrite
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.gold.offline_features --write-mode overwrite
+"""
 
 from __future__ import annotations
 

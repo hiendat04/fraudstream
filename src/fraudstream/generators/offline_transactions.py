@@ -9,6 +9,14 @@ formats, and fraud-ring behavior.
 Each day is written on its own, as one CSV, a chunk of rows at a time,
 so memory stays flat however many rows are asked for, and days can be
 generated in parallel.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`.
+
+    PYTHONPATH=src uv run --extra storage python -m fraudstream.generators.offline_transactions --workers 6
+
+Inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.generators.offline_transactions --workers 6
 """
 
 from __future__ import annotations

@@ -1,4 +1,13 @@
-"""Build Gold transaction tables from Silver transaction Parquet."""
+"""Build Gold transaction tables from Silver transaction Parquet.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.gold.transactions --write-mode overwrite --core-only
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.gold.transactions --write-mode overwrite --core-only
+"""
 
 from __future__ import annotations
 

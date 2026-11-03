@@ -5,7 +5,9 @@ Spark profile and the streaming generator. It does not scan transaction contents
 or start Spark, so it remains fast and dependency-free. The offline rows live in
 MinIO, so their stored size comes from the profile, not from a local folder.
 
-PYTHONPATH=src uv run python -m fraudstream.reports.data_quality --dataset all --output reports/data_quality_report.html
+Run from the repo root:
+
+    PYTHONPATH=src uv run python -m fraudstream.reports.data_quality --dataset all --output reports/data_quality_report.html
 """
 
 from __future__ import annotations

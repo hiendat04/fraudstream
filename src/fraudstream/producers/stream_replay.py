@@ -3,6 +3,12 @@
 The streaming generator creates a deterministic JSONL topic log. This module
 publishes that log to Kafka so a Flink job can consume the same event contract
 used by the local source data.
+
+Run from the repo root, with Kafka up (`docker compose up -d kafka kafka-topic-init kafka-ui`):
+
+    PYTHONPATH=src uv run --extra kafka python -m fraudstream.producers.stream_replay --events-per-second 5000
+    PYTHONPATH=src uv run --extra kafka python -m fraudstream.producers.stream_replay --time-mode produced_at --speed-factor 3600
+    PYTHONPATH=src uv run --extra kafka python -m fraudstream.producers.stream_replay --max-events 10000
 """
 
 from __future__ import annotations

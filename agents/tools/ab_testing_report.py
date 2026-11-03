@@ -1,7 +1,9 @@
 """Reads one window of an A/B split from Prometheus and judges it: pass, fail or inconclusive.
 
-    python tools/ab_testing_report.py llm --prometheus http://127.0.0.1:19090 [--window 30m]
-    python tools/ab_testing_report.py agent --prometheus http://127.0.0.1:19090 --window 2h
+Run from the repo root:
+
+    PYTHONPATH=agents/src uv run --project agents python agents/tools/ab_testing_report.py llm --prometheus http://127.0.0.1:19090 --window 30m
+    PYTHONPATH=agents/src uv run --project agents python agents/tools/ab_testing_report.py agent --prometheus http://127.0.0.1:19090 --window 2h
 
 Prints a row per variant, then the verdict and its reasons. Exits 0 on pass, 10 on fail
 and 12 when the candidate has too few calls to say.

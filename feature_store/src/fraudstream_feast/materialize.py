@@ -6,6 +6,10 @@ window of `now - ttl`. For a historical dataset that fallback window can sit
 entirely after the data, in which case the run succeeds while loading nothing.
 This job therefore does one explicit full window per view the first time it
 sees it, and resumes incrementally on every run afterwards.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`.
+
+    PYTHONPATH=feature_store/src:src uv run --project feature_store python -m fraudstream_feast.materialize --repo-path feature_store/feature_repo --start-timestamp 2024-07-01T00:00:00 --end-timestamp 2026-07-01T00:00:00
 """
 
 from __future__ import annotations

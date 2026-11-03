@@ -1,5 +1,7 @@
 """Decide whether the model versions that answered match the InferenceService's split.
 
+Run from the repo root:
+
     python api/tools/model_split.py isvc.json answers.jsonl
 isvc.json is `kubectl get inferenceservice -o json`; answers.jsonl holds one
 /v1/predict answer per line, an empty line for a payment that got none.

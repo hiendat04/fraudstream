@@ -1,4 +1,10 @@
-"""Build real-time customer and merchant fraud features from Kafka events."""
+"""Build real-time customer and merchant fraud features from Kafka events.
+
+Run from the repo root, with Kafka up. Credentials come from `. infra/vault/env.sh`.
+
+    PYTHONPATH=src uv run --project flink --python 3.12 python -m fraudstream.jobs.flink.transactions --flink-ui
+    PYTHONPATH=src uv run --project flink --python 3.12 python -m fraudstream.jobs.flink.transactions --dry-run
+"""
 
 from __future__ import annotations
 

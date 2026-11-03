@@ -1,4 +1,9 @@
-"""Render environment-backed Airflow bootstrap files for the initialization CLI."""
+"""Render environment-backed Airflow bootstrap files for the initialization CLI.
+
+Not run by hand: `airflow/scripts/initialize.sh` runs it in the airflow-init container. From the repo root:
+
+    docker compose --profile orchestration up -d --force-recreate airflow-init
+"""
 
 from __future__ import annotations
 

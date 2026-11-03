@@ -6,6 +6,14 @@ devices there are, and the columns each schema version really has. This job read
 Spark and writes those facts to `_data_profile.json`. It also adds the distinct
 counts to the generator's `_quality_summary.json`, where the data-quality report
 reads them.
+
+Run from the repo root. Credentials come from `. infra/vault/env.sh`. On the laptop:
+
+    PYTHONPATH=src uv run --extra spark --extra storage python -m fraudstream.jobs.profile_raw_transactions --master "local[8]"
+
+On the full dataset, inside the Airflow container:
+
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.profile_raw_transactions --master "local[8]"
 """
 
 from __future__ import annotations
