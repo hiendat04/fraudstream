@@ -12,8 +12,11 @@ from unittest import TestCase, main, skipUnless
 
 from fraudstream.jobs.bronze.ingest_transactions import (
     BASE_COLUMNS,
+    EVOLVED_COLUMNS,
     RAW_COLUMNS,
     BronzeIngestionConfig,
+    SchemaEvolutionError,
+    evolve_table_schema,
     ingest_transactions_to_bronze,
 )
 from fraudstream.jobs.warehouse import IcebergCatalogConfig, WarehouseConfig
@@ -124,15 +127,105 @@ class BronzeTransactionIngestionTest(TestCase):
             rows = _read_iceberg_rows("iceberg.bronze.raw_transactions", iceberg_uri)
             rows_by_version = {row["schema_version"]: row for row in rows}
 
-            self.assertIsNone(rows_by_version["v1"]["device_id"])
             self.assertIsNone(rows_by_version["v1"]["ip_address"])
-            self.assertIsNone(rows_by_version["v1"]["authentication_method"])
-            self.assertIsNone(rows_by_version["v1"]["risk_signal_version"])
 
-            self.assertIsNone(rows_by_version["v2"]["device_id"])
             self.assertEqual(rows_by_version["v2"]["ip_address"], "10.1.2.3")
-            self.assertIsNone(rows_by_version["v2"]["authentication_method"])
-            self.assertIsNone(rows_by_version["v2"]["risk_signal_version"])
+            # Bronze keeps only the columns the run's files have: this partial v2 file has ip_address alone.
+            self.assertNotIn("device_id", rows_by_version["v2"].asDict())
+
+
+    def test_append_of_v2_files_adds_evolved_columns_to_a_v1_table(self) -> None:
+        """A v1-only table gains the v2 columns when a later append brings v2 files."""
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            source_dir, config = _two_schema_source(root_dir)
+            v1_only = ingest_transactions_to_bronze(_with(config, write_mode="overwrite", to_date="2026-01-01"))
+            columns_before = _read_iceberg_rows("iceberg.bronze.raw_transactions", config.iceberg.warehouse_uri)[0].asDict()
+            appended = ingest_transactions_to_bronze(_with(config, write_mode="append", from_date="2026-04-01"))
+            rows = {row["schema_version"]: row for row in _read_iceberg_rows("iceberg.bronze.raw_transactions", config.iceberg.warehouse_uri)}
+
+            self.assertEqual((v1_only.row_count, v1_only.added_columns), (1, ()))
+            self.assertNotIn("device_id", columns_before)
+            self.assertEqual(appended.added_columns, tuple(EVOLVED_COLUMNS))
+            self.assertEqual(appended.to_dict()["added_columns"], EVOLVED_COLUMNS)
+            self.assertIsNone(rows["v1"]["ip_address"])
+            self.assertEqual(rows["v2"]["ip_address"], "10.1.2.3")
+
+    def test_append_refuses_dates_already_ingested(self) -> None:
+        """Appending a date the table already holds would duplicate it, so the run stops and names it."""
+
+        with TemporaryDirectory() as tmp_dir:
+            source_dir, config = _two_schema_source(Path(tmp_dir))
+            ingest_transactions_to_bronze(_with(config, write_mode="overwrite", to_date="2026-01-01"))
+
+            with self.assertRaisesRegex(ValueError, "2026-01-01"):
+                ingest_transactions_to_bronze(_with(config, write_mode="append"))
+
+
+class EvolveTableSchemaTest(TestCase):
+    """Columns are only ever added; a column whose type changed stops the run."""
+
+    def test_new_columns_are_added_in_dataframe_order(self) -> None:
+        from pyspark.sql.types import StringType, StructField, StructType
+
+        spark = _FakeSpark(StructType([StructField("transaction_id", StringType())]))
+        dataframe = _FakeFrame(StructType([StructField(name, StringType()) for name in ("transaction_id", "ip_address", "device_id")]))
+
+        self.assertEqual(evolve_table_schema(spark, "iceberg.bronze.raw_transactions", dataframe), ["ip_address", "device_id"])
+        self.assertEqual(spark.statements, ["ALTER TABLE iceberg.bronze.raw_transactions ADD COLUMNS (`ip_address` STRING, `device_id` STRING)"])
+
+    def test_type_change_is_refused(self) -> None:
+        from pyspark.sql.types import LongType, StringType, StructField, StructType
+
+        spark = _FakeSpark(StructType([StructField("amount", StringType())]))
+
+        with self.assertRaisesRegex(SchemaEvolutionError, "amount"):
+            evolve_table_schema(spark, "iceberg.bronze.raw_transactions", _FakeFrame(StructType([StructField("amount", LongType())])))
+        self.assertEqual(spark.statements, [])
+
+
+class _FakeFrame:
+    def __init__(self, schema) -> None:
+        self.schema = schema
+
+
+class _FakeSpark:
+    def __init__(self, table_schema) -> None:
+        self.table_schema = table_schema
+        self.statements: list[str] = []
+
+    def table(self, _name: str) -> _FakeFrame:
+        return _FakeFrame(self.table_schema)
+
+    def sql(self, statement: str) -> None:
+        self.statements.append(statement)
+
+
+def _two_schema_source(root_dir: Path) -> tuple[Path, BronzeIngestionConfig]:
+    """A v1 file on 2026-01-01 and a v2 file on 2026-04-01, and a config that reads them."""
+
+    source_dir = root_dir / "raw_source" / "offline_transactions"
+    v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+    v2_file = f"file://{source_dir}/schema_version=v2/transaction_date=2026-04-01/transactions.csv"
+    _write_csv(v1_file, BASE_COLUMNS, [_v1_row()])
+    _write_csv(v2_file, RAW_COLUMNS, [_v2_row()])
+    _write_manifest(source_dir, [v1_file, v2_file])
+    warehouse_dir = root_dir / "warehouse"
+    return source_dir, BronzeIngestionConfig(
+        source_dir=source_dir,
+        output_dir=root_dir / "bronze" / "raw_transactions",
+        ingest_date="2026-07-04",
+        warehouse=WarehouseConfig(uri=f"file://{warehouse_dir}"),
+        iceberg=IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{warehouse_dir}/iceberg"),
+        write_to_postgres=False,
+    )
+
+
+def _with(config: BronzeIngestionConfig, **changes) -> BronzeIngestionConfig:
+    from dataclasses import replace
+
+    return replace(config, **changes)
 
 
 def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:

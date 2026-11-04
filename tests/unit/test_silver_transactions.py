@@ -386,6 +386,32 @@ class SilverTransactionsTest(TestCase):
             self.assertTrue(any(row["event_date"] is None for row in expected))
             self.assertEqual(result.postgres_rows["silver.stg_transactions"], 1)
 
+    def test_silver_reads_a_v1_only_bronze_table(self) -> None:
+        """A Bronze table loaded only from v1 files has no v2 columns; Silver fills them with nulls."""
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            source_dir = root_dir / "raw_source" / "offline_transactions"
+            v1_file = f"file://{source_dir}/schema_version=v1/transaction_date=2026-01-01/transactions.csv"
+            _write_csv(v1_file, BASE_COLUMNS, [_row(transaction_id="txn_v1", amount="10.00", city="Boston", created_ts="2026-01-01T12:05:00")])
+            _write_manifest(source_dir, [v1_file])
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
+            ingest_transactions_to_bronze(BronzeIngestionConfig(
+                source_dir=source_dir, output_dir=root_dir / "bronze", ingest_date="2026-01-02",
+                write_mode="overwrite", warehouse=warehouse, iceberg=iceberg, write_to_postgres=False,
+            ))
+
+            result = build_silver_transactions(SilverTransactionsConfig(
+                output_dir=root_dir / "silver", write_mode="overwrite", warehouse=warehouse,
+                iceberg=iceberg, write_to_postgres=False,
+            ))
+
+            row = _read_iceberg_rows("iceberg.silver.stg_transactions", iceberg.warehouse_uri)[0]
+            self.assertEqual(result.output_row_count, 1)
+            self.assertIsNone(row["device_id"])
+            self.assertIsNone(row["risk_signal_version"])
+
 def _write_csv(uri: str, columns: list[str], rows: list[dict[str, str]]) -> None:
     """Write a tiny source CSV partition for tests, via the same `storage`
     module the generator uses (a local `file://` URI stands in for MinIO)."""

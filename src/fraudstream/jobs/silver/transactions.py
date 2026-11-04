@@ -26,6 +26,7 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from fraudstream.jobs.bronze.ingest_transactions import (
+    EVOLVED_COLUMNS,
     DEFAULT_MASTER,
     SCHEMA_VERSION_V2,
     SUPPORTED_WRITE_MODES,
@@ -271,7 +272,7 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
     try:
         announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
-        bronze_dataframe = spark.table(config.bronze_table)
+        bronze_dataframe = _ensure_evolved_columns(spark.table(config.bronze_table))
         cleaned_dataframe = _clean_bronze_transactions(bronze_dataframe, processed_at)
         ranked_dataframe = _persist_for_reuse(_rank_transactions_for_deduplication(cleaned_dataframe))
         silver_dataframe = _select_silver_rows(ranked_dataframe)
@@ -668,6 +669,17 @@ def _persist_for_reuse(dataframe: Any) -> Any:
     from pyspark import StorageLevel
 
     return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
+
+
+def _ensure_evolved_columns(dataframe: Any) -> Any:
+    """Add the v2 columns a v1-only Bronze table doesn't have yet, as null strings."""
+
+    from pyspark.sql import functions as spark_functions
+
+    for column_name in EVOLVED_COLUMNS:
+        if column_name not in dataframe.columns:
+            dataframe = dataframe.withColumn(column_name, spark_functions.lit(None).cast("string"))
+    return dataframe
 
 
 def _write_silver_iceberg(silver_dataframe: Any, config: SilverTransactionsConfig) -> None:

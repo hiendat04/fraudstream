@@ -304,6 +304,9 @@ def _collect_bronze_stats(spark: Any, bronze_table: str) -> BronzeValidationStat
     from pyspark.sql import functions as spark_functions
 
     bronze_dataframe = spark.table(bronze_table)
+    if "device_id" not in bronze_dataframe.columns:
+        # A table loaded only from v1 files has no v2 columns yet.
+        bronze_dataframe = bronze_dataframe.withColumn("device_id", spark_functions.lit(None).cast("string"))
     checks = bronze_dataframe.agg(
         spark_functions.count("*").alias("row_count"),
         spark_functions.countDistinct("_source_file_path").alias("distinct_source_file_count"),
