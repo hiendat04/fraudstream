@@ -265,7 +265,6 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
     spark = _build_spark_session(
         config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
     )
-    bronze_dataframe = None
     try:
         announce_spark_ui(spark, config.spark_ui)
         context = _build_run_context(config)
@@ -279,14 +278,12 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
             source_system=config.source_system,
             source_dataset=config.source_dataset,
         )
-        bronze_dataframe = _prepare_for_reuse(enriched_dataframe)
-
         set_spark_job_group(
             spark,
             "bronze-write-raw-transactions",
             "Bronze: parse raw CSV, preserve schema problems, add lineage, and write to the Iceberg table on MinIO",
         )
-        added_columns = _write_bronze_iceberg(bronze_dataframe, config)
+        added_columns = _write_bronze_iceberg(enriched_dataframe, config)
 
         set_spark_job_group(
             spark,
@@ -294,7 +291,7 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
             "Bronze: profile duplicates, schema versions, and transaction-date coverage",
         )
         result = _build_ingestion_result(
-            bronze_dataframe=bronze_dataframe,
+            bronze_dataframe=_written_rows(spark, config, context.ingest_run_id),
             config=config,
             context=context,
             spark_version=spark.version,
@@ -315,8 +312,6 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
         retain_spark_ui(spark, config.spark_ui)
         return result
     finally:
-        if bronze_dataframe is not None:
-            bronze_dataframe.unpersist(blocking=False)
         spark.stop()
 
 
@@ -622,12 +617,20 @@ def _read_csv_files(spark: Any, source_files: Sequence[str], source_columns: Seq
     return dataframe.na.fill("", subset=list(source_columns))
 
 
-def _prepare_for_reuse(dataframe: Any) -> Any:
-    """Persist the Bronze DataFrame because writing and metric checks reuse it."""
+def _written_rows(spark: Any, config: BronzeIngestionConfig, ingest_run_id: str) -> Any:
+    """This run's rows, read back from Iceberg with only the columns the summary needs.
 
-    from pyspark import StorageLevel
+    Profiling the table instead of a cached copy of the CSV keeps memory flat: at
+    300 million rows a cache does not fit, and reading a few Parquet columns is cheap.
+    """
 
-    return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
+    from pyspark.sql import functions as spark_functions
+
+    return (
+        spark.table(_bronze_table(config))
+        .where(spark_functions.col("_ingest_run_id") == ingest_run_id)
+        .select("transaction_id", "schema_version", "transaction_date")
+    )
 
 
 def _bronze_table(config: BronzeIngestionConfig) -> str:

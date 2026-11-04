@@ -148,6 +148,7 @@ class BronzeTransactionIngestionTest(TestCase):
             self.assertEqual((v1_only.row_count, v1_only.added_columns), (1, ()))
             self.assertNotIn("device_id", columns_before)
             self.assertEqual(appended.added_columns, tuple(EVOLVED_COLUMNS))
+            self.assertEqual((appended.row_count, appended.schema_versions), (1, ("v2",)), "the summary counts only this run's rows")
             self.assertEqual(appended.to_dict()["added_columns"], EVOLVED_COLUMNS)
             self.assertIsNone(rows["v1"]["ip_address"])
             self.assertEqual(rows["v2"]["ip_address"], "10.1.2.3")
