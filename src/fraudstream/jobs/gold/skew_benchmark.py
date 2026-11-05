@@ -15,7 +15,7 @@ The spread comes from Spark's own REST API, the numbers behind the Stages tab.
 
 Run from the repo root, inside the Airflow container, once per strategy:
 
-    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.gold.skew_benchmark --strategy baseline --spark-ui-retain-seconds 600
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.gold.skew_benchmark --strategy baseline --retain-ui 600
 """
 
 from __future__ import annotations
@@ -29,12 +29,11 @@ from pathlib import Path
 from typing import Any
 
 from fraudstream.jobs.gold.transactions import _build_spark_session
-from fraudstream.jobs.spark_settings import add_spark_conf_argument, parse_spark_conf
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    retain_spark_ui,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    keep_ui_open,
+    parse_spark_conf,
 )
 from fraudstream.jobs.warehouse import (
     add_iceberg_arguments,
@@ -152,7 +151,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--buckets", type=int, default=DEFAULT_BUCKETS, help="Salt values per key, for --strategy salted.")
     parser.add_argument("--master", default="local[*]")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
     add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
@@ -168,15 +167,14 @@ def main(argv: list[str] | None = None) -> int:
     conf = {
         **strategy_conf(args.strategy),
         "spark.app.name": f"skew-benchmark-{args.strategy}",
+        # The spread is read from the Spark UI's REST API, so the UI is always on.
+        "spark.ui.enabled": "true",
         **parse_spark_conf(args.spark_conf),
     }
-    # The spread is read from the Spark UI's REST API, so the UI is always on.
-    spark_ui = SparkUIConfig(enabled=True, port=args.spark_ui_port, retain_seconds=args.spark_ui_retain_seconds)
     spark = _build_spark_session(
-        args.master, spark_ui, warehouse_config_from_args(args), iceberg, postgres_config_from_args(args), conf
+        args.master, args.retain_ui, warehouse_config_from_args(args), iceberg, postgres_config_from_args(args), conf
     )
     try:
-        announce_spark_ui(spark, spark_ui)
         seconds = run_benchmark(spark, args.strategy, args.buckets, iceberg.catalog_name)
         result = {
             "strategy": args.strategy,
@@ -185,7 +183,7 @@ def main(argv: list[str] | None = None) -> int:
             "join_stage": stage_spread(_stage_summaries(spark)),
             "spark_conf": conf,
         }
-        retain_spark_ui(spark, spark_ui)
+        keep_ui_open(spark, args.retain_ui)
     finally:
         spark.stop()
 

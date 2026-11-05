@@ -23,7 +23,7 @@ DEFAULT_POSTGRES_DATABASE = "fraudstream"
 
 HADOOP_AWS_PACKAGE = "org.apache.hadoop:hadoop-aws:3.4.1"
 POSTGRESQL_JDBC_PACKAGE = "org.postgresql:postgresql:42.7.4"
-ICEBERG_SPARK_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0"
+ICEBERG_SPARK_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0"
 
 DEFAULT_ICEBERG_CATALOG_NAME = "iceberg"
 DEFAULT_ICEBERG_CATALOG_TYPE = "jdbc"

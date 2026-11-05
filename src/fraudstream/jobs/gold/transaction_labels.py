@@ -22,17 +22,14 @@ from typing import Any
 from fraudstream.generators.offline_transactions import DEFAULT_LABELS_URI
 from fraudstream.jobs.bronze.ingest_transactions import DEFAULT_MASTER, SUPPORTED_WRITE_MODES
 from fraudstream.jobs.gold.transactions import _parse_datetime, _to_utc_string
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
+    parse_spark_conf,
 )
-from fraudstream.jobs.spark_settings import add_spark_conf_argument, apply_spark_conf, parse_spark_conf
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
     PostgresJdbcConfig,
@@ -81,7 +78,7 @@ class TransactionLabelsConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
@@ -95,7 +92,6 @@ class TransactionLabelsConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
-        self.spark_ui.validate()
 
     def gold_table_name(self) -> str:
         """Return the Iceberg-catalog-qualified name of the transaction-labels table."""
@@ -140,14 +136,14 @@ class TransactionLabelsResult:
 def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabelsResult:
     """Read the generator's daily label files and materialize `gold.transaction_labels`."""
 
+    from pyspark import StorageLevel
     from pyspark.sql import functions as spark_functions
 
     config.validate()
     spark = _build_spark_session(
-        config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+        config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
     )
     try:
-        announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
         # One file per day under transaction_date=…/ folders; the date is already a column.
         dataframe = (
@@ -156,12 +152,10 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
             .option("recursiveFileLookup", "true")
             .csv(config.labels_uri)
         )
-        dataframe.persist()
+        dataframe.persist(StorageLevel.DISK_ONLY)
         try:
-            set_spark_job_group(
-                spark,
-                "transaction-labels-build",
-                "Transaction labels: read raw label CSV and write to MinIO + PostgreSQL",
+            spark.sparkContext.setJobDescription(
+                "Transaction labels: read raw label CSV and write to MinIO + PostgreSQL"
             )
 
             metrics = dataframe.agg(
@@ -196,8 +190,7 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
                 completed_at=_to_utc_string(datetime.now(UTC)),
             )
             _write_summary(result, config.gold_dir)
-            clear_spark_job_group(spark)
-            retain_spark_ui(spark, config.spark_ui)
+            keep_ui_open(spark, config.retain_ui)
             return result
         finally:
             dataframe.unpersist(blocking=False)
@@ -207,7 +200,7 @@ def build_transaction_labels(config: TransactionLabelsConfig) -> TransactionLabe
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
@@ -230,7 +223,7 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    builder = configure_spark_builder(builder, spark_ui or SparkUIConfig())
+    builder = configure_spark_builder(builder, retain_ui)
     return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
@@ -257,7 +250,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WRITE_MODE,
     )
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for load metadata.")
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
     add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
@@ -281,7 +274,7 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
         spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),

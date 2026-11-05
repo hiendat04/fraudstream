@@ -1,4 +1,6 @@
-"""One `--spark-conf KEY=VALUE` flag for every Spark job, so a run's settings come from outside the code.
+"""What every Spark job shares: its `--spark-conf` and `--retain-ui` flags, and its temp folder.
+
+`--spark-conf KEY=VALUE` keeps a run's settings outside the code.
 
 A baseline run and a tuned run use the same job; only their settings differ. Each
 setting is applied last, after the job's own defaults, so it always wins, and the
@@ -10,7 +12,20 @@ job writes what it applied into its summary.
 from __future__ import annotations
 
 import argparse
-from typing import Any, Sequence
+import atexit
+import fcntl
+import os
+import shutil
+import sys
+import tempfile
+import time
+from pathlib import Path
+from typing import IO, Any, Sequence
+
+SCRATCH_LOCK_NAME = ".lock"
+
+# Held open for the life of the job. The kernel lets go of it however the process dies.
+_scratch_lock: IO[str] | None = None
 
 
 def add_spark_conf_argument(parser: argparse.ArgumentParser) -> None:
@@ -57,3 +72,69 @@ def apply_spark_conf(builder: Any, conf: dict[str, str]) -> Any:
     for key, value in conf.items():
         builder = builder.config(key, value)
     return builder
+
+
+def add_retain_ui_argument(parser: argparse.ArgumentParser) -> None:
+    """Add the `--retain-ui SECONDS` flag to one job parser."""
+
+    parser.add_argument(
+        "--retain-ui",
+        type=_seconds,
+        default=0,
+        metavar="SECONDS",
+        help="Turn the Spark UI on and keep it open this many seconds after the job finishes.",
+    )
+
+
+def _seconds(value: str) -> int:
+    seconds = int(value)
+    if seconds < 0:
+        raise argparse.ArgumentTypeError("--retain-ui must be zero or more")
+    return seconds
+
+
+def configure_spark_builder(builder: Any, retain_ui: int) -> Any:
+    """Give the job its temp folder, and turn the Spark UI on only when it was asked for."""
+
+    claim_scratch_folder()
+    return builder.config("spark.ui.enabled", str(retain_ui > 0).lower())
+
+
+def keep_ui_open(spark: Any, seconds: int) -> None:
+    """Hold the finished job's Spark UI open for inspection."""
+
+    if seconds:
+        print(f"Job finished. Spark UI stays open for {seconds} seconds.", file=sys.stderr, flush=True)
+        time.sleep(seconds)
+
+
+def claim_scratch_folder() -> None:
+    """Give this job its own folder under SPARK_LOCAL_DIRS, and clear the ones dead jobs left behind.
+
+    Spark only deletes its shuffle and cache files on a clean exit, so a job that runs
+    out of memory leaves them on the volume, and every retry adds another copy. A job's
+    folder goes with it on any exit Python survives. After a hard kill the lock is what
+    tells the next job that the folder's owner is gone, and a running job is never touched.
+
+    LOCK_EX	            Request an exclusive lock
+    LOCK_NB	            Don't wait if someone else already holds the lock
+    BlockingIOError	    Another process currently holds the lock
+    """
+
+
+    global _scratch_lock
+    root = os.environ.get("SPARK_LOCAL_DIRS")
+    if root is None or _scratch_lock is not None:
+        return
+    for lock_path in Path(root).glob(f"run-*/{SCRATCH_LOCK_NAME}"):
+        with lock_path.open() as lock:
+            try:
+                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+            except BlockingIOError:
+                continue
+            shutil.rmtree(lock_path.parent, ignore_errors=True)
+    run_folder = tempfile.mkdtemp(prefix="run-", dir=root)
+    _scratch_lock = (Path(run_folder) / SCRATCH_LOCK_NAME).open("w")
+    fcntl.flock(_scratch_lock, fcntl.LOCK_EX)
+    os.environ["SPARK_LOCAL_DIRS"] = run_folder
+    atexit.register(shutil.rmtree, run_folder, ignore_errors=True)

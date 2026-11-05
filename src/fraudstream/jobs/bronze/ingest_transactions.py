@@ -27,17 +27,14 @@ from typing import Any, Sequence
 from uuid import uuid4
 
 from fraudstream import storage
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
+    parse_spark_conf,
 )
-from fraudstream.jobs.spark_settings import add_spark_conf_argument, apply_spark_conf, parse_spark_conf
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
     PostgresJdbcConfig,
@@ -141,7 +138,7 @@ class BronzeIngestionConfig:
     ingest_date: str | None = None
     source_system: str = DEFAULT_SOURCE_SYSTEM
     source_dataset: str = DEFAULT_SOURCE_DATASET
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
@@ -164,7 +161,6 @@ class BronzeIngestionConfig:
         for value in (self.from_date, self.to_date):
             if value is not None:
                 date.fromisoformat(value)
-        self.spark_ui.validate()
 
 
 @dataclass(frozen=True)
@@ -263,10 +259,9 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
 
     config.validate()
     spark = _build_spark_session(
-        config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+        config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
     )
     try:
-        announce_spark_ui(spark, config.spark_ui)
         context = _build_run_context(config)
         if config.write_mode == "append":
             _refuse_ingested_dates(spark, _bronze_table(config), context.manifest.files)
@@ -278,17 +273,13 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
             source_system=config.source_system,
             source_dataset=config.source_dataset,
         )
-        set_spark_job_group(
-            spark,
-            "bronze-write-raw-transactions",
-            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write to the Iceberg table on MinIO",
+        spark.sparkContext.setJobDescription(
+            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write to the Iceberg table on MinIO"
         )
         added_columns = _write_bronze_iceberg(enriched_dataframe, config)
 
-        set_spark_job_group(
-            spark,
-            "bronze-profile-offline-problems",
-            "Bronze: profile duplicates, schema versions, and transaction-date coverage",
+        spark.sparkContext.setJobDescription(
+            "Bronze: profile duplicates, schema versions, and transaction-date coverage"
         )
         result = _build_ingestion_result(
             bronze_dataframe=_written_rows(spark, config, context.ingest_run_id),
@@ -299,17 +290,14 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
         result = replace(result, added_columns=tuple(added_columns))
 
         if config.write_to_postgres:
-            set_spark_job_group(
-                spark,
-                "bronze-write-postgres",
-                "Bronze: write raw_transaction_ingest_runs and raw_transactions directly to PostgreSQL",
+            spark.sparkContext.setJobDescription(
+                "Bronze: write raw_transaction_ingest_runs and raw_transactions directly to PostgreSQL"
             )
             postgres_rows = _write_bronze_postgres(spark, result, context, config)
             result = replace(result, postgres_rows={"bronze.raw_transactions": postgres_rows})
 
-        clear_spark_job_group(spark)
         _write_summary(result, config.output_dir)
-        retain_spark_ui(spark, config.spark_ui)
+        keep_ui_open(spark, config.retain_ui)
         return result
     finally:
         spark.stop()
@@ -333,7 +321,7 @@ def _build_run_context(config: BronzeIngestionConfig) -> BronzeRunContext:
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
@@ -356,7 +344,7 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    builder = configure_spark_builder(builder, spark_ui or SparkUIConfig())
+    builder = configure_spark_builder(builder, retain_ui)
     return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
@@ -900,7 +888,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--ingest-date")
     parser.add_argument("--from-date", help="Ingest only files on or after this transaction_date (YYYY-MM-DD).")
     parser.add_argument("--to-date", help="Ingest only files on or before this transaction_date (YYYY-MM-DD).")
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
     add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
@@ -927,7 +915,7 @@ def main(argv: list[str] | None = None) -> int:
         write_mode=args.write_mode,
         ingest_run_id=args.ingest_run_id,
         ingest_date=args.ingest_date,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
         spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),

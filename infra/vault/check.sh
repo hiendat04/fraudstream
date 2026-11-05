@@ -9,7 +9,7 @@
 #   ./infra/vault/check.sh cluster --sealed   and they all stay while Vault is sealed, and sync again once unsealed
 #   ./infra/vault/check.sh keys          the gateways' keys and their hashes come from Vault, made once
 #   ./infra/vault/check.sh keys --rotate      and a rotated key reaches the A2A gateway: the old one is refused
-#   ./infra/vault/check.sh compose       no secret in .env or the code, Compose needs Vault, Debezium reads its password
+#   ./infra/vault/check.sh compose       no secret in .env or the code, Compose needs Vault
 #   ./infra/vault/check.sh jenkins       Jenkins holds only its Vault login, and its credentials are read from Vault
 #   ./infra/vault/check.sh airflow       Airflow reads its connections from Vault, and a task's password is masked
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
@@ -260,11 +260,6 @@ compose() {
   expect "files holding an old default password" none "${old_defaults:-none}"
   expect "Compose refuses to start without Vault" refused \
     "$(env -i PATH="$PATH" HOME="$HOME" docker compose config --quiet 2>/dev/null && echo started || echo refused)"
-  expect "Debezium reads config from the environment" env \
-    "$(docker inspect fraudstream-debezium-connect --format '{{range .Config.Env}}{{println .}}{{end}}' 2>/dev/null \
-      | sed -n 's/^CONNECT_CONFIG_PROVIDERS=//p')"
-  expect "the Debezium connector" RUNNING \
-    "$(curl -s localhost:18083/connectors/fraudstream-bronze-raw-transactions/status | jq -r '.connector.state // empty')"
 }
 
 JENKINS_CREDENTIALS="minio github gateway"

@@ -31,17 +31,14 @@ from fraudstream.jobs.bronze.ingest_transactions import (
     SCHEMA_VERSION_V2,
     SUPPORTED_WRITE_MODES,
 )
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
+    parse_spark_conf,
 )
-from fraudstream.jobs.spark_settings import add_spark_conf_argument, apply_spark_conf, parse_spark_conf
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
     PostgresJdbcConfig,
@@ -155,7 +152,7 @@ class SilverTransactionsConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
@@ -169,7 +166,6 @@ class SilverTransactionsConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
-        self.spark_ui.validate()
 
     @property
     def resolved_quality_output_dir(self) -> Path:
@@ -266,11 +262,10 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
 
     config.validate()
     spark = _build_spark_session(
-        config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+        config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
     )
     ranked_dataframe = None
     try:
-        announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
         bronze_dataframe = _ensure_evolved_columns(spark.table(config.bronze_table))
         cleaned_dataframe = _clean_bronze_transactions(bronze_dataframe, processed_at)
@@ -278,10 +273,8 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         silver_dataframe = _select_silver_rows(ranked_dataframe)
         quality_issue_dataframe = _select_quality_issue_rows(ranked_dataframe, processed_at)
 
-        set_spark_job_group(
-            spark,
-            "silver-write-selected-transactions",
-            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows to MinIO + PostgreSQL",
+        spark.sparkContext.setJobDescription(
+            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows to MinIO + PostgreSQL"
         )
         _write_silver_iceberg(silver_dataframe, config)
         postgres_rows: dict[str, int] = {}
@@ -289,11 +282,7 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
             rows = postgres_window(spark.table(config.silver_table), "event_date", config.postgres_days)
             postgres_rows["silver.stg_transactions"] = write_postgres_copy(rows, "silver.stg_transactions", config.postgres)
 
-        set_spark_job_group(
-            spark,
-            "silver-write-quality-evidence",
-            "Silver: write quarantined, warning, and duplicate-rejected evidence",
-        )
+        spark.sparkContext.setJobDescription("Silver: write quarantined, warning, and duplicate-rejected evidence")
         _write_quality_issue_iceberg(quality_issue_dataframe, config)
         if config.write_to_postgres:
             issues = spark.table(config.silver_quality_table)
@@ -305,10 +294,8 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
                 rows, "silver.stg_transaction_quality_issues", config.postgres
             )
 
-        set_spark_job_group(
-            spark,
-            "silver-profile-offline-problems",
-            "Silver: measure duplicate, late-arrival, schema-evolution, and quality outcomes",
+        spark.sparkContext.setJobDescription(
+            "Silver: measure duplicate, late-arrival, schema-evolution, and quality outcomes"
         )
         result = _build_result(
             ranked_dataframe=ranked_dataframe,
@@ -319,8 +306,7 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
         )
         _write_summary(result, config.output_dir)
         _write_quality_report(_build_quality_report(ranked_dataframe, result), result.quality_report_path)
-        clear_spark_job_group(spark)
-        retain_spark_ui(spark, config.spark_ui)
+        keep_ui_open(spark, config.retain_ui)
         return result
     finally:
         if ranked_dataframe is not None:
@@ -330,7 +316,7 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
@@ -353,7 +339,7 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    builder = configure_spark_builder(builder, spark_ui or SparkUIConfig())
+    builder = configure_spark_builder(builder, retain_ui)
     return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
@@ -664,11 +650,11 @@ def _record_action() -> Any:
 
 
 def _persist_for_reuse(dataframe: Any) -> Any:
-    """Persist ranked candidates because writing and metrics reuse them."""
+    """Keep ranked candidates on disk because writing and metrics reuse them; in memory they fill the heap at this size."""
 
     from pyspark import StorageLevel
 
-    return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
+    return dataframe.persist(StorageLevel.DISK_ONLY)
 
 
 def _ensure_evolved_columns(dataframe: Any) -> Any:
@@ -915,7 +901,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _silver_processed_at.")
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
     add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
@@ -939,7 +925,7 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
         spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),

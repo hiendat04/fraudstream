@@ -399,7 +399,7 @@ services:
     <<: *airflow-common
     container_name: fraudstream-airflow-scheduler
     command: scheduler
-    # The Spark UI of whichever job is running; jobs keep it open with --spark-ui-retain-seconds.
+    # The Spark UI of whichever job is running; jobs turn it on with --retain-ui SECONDS.
     ports:
       - "127.0.0.1:4040:4040"
     depends_on:
