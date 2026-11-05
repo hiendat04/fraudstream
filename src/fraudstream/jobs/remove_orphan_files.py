@@ -10,6 +10,11 @@ the table when that write commits. By default only files a day old are touched. 
 shorter --older-than-hours clears a failed write straight away, so it refuses to run
 while another Spark job is running. It lists what it would delete unless given --delete.
 
+--expire-snapshots also drops every snapshot but the current one. A full overwrite
+writes a new copy of the table and keeps the old copy for time travel, so these old
+copies are what takes the most disk, and only expiring their snapshots frees them.
+There is no way back to an expired version.
+
     docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.remove_orphan_files --table bronze.raw_transactions --older-than-hours 0
 """
 
@@ -55,6 +60,34 @@ def remove_orphan_files(spark: Any, catalog: str, table: str, older_than_hours: 
     return list(action.execute().orphanFileLocations())
 
 
+def expire_old_snapshots(spark: Any, catalog: str, table: str, delete: bool) -> dict[str, int]:
+    """Report what expiring every snapshot but the current one frees, doing it only when `delete` is set."""
+
+    from pyspark.sql import functions as F
+
+    name = f"{catalog}.{table}"
+    only_in_old_snapshots = (
+        spark.table(f"{name}.all_data_files")
+        .select("file_path", "file_size_in_bytes")
+        .distinct()
+        .join(spark.table(f"{name}.data_files").select("file_path"), "file_path", "left_anti")
+        .agg(F.count("*").alias("files"), F.sum("file_size_in_bytes").alias("bytes"))
+        .first()
+    )
+    report = {
+        "old_snapshots": spark.table(f"{name}.snapshots").count() - 1,
+        "data_files_freed": only_in_old_snapshots["files"],
+        "gigabytes_freed": round((only_in_old_snapshots["bytes"] or 0) / 1e9, 2),
+    }
+    if delete:
+        # retain_last keeps the current snapshot; the far-off date makes every other one old enough.
+        spark.sql(
+            f"CALL {catalog}.system.expire_snapshots("
+            f"table => '{table}', older_than => TIMESTAMP '2099-01-01 00:00:00', retain_last => 1)"
+        ).collect()
+    return report
+
+
 def other_spark_job_running() -> bool:
     """Starting this job cleared dead jobs' temp folders, so any other folder belongs to a live job."""
 
@@ -71,6 +104,7 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_OLDER_THAN_HOURS,
         help=f"Leave newer files alone. Defaults to {DEFAULT_OLDER_THAN_HOURS:g}.",
     )
+    parser.add_argument("--expire-snapshots", action="store_true", help="Also drop every snapshot but the current one.")
     parser.add_argument("--delete", action="store_true", help="Delete the files. Without it they are only listed.")
     parser.add_argument("--master", default="local[*]")
     add_warehouse_arguments(parser)
@@ -91,13 +125,20 @@ def main(argv: list[str] | None = None) -> int:
     builder = configure_iceberg_catalog(builder, iceberg, postgres_config_from_args(args))
     spark = configure_spark_builder(builder, retain_ui=0).getOrCreate()
     try:
-        if args.older_than_hours < DEFAULT_OLDER_THAN_HOURS and other_spark_job_running():
-            raise SystemExit("Another Spark job is running. Its files look like orphans, so wait for it to finish.")
+        needs_quiet_table = args.older_than_hours < DEFAULT_OLDER_THAN_HOURS or (args.expire_snapshots and args.delete)
+        if needs_quiet_table and other_spark_job_running():
+            raise SystemExit("Another Spark job is running and may be using these files, so wait for it to finish.")
+        expired = None
+        if args.expire_snapshots:
+            expired = expire_old_snapshots(spark, iceberg.catalog_name, args.table, args.delete)
         files = remove_orphan_files(spark, iceberg.catalog_name, args.table, args.older_than_hours, args.delete)
     finally:
         spark.stop()
 
-    print(json.dumps({"table": args.table, "deleted": args.delete, "orphan_files": len(files), "first_ten": files[:10]}, indent=2))
+    report = {"table": args.table, "deleted": args.delete, "orphan_files": len(files), "first_ten": files[:10]}
+    if expired is not None:
+        report["expired"] = expired
+    print(json.dumps(report, indent=2))
     return 0
 
 
