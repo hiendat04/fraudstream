@@ -87,7 +87,6 @@ watches it or ships it.
 |---|---|
 | **B** batch | the offline CSVs from MinIO through Spark's bronze, silver and gold, into Iceberg and PostgreSQL |
 | **S** streaming | live events through Kafka and Flink: clean transactions and features into Iceberg, late events to their own topic |
-| **C** change data capture | PostgreSQL's changes through Debezium into Kafka |
 | **O** orchestration | the engineer starts the DAGs; Airflow runs the Spark jobs and the replay producer |
 | **G** governance | schemas and lineage into DataHub |
 | **I** inspection | an engineer's SQL on PostgreSQL and Trino |
@@ -215,7 +214,7 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 | Flink streaming | Validation, dedup, five-minute windows, late-event handling and alerts | [07_flink_streaming_pipeline.md](docs/data_engineering/07_flink_streaming_pipeline.md)<br>[08_flink_window_processing.md](docs/data_engineering/08_flink_window_processing.md)                                              |
 | Orchestration | Three Airflow DAGs linked by validated data assets | [09_orchestration_flow.md](docs/data_engineering/09_orchestration_flow.md)<br>[10_airflow_workflow_demonstration.md](docs/data_engineering/10_airflow_workflow_demonstration.md)                                            |
 | Governance | DataHub catalog, lineage, contracts and assertions; database ERDs; quality report | [11_data_governance_datahub.md](docs/data_engineering/11_data_governance_datahub.md)<br>[12_database_schema.md](docs/data_engineering/12_database_schema.md)<br>[13_data_quality_report.md](docs/data_engineering/13_data_quality_report.md) |
-| Lakehouse and CDC | Iceberg on MinIO, Trino, and Debezium change capture | [14_lakehouse_iceberg.md](docs/data_engineering/14_lakehouse_iceberg.md)<br>[15_change_data_capture.md](docs/data_engineering/15_change_data_capture.md)                                                                    |
+| Lakehouse | Iceberg on MinIO and Trino | [14_lakehouse_iceberg.md](docs/data_engineering/14_lakehouse_iceberg.md) |
 | Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/data_engineering/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/data_engineering/optimization/flink/streaming_job_optimization.md)                |
 | **ML platform** | | |
 | Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/ml/16_feature_store.md)                                                                                                                                           |
@@ -340,7 +339,6 @@ fraudstream/
 ├── images/                   # Architecture and captured UI evidence
 ├── infra/
 │   ├── ansible/              # Playbook and roles that set up and seed the stores VM on GCP
-│   ├── debezium/             # The CDC connector's settings
 │   ├── mlflow/               # The MLflow server image
 │   ├── postgres/             # PostgreSQL schema initialization SQL
 │   ├── pgvector/             # pgvector initialization SQL for the LLM layer's Postgres

@@ -477,7 +477,7 @@ already exist.
 `jenkins.yaml`. The rollout job is written on the first restart and loaded on the second.
 
 **Memory is tight on a laptop.** The whole stack used 17 GiB of Docker's 19.5 GiB. Stop
-the Compose services a test doesn't need (Airflow, Kafka, Debezium, Trino) before a long
+the Compose services a test doesn't need (Airflow, Kafka, Trino) before a long
 rollout.
 
 **GKE serves one version.** In the cloud, the model runs as a plain Deployment

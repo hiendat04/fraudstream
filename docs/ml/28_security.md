@@ -24,7 +24,7 @@ flowchart LR
 
     subgraph D["Where the secrets are used"]
         direction TB
-        S[("Compose: Postgres · MinIO · pgvector<br/>Debezium · Trino · MLflow")]
+        S[("Compose: Postgres · MinIO · pgvector<br/>Trino · MLflow")]
         KS[("Kubernetes Secrets<br/>apis · llm · mcp · kagent · observability<br/>kubeflow · agentregistry · ate-system")]
         VM[("stores VM on Google Cloud")]
         GK[("GKE Secrets")]
