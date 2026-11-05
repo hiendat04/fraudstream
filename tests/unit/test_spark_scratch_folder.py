@@ -56,6 +56,15 @@ class ClaimScratchFolderTest(TestCase):
 
         self.assertFalse(dead.exists())
 
+    def test_folder_that_lost_its_lock_is_cleared(self) -> None:
+        # A job killed while it deletes its own folder can leave the rest of it behind.
+        leftover = self._run_folder("run-leftover")
+        (leftover / SCRATCH_LOCK_NAME).unlink()
+
+        self._claim()
+
+        self.assertFalse(leftover.exists())
+
     def test_folder_of_a_running_job_is_kept(self) -> None:
         running = self._run_folder("run-running")
         with (running / SCRATCH_LOCK_NAME).open() as lock:

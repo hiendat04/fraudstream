@@ -108,6 +108,19 @@ def keep_ui_open(spark: Any, seconds: int) -> None:
         time.sleep(seconds)
 
 
+def _held_by_running_job(folder: Path) -> bool:
+    """A folder with no lock file belongs to no one: its job died while deleting it."""
+
+    try:
+        with (folder / SCRATCH_LOCK_NAME).open() as lock:
+            fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
+    except BlockingIOError:
+        return True
+    except FileNotFoundError:
+        return False
+    return False
+
+
 def claim_scratch_folder() -> None:
     """Give this job its own folder under SPARK_LOCAL_DIRS, and clear the ones dead jobs left behind.
 
@@ -126,15 +139,13 @@ def claim_scratch_folder() -> None:
     root = os.environ.get("SPARK_LOCAL_DIRS")
     if root is None or _scratch_lock is not None:
         return
-    for lock_path in Path(root).glob(f"run-*/{SCRATCH_LOCK_NAME}"):
-        with lock_path.open() as lock:
-            try:
-                fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                continue
-            shutil.rmtree(lock_path.parent, ignore_errors=True)
-    run_folder = tempfile.mkdtemp(prefix="run-", dir=root)
-    _scratch_lock = (Path(run_folder) / SCRATCH_LOCK_NAME).open("w")
+    for folder in Path(root).glob("run-*"):
+        if not _held_by_running_job(folder):
+            shutil.rmtree(folder, ignore_errors=True)
+    # It only gets its run- name once locked, so a job starting at the same moment never clears it.
+    starting_folder = Path(tempfile.mkdtemp(prefix="starting-", dir=root))
+    _scratch_lock = (starting_folder / SCRATCH_LOCK_NAME).open("w")
     fcntl.flock(_scratch_lock, fcntl.LOCK_EX)
+    run_folder = str(starting_folder.rename(starting_folder.with_name(starting_folder.name.replace("starting-", "run-", 1))))
     os.environ["SPARK_LOCAL_DIRS"] = run_folder
     atexit.register(shutil.rmtree, run_folder, ignore_errors=True)
