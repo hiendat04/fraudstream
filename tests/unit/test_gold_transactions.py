@@ -241,6 +241,43 @@ class GoldTransactionsTest(TestCase):
                 self.assertLessEqual({row["transaction_id"] for row in written[table_name]}, fact_ids, table_name)
             self.assertEqual(result.to_dict()["tables"][0]["postgres_rows"], iceberg_rows["dim_date"])
 
+    def test_from_date_builds_gold_only_from_recent_silver_rows(self) -> None:
+        from datetime import date
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
+            _write_silver_fixture(iceberg)
+            written: dict[str, list] = {}
+
+            def capture(rows, table, postgres, mode="overwrite"):
+                written[table.removeprefix("gold.")] = rows.collect()
+                return len(written[table.removeprefix("gold.")])
+
+            with patch("fraudstream.jobs.gold.transactions.write_postgres_copy", capture), \
+                    patch("fraudstream.jobs.gold.transactions.truncate_tables_cascade"):
+                result = build_gold_transactions(GoldTransactionsConfig(
+                    output_dir=root_dir / "gold", write_mode="overwrite",
+                    processed_at=datetime.fromisoformat("2026-07-09T00:00:00+00:00"),
+                    warehouse=warehouse, iceberg=iceberg, from_date="2026-01-02",
+                ))
+
+            fact_dates = {row["event_date"] for row in written["fact_transactions"]}
+            self.assertIn(date(2026, 1, 2), fact_dates)
+            self.assertNotIn(date(2026, 1, 1), fact_dates)
+            fact_ids = {row["transaction_id"] for row in written["fact_transactions"]}
+            self.assertLessEqual(
+                {row["transaction_id"] for row in written["fact_transaction_quality_issue"]}, fact_ids
+            )
+            self.assertEqual(result.to_dict()["from_date"], "2026-01-02")
+
+    def test_from_date_must_be_a_date(self) -> None:
+        with self.assertRaises(ValueError):
+            GoldTransactionsConfig(from_date="last-120-days").validate()
+
+
 def _write_silver_fixture(iceberg: IcebergCatalogConfig) -> None:
     """Write a small Silver transaction fixture into the `silver.stg_transactions` Iceberg table."""
 

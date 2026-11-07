@@ -10,7 +10,14 @@ from unittest.mock import patch
 
 from fraudstream.jobs.gold.transaction_labels import TransactionLabelsResult
 from fraudstream.jobs.silver import transactions as silver
-from fraudstream.jobs.spark_settings import add_spark_conf_argument, apply_spark_conf, parse_spark_conf
+from fraudstream.jobs.spark_settings import (
+    RETAIN_UI_FOREVER_SECONDS,
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
+    keep_ui_open,
+    parse_spark_conf,
+)
 
 
 class _RecordingBuilder:
@@ -82,6 +89,21 @@ class SparkSettingsTest(TestCase):
         )
 
         self.assertEqual(result.to_dict()["spark_conf"], {"spark.sql.shuffle.partitions": "800"})
+
+
+class RetainUiTest(TestCase):
+    def _parse(self, *flags: str) -> int:
+        parser = argparse.ArgumentParser()
+        add_retain_ui_argument(parser)
+        return parser.parse_args(flags).retain_ui
+
+    def test_retain_ui_takes_seconds_or_forever(self) -> None:
+        self.assertEqual(self._parse("--retain-ui", "600"), 600)
+        self.assertEqual(self._parse("--retain-ui", "forever"), RETAIN_UI_FOREVER_SECONDS)
+
+    def test_ctrl_c_ends_the_hold_and_lets_the_job_finish(self) -> None:
+        with patch("fraudstream.jobs.spark_settings.time.sleep", side_effect=KeyboardInterrupt):
+            keep_ui_open(None, RETAIN_UI_FOREVER_SECONDS)
 
 
 if __name__ == "__main__":

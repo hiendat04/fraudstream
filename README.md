@@ -288,8 +288,8 @@ Everything else has its own run instructions in the docs above: Flink
 ([07](docs/data_engineering/07_flink_streaming_pipeline.md#run-locally)), Trino
 ([15](docs/data_engineering/14_lakehouse_iceberg.md#trino-querying-iceberg-tables)), DataHub
 ([11](docs/data_engineering/11_data_governance_datahub.md)), Feast ([17](docs/ml/16_feature_store.md)) and
-the Kubernetes stack ([21](docs/ml/20_local_k8s_platform.md)). Add `--retain-ui 600` to any Spark
-job to watch it run and keep its UI open for 10 minutes after it finishes, or `--flink-ui` to the
+the Kubernetes stack ([21](docs/ml/20_local_k8s_platform.md)). Add `--retain-ui 600` or `--retain-ui forever` to any Spark
+job to watch it run and keep its UI open after it finishes, for 10 minutes or until Ctrl+C, or `--flink-ui` to the
 Flink job to watch it run. Stop the services with
 `docker compose down`.
 

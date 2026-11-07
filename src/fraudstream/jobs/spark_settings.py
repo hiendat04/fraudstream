@@ -24,6 +24,8 @@ from typing import IO, Any, Sequence
 
 SCRATCH_LOCK_NAME = ".lock"
 
+RETAIN_UI_FOREVER_SECONDS = 10**9
+
 # Held open for the life of the job. The kernel lets go of it however the process dies.
 _scratch_lock: IO[str] | None = None
 
@@ -75,18 +77,20 @@ def apply_spark_conf(builder: Any, conf: dict[str, str]) -> Any:
 
 
 def add_retain_ui_argument(parser: argparse.ArgumentParser) -> None:
-    """Add the `--retain-ui SECONDS` flag to one job parser."""
+    """Add the `--retain-ui SECONDS|forever` flag to one job parser."""
 
     parser.add_argument(
         "--retain-ui",
         type=_seconds,
         default=0,
-        metavar="SECONDS",
-        help="Turn the Spark UI on and keep it open this many seconds after the job finishes.",
+        metavar="SECONDS|forever",
+        help="Turn the Spark UI on and keep it open after the job finishes, for this many seconds or until Ctrl+C.",
     )
 
 
 def _seconds(value: str) -> int:
+    if value == "forever":
+        return RETAIN_UI_FOREVER_SECONDS
     seconds = int(value)
     if seconds < 0:
         raise argparse.ArgumentTypeError("--retain-ui must be zero or more")
@@ -101,11 +105,14 @@ def configure_spark_builder(builder: Any, retain_ui: int) -> Any:
 
 
 def keep_ui_open(spark: Any, seconds: int) -> None:
-    """Hold the finished job's Spark UI open for inspection."""
+    """Hold the finished job's Spark UI open for inspection; Ctrl+C ends the hold, not the job's remaining work."""
 
     if seconds:
-        print(f"Job finished. Spark UI stays open for {seconds} seconds.", file=sys.stderr, flush=True)
-        time.sleep(seconds)
+        print("Job finished. Spark UI stays open; press Ctrl+C to close it.", file=sys.stderr, flush=True)
+        try:
+            time.sleep(seconds)
+        except KeyboardInterrupt:
+            pass
 
 
 def _held_by_running_job(folder: Path) -> bool:

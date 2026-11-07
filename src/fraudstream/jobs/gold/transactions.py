@@ -15,7 +15,7 @@ import argparse
 import json
 import sys
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Sequence
 
@@ -456,6 +456,7 @@ class GoldTransactionsConfig:
     write_to_postgres: bool = True
     spark_conf: dict[str, str] = field(default_factory=dict)
     postgres_days: int = 0
+    from_date: str | None = None
 
     def validate(self) -> None:
         """Raise when the Gold build cannot run with this config."""
@@ -463,6 +464,8 @@ class GoldTransactionsConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
+        if self.from_date is not None:
+            date.fromisoformat(self.from_date)
 
     @property
     def silver_table(self) -> str:
@@ -509,6 +512,7 @@ class GoldTransactionsResult:
     completed_at: str
     table_results: tuple[GoldTableResult, ...]
     spark_conf: dict[str, str] = field(default_factory=dict)
+    from_date: str | None = None
 
     @property
     def fact_transaction_count(self) -> int:
@@ -529,6 +533,7 @@ class GoldTransactionsResult:
             "build_scope": self.build_scope,
             "spark_version": self.spark_version,
             "spark_conf": self.spark_conf,
+            "from_date": self.from_date,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
             "fact_transaction_count": self.fact_transaction_count,
@@ -573,7 +578,10 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
     persisted_frames: list[Any] = []
     try:
         processed_at = config.processed_at or datetime.now(UTC)
-        silver_dataframe = _prepare_silver_dataframe(spark.table(config.silver_table))
+        silver_rows = spark.table(config.silver_table)
+        if config.from_date is not None:
+            silver_rows = silver_rows.where(silver_rows.event_date >= config.from_date)
+        silver_dataframe = _prepare_silver_dataframe(silver_rows)
         frames = _build_gold_frames(
             spark,
             silver_dataframe,
@@ -605,6 +613,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
             build_scope="all" if config.include_features else "core",
             spark_version=spark.version,
             spark_conf=config.spark_conf,
+            from_date=config.from_date,
             processed_at=_to_utc_string(processed_at),
             completed_at=_to_utc_string(datetime.now(UTC)),
             table_results=tuple(table_results),
@@ -1804,6 +1813,7 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="Build dimensions, facts, and daily aggregates without offline feature tables.",
     )
+    parser.add_argument("--from-date", help="Build Gold only from Silver rows on or after this event_date (YYYY-MM-DD).")
     parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of facts, aggregates and features; 0 keeps all.")
     add_retain_ui_argument(parser)
     add_spark_conf_argument(parser)
@@ -1834,6 +1844,7 @@ def main(argv: list[str] | None = None) -> int:
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
         postgres_days=args.postgres_days,
+        from_date=args.from_date,
     )
     try:
         result = build_gold_transactions(config)
