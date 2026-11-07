@@ -63,7 +63,7 @@ class GoldTransactionsTest(TestCase):
                 {table.table_name for table in result.table_results},
                 set(CORE_GOLD_TABLE_NAMES),
             )
-            self.assertFalse(_iceberg_table_exists("iceberg.gold.feat_transaction_training", iceberg.warehouse_uri))
+            self.assertFalse(_iceberg_table_exists("iceberg.gold.feat_customer_rolling", iceberg.warehouse_uri))
             self.assertTrue((gold_dir / "_gold_transactions_summary.json").exists())
 
             fact_rows = {row["transaction_id"]: row for row in _read_iceberg_rows("iceberg.gold.fact_transactions", iceberg.warehouse_uri)}
@@ -90,23 +90,9 @@ class GoldTransactionsTest(TestCase):
                 )
             )
             self.assertEqual(feature_result.source_fact_transaction_count, 5)
-            self.assertEqual(feature_result.training_row_count, 5)
-            self.assertEqual(feature_result.training_distinct_transaction_count, 5)
 
             merchant_rows = _read_iceberg_rows("iceberg.gold.feat_merchant_risk_rolling", iceberg.warehouse_uri)
             self.assertNotIn("UNKNOWN", {row["merchant_dim_id"] for row in merchant_rows})
-
-            training_rows = _read_iceberg_rows("iceberg.gold.feat_transaction_training", iceberg.warehouse_uri)
-            training_by_id = {row["transaction_id"]: row for row in training_rows}
-            self.assertEqual(len(training_rows), 5)
-            self.assertEqual(set(training_by_id), set(fact_rows))
-            self.assertTrue(training_by_id["txn_005"]["merchant_feature_available"])
-            self.assertEqual(training_by_id["txn_005"]["merchant_txn_count_1d"], 2)
-            self.assertEqual(training_by_id["txn_005"]["merchant_category_txn_count_1d"], 1)
-            self.assertAlmostEqual(
-                training_by_id["txn_005"]["merchant_vs_category_amount_ratio_30d"],
-                1.25,
-            )
 
             summary = _read_json(gold_dir / "_gold_transactions_summary.json")
             table_names = {table["table_name"] for table in summary["tables"]}
@@ -119,7 +105,6 @@ class GoldTransactionsTest(TestCase):
             }
             self.assertIn("feat_customer_total_orders_90d", feature_table_names)
             self.assertIn("feat_merchant_risk_rolling", feature_table_names)
-            self.assertTrue(feature_summary["training_row_count_matches_fact"])
 
     def test_builds_merchant_burst_fraud_rate_and_category_features(self) -> None:
         """Merchant features should use calendar windows and omit the skewed unknown key."""
@@ -237,8 +222,7 @@ class GoldTransactionsTest(TestCase):
             self.assertTrue(all(row["event_date"] == newest for row in facts))
             self.assertLess(len(facts), iceberg_rows["fact_transactions"])
             fact_ids = {row["transaction_id"] for row in facts}
-            for table_name in ("fact_transaction_quality_issue", "feat_transaction_training"):
-                self.assertLessEqual({row["transaction_id"] for row in written[table_name]}, fact_ids, table_name)
+            self.assertLessEqual({row["transaction_id"] for row in written["fact_transaction_quality_issue"]}, fact_ids)
             self.assertEqual(result.to_dict()["tables"][0]["postgres_rows"], iceberg_rows["dim_date"])
 
     def test_from_date_builds_gold_only_from_recent_silver_rows(self) -> None:

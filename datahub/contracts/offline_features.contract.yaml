@@ -15,17 +15,14 @@ datasets:
   - name: fraudstream.gold.feat_merchant_risk_rolling
     grain: one row per merchant and feature_date
     requiredFields: [merchant_key, merchant_dim_id, event_timestamp, feature_date, merchant_txn_count_1d, merchant_prior_fraud_rate_30d]
-  - name: fraudstream.gold.feat_transaction_training
-    grain: exactly one point-in-time-safe feature row per transaction_id
-    requiredFields: [transaction_id, event_timestamp, customer_key, account_key, amount, is_fraud]
 qualityRules:
-  - id: training-row-grain
-    target: fraudstream.gold.feat_transaction_training
-    description: Training row count must equal the source fact transaction count.
-    evaluator: training_row_grain
+  - id: feature-source-matches-gold
+    target: fraudstream.gold.feat_merchant_risk_rolling
+    description: Features must be built from every validated Gold transaction.
+    evaluator: feature_source_matches_gold
     severity: HIGH
-  - id: training-transaction-id-uniqueness
-    target: fraudstream.gold.feat_transaction_training
-    description: Every training transaction_id must be unique.
-    evaluator: training_id_uniqueness
+  - id: feature-table-completeness
+    target: fraudstream.gold.feat_customer_rolling
+    description: Every offline feature table must exist and contain rows.
+    evaluator: feature_table_completeness
     severity: HIGH

@@ -71,16 +71,6 @@ class DefinitionsTest(unittest.TestCase):
             self.assertNotIn("is_fraud", field_names, msg=name)
             self.assertNotIn("evaluation_is_fraud", field_names, msg=name)
 
-    def test_no_source_reads_the_training_table(self):
-        """feat_transaction_training carries is_fraud, so no source may reference it."""
-
-        for name, view in self._views().items():
-            source_text = " ".join(
-                str(getattr(view.batch_source, attr, "") or "")
-                for attr in ("query", "table", "path")
-            )
-            self.assertNotIn("feat_transaction_training", source_text, msg=name)
-
     def test_entities_use_natural_join_keys(self):
         """Batch and streaming views must agree on join keys or cannot be requested together."""
 

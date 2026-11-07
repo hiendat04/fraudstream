@@ -62,7 +62,7 @@ POSTGRES_WINDOW_COLUMNS = {
     "feat_customer_total_orders_90d": "event_timestamp",
 }
 # These reference fact_transactions, so they keep exactly the windowed facts' transactions.
-POSTGRES_FACT_KEYED_TABLES = {"fact_transaction_quality_issue", "feat_transaction_training"}
+POSTGRES_FACT_KEYED_TABLES = {"fact_transaction_quality_issue"}
 DEFAULT_OUTPUT_DIR = Path("data/gold")
 DEFAULT_WRITE_MODE = "overwrite"
 SUMMARY_FILE_NAME = "_gold_transactions_summary.json"
@@ -90,7 +90,6 @@ OFFLINE_FEATURE_TABLE_NAMES = (
     "feat_customer_rolling",
     "feat_customer_total_orders_90d",
     "feat_merchant_risk_rolling",
-    "feat_transaction_training",
 )
 
 QUALITY_ISSUE_DEFINITIONS = (
@@ -403,40 +402,6 @@ GOLD_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "merchant_vs_category_amount_ratio_30d",
         "_gold_processed_at",
     ),
-    "feat_transaction_training": (
-        "transaction_id",
-        "event_timestamp",
-        "created",
-        "customer_key",
-        "account_key",
-        "merchant_key",
-        "date_key",
-        "amount",
-        "channel",
-        "transaction_status",
-        "customer_txn_count_7d",
-        "customer_amount_sum_30d",
-        "customer_distinct_merchant_count_7d",
-        "account_txn_count_1d",
-        "account_amount_sum_1d",
-        "merchant_feature_available",
-        "merchant_txn_count_1d",
-        "merchant_txn_count_7d",
-        "merchant_txn_count_30d",
-        "merchant_fraud_rate_1d",
-        "merchant_prior_fraud_rate_30d",
-        "merchant_burst_ratio_1d_to_prior_30d",
-        "merchant_category_txn_count_1d",
-        "merchant_category_prior_fraud_rate_30d",
-        "merchant_vs_category_amount_ratio_30d",
-        "device_distinct_customer_count_1d",
-        "ip_distinct_account_count_1d",
-        "quality_issue_count",
-        "duplicate_record_count",
-        "arrival_delay_minutes",
-        "is_fraud",
-        "_gold_processed_at",
-    ),
 }
 
 
@@ -563,7 +528,6 @@ class GoldBuildFrames:
     feat_customer_rolling: Any
     feat_customer_total_orders_90d: Any
     feat_merchant_risk_rolling: Any
-    feat_transaction_training: Any
 
 
 def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsResult:
@@ -714,7 +678,6 @@ def _build_gold_frames(
     feat_customer_rolling = None
     feat_customer_total_orders_90d = None
     feat_merchant_risk_rolling = None
-    feat_transaction_training = None
     if include_features:
         feat_customer_rolling = _build_feat_customer_rolling(fact_customer_daily, processed_at)
         feat_customer_total_orders_90d = _build_feat_customer_total_orders_90d(
@@ -725,14 +688,6 @@ def _build_gold_frames(
         merchant_category_rolling = _build_merchant_category_rolling(merchant_category_daily)
         feat_merchant_risk_rolling = _build_feat_merchant_risk_rolling(
             fact_merchant_daily=fact_merchant_daily,
-            merchant_category_rolling=merchant_category_rolling,
-            processed_at=processed_at,
-        )
-        feat_transaction_training = _build_feat_transaction_training(
-            fact_transactions=fact_transactions,
-            feat_customer_rolling=feat_customer_rolling,
-            fact_account_daily=fact_account_daily,
-            feat_merchant_risk_rolling=feat_merchant_risk_rolling,
             merchant_category_rolling=merchant_category_rolling,
             processed_at=processed_at,
         )
@@ -756,7 +711,6 @@ def _build_gold_frames(
         feat_customer_rolling=feat_customer_rolling,
         feat_customer_total_orders_90d=feat_customer_total_orders_90d,
         feat_merchant_risk_rolling=feat_merchant_risk_rolling,
-        feat_transaction_training=feat_transaction_training,
     )
 
 
@@ -1495,135 +1449,6 @@ def _build_feat_merchant_risk_rolling(
     )
 
 
-def _build_latest_merchant_feature_lookup(fact_transactions: Any, feat_merchant_risk_rolling: Any) -> Any:
-    """Attach the latest strictly prior merchant snapshot without a range join."""
-
-    from pyspark.sql import functions as spark_functions
-    from pyspark.sql import Window
-
-    feature_rows = feat_merchant_risk_rolling.select(
-        "merchant_key",
-        spark_functions.date_add("feature_date", 1).alias("_effective_date"),
-        spark_functions.lit(0).alias("_row_priority"),
-        spark_functions.lit(None).cast("string").alias("transaction_id"),
-        spark_functions.struct(
-            "merchant_txn_count_1d",
-            "merchant_txn_count_7d",
-            "merchant_txn_count_30d",
-            "merchant_amount_avg_30d",
-            "merchant_fraud_rate_1d",
-            "merchant_prior_fraud_rate_30d",
-            "merchant_burst_ratio_1d_to_prior_30d",
-        ).alias("_merchant_feature_values"),
-    )
-    feature_struct_type = feature_rows.schema["_merchant_feature_values"].dataType
-    transaction_rows = (
-        fact_transactions.where(
-            spark_functions.col("merchant_dim_id") != spark_functions.lit(UNKNOWN_MERCHANT_DIM_ID)
-        )
-        .select(
-            "merchant_key",
-            spark_functions.col("event_date").alias("_effective_date"),
-            spark_functions.lit(1).alias("_row_priority"),
-            "transaction_id",
-            spark_functions.lit(None).cast(feature_struct_type).alias("_merchant_feature_values"),
-        )
-    )
-    history_window = (
-        Window.partitionBy("merchant_key")
-        .orderBy("_effective_date", "_row_priority")
-        .rowsBetween(Window.unboundedPreceding, Window.currentRow)
-    )
-    enriched_transactions = (
-        feature_rows.unionByName(transaction_rows)
-        .withColumn(
-            "_merchant_feature_values",
-            spark_functions.last("_merchant_feature_values", ignorenulls=True).over(history_window),
-        )
-        .where(spark_functions.col("_row_priority") == spark_functions.lit(1))
-    )
-
-    return enriched_transactions.select(
-        "transaction_id",
-        spark_functions.col("_merchant_feature_values").isNotNull().alias("merchant_feature_available"),
-        spark_functions.col("_merchant_feature_values.merchant_txn_count_1d").alias("merchant_txn_count_1d"),
-        spark_functions.col("_merchant_feature_values.merchant_txn_count_7d").alias("merchant_txn_count_7d"),
-        spark_functions.col("_merchant_feature_values.merchant_txn_count_30d").alias("merchant_txn_count_30d"),
-        spark_functions.col("_merchant_feature_values.merchant_amount_avg_30d").alias(
-            "_merchant_amount_avg_30d"
-        ),
-        spark_functions.col("_merchant_feature_values.merchant_fraud_rate_1d").alias("merchant_fraud_rate_1d"),
-        spark_functions.col("_merchant_feature_values.merchant_prior_fraud_rate_30d").alias(
-            "merchant_prior_fraud_rate_30d"
-        ),
-        spark_functions.col("_merchant_feature_values.merchant_burst_ratio_1d_to_prior_30d").alias(
-            "merchant_burst_ratio_1d_to_prior_30d"
-        ),
-    )
-
-
-def _build_feat_transaction_training(
-    *,
-    fact_transactions: Any,
-    feat_customer_rolling: Any,
-    fact_account_daily: Any,
-    feat_merchant_risk_rolling: Any,
-    merchant_category_rolling: Any,
-    processed_at: datetime,
-) -> Any:
-    """Build transaction-level training rows with point-in-time feature joins."""
-
-    from pyspark.sql import functions as spark_functions
-
-    transaction_base = fact_transactions.withColumn("previous_feature_date", spark_functions.date_sub("event_date", 1))
-    customer_features = feat_customer_rolling.select(
-        "customer_key",
-        spark_functions.col("feature_date").alias("previous_feature_date"),
-        spark_functions.col("txn_count_7d").alias("customer_txn_count_7d"),
-        spark_functions.col("amount_sum_30d").alias("customer_amount_sum_30d"),
-        spark_functions.col("distinct_merchant_count_7d").alias("customer_distinct_merchant_count_7d"),
-    )
-    account_features = fact_account_daily.select(
-        "account_key",
-        spark_functions.col("feature_date").alias("previous_feature_date"),
-        spark_functions.col("txn_count_1d").alias("account_txn_count_1d"),
-        spark_functions.col("amount_sum_1d").alias("account_amount_sum_1d"),
-    )
-    merchant_features = _build_latest_merchant_feature_lookup(fact_transactions, feat_merchant_risk_rolling)
-    category_features = spark_functions.broadcast(
-        merchant_category_rolling.select(
-            "merchant_category",
-            spark_functions.col("feature_date").alias("previous_feature_date"),
-            "merchant_category_txn_count_1d",
-            "merchant_category_prior_fraud_rate_30d",
-            spark_functions.col("merchant_category_amount_avg_30d").alias(
-                "_merchant_category_amount_avg_30d"
-            ),
-        )
-    )
-
-    return (
-        transaction_base.join(customer_features, ["customer_key", "previous_feature_date"], "left")
-        .join(account_features, ["account_key", "previous_feature_date"], "left")
-        .join(merchant_features, "transaction_id", "left")
-        .join(category_features, ["merchant_category", "previous_feature_date"], "left")
-        .withColumn(
-            "merchant_feature_available",
-            spark_functions.coalesce("merchant_feature_available", spark_functions.lit(False)),
-        )
-        .withColumn(
-            "merchant_vs_category_amount_ratio_30d",
-            _nullable_ratio("_merchant_amount_avg_30d", "_merchant_category_amount_avg_30d"),
-        )
-        .withColumn("event_timestamp", spark_functions.col("event_time"))
-        .withColumn("created", spark_functions.lit(processed_at).cast("timestamp"))
-        .withColumn("device_distinct_customer_count_1d", spark_functions.lit(None).cast("long"))
-        .withColumn("ip_distinct_account_count_1d", spark_functions.lit(None).cast("long"))
-        .withColumn("_gold_processed_at", spark_functions.lit(processed_at).cast("timestamp"))
-        .select(*GOLD_TABLE_COLUMNS["feat_transaction_training"])
-    )
-
-
 def _most_common_value(dataframe: Any, group_column: str, value_column: str, output_column: str) -> Any:
     """Return the most common non-null value per group."""
 
@@ -1714,7 +1539,6 @@ def _write_gold_tables(frames: GoldBuildFrames, config: GoldTransactionsConfig) 
                 ("feat_customer_rolling", frames.feat_customer_rolling, ("feature_date",)),
                 ("feat_customer_total_orders_90d", frames.feat_customer_total_orders_90d, ()),
                 ("feat_merchant_risk_rolling", frames.feat_merchant_risk_rolling, ("feature_date",)),
-                ("feat_transaction_training", frames.feat_transaction_training, ()),
             ]
         )
 

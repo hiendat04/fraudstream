@@ -127,17 +127,13 @@ class OrchestrationValidationTest(TestCase):
                 gold_dir / "_offline_features_summary.json",
                 {
                     "source_fact_transaction_count": 5,
-                    "training_row_count": 5,
-                    "training_distinct_transaction_count": 5,
-                    "training_row_count_matches_fact": True,
-                    "training_transaction_ids_are_unique": True,
                     "tables": feature_tables,
                 },
             )
 
             self.assertEqual(
                 validate_offline_feature_summary(gold_dir),
-                {"fact_transaction_rows": 5, "training_rows": 5},
+                {"fact_transaction_rows": 5},
             )
 
     def _materialization_summary(self, *, non_null=5, view_names=None, spot_check_views=None):
