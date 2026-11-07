@@ -93,7 +93,7 @@ def current_snapshot_id(spark: Any, table: str = TRAINING_TABLE) -> int:
 def read_at_snapshot(spark: Any, snapshot_id: int, table: str = TRAINING_TABLE) -> Any:
     """Read the table as it was at one snapshot."""
 
-    return spark.read.option("snapshot-id", snapshot_id).format("iceberg").load(table)
+    return spark.read.option("versionAsOf", snapshot_id).table(table)
 
 
 def added_records(spark: Any, table: str, snapshot_id: int) -> int:

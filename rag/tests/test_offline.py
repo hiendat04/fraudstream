@@ -14,7 +14,7 @@ import pytest
 
 from fraudstream_rag.offline import CHUNK_COLUMNS, write_offline
 
-ICEBERG_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0"
+ICEBERG_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0"
 
 
 @pytest.fixture(scope="module")

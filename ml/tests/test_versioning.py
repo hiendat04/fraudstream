@@ -21,7 +21,7 @@ from fraudstream_ml.versioning import (
     write_snapshot,
 )
 
-ICEBERG_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0"
+ICEBERG_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0"
 
 
 def _frame(count: int, *, first_id: int = 0, amount: float = 10.0) -> pd.DataFrame:
