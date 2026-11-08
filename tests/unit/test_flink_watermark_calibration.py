@@ -102,6 +102,16 @@ class FlinkWatermarkCalibrationTest(TestCase):
             with self.assertRaisesRegex(ValueError, "does not match"):
                 load_watermark_latency_profile(profile_path)
 
+    def test_no_tolerance_profile_sets_a_one_second_delay_on_purpose(self) -> None:
+        profile_path = Path("configs/flink/no_tolerance_latency_profile.json")
+
+        resolved = StreamingFeatureConfig(watermark_latency_profile=profile_path).resolve_watermark_delay()
+        resolved.validate()
+
+        self.assertEqual(resolved.watermark_delay_seconds, 1)
+        self.assertEqual(resolved.to_dict()["watermark"]["delay_basis"], "no_tolerance_baseline")
+        self.assertEqual(load_watermark_latency_profile(profile_path).p95_latency_seconds, 11_900)
+
     def test_runtime_config_rejects_a_programmatic_guessed_delay(self) -> None:
         config = StreamingFeatureConfig(watermark_delay_seconds=5)
 

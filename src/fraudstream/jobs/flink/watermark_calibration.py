@@ -25,6 +25,9 @@ DEFAULT_SOURCE_PATH = Path(
 DEFAULT_PROFILE_PATH = Path("configs/flink/streaming_latency_profile.json")
 DEFAULT_ENVIRONMENT = "local_generated_source"
 PERCENTILE_METHOD = "nearest_rank"
+MEASURED_BASIS = "p95_source_event_time_latency"
+# A baseline profile sets its delay on purpose to show what too little tolerance does.
+BASELINE_BASIS = "no_tolerance_baseline"
 
 
 @dataclass(frozen=True)
@@ -46,12 +49,21 @@ class WatermarkLatencyProfile:
     p95_latency_seconds: int
     p99_latency_seconds: int
     max_latency_seconds: int
+    baseline_delay_seconds: int | None = None
 
     @property
     def recommended_watermark_delay_seconds(self) -> int:
-        """Return the measured p95 rounded up to a whole second."""
+        """Return the measured p95 rounded up to a whole second, or the delay a baseline profile sets."""
 
+        if self.baseline_delay_seconds is not None:
+            return self.baseline_delay_seconds
         return max(1, math.ceil(self.p95_latency_seconds))
+
+    @property
+    def delay_basis(self) -> str:
+        """Where the watermark delay comes from."""
+
+        return BASELINE_BASIS if self.baseline_delay_seconds is not None else "measured_p95_source_event_time_latency"
 
     def validate(self) -> None:
         """Raise when the profile cannot safely configure a watermark."""
@@ -76,6 +88,8 @@ class WatermarkLatencyProfile:
             raise ValueError("latency percentiles must not be negative")
         if latency_values != tuple(sorted(latency_values)):
             raise ValueError("latency percentiles must be monotonically increasing")
+        if self.baseline_delay_seconds is not None and self.baseline_delay_seconds <= 0:
+            raise ValueError("a baseline watermark delay must be greater than zero")
 
     def to_dict(self) -> dict[str, Any]:
         """Return the persisted engineering evidence contract."""
@@ -108,7 +122,7 @@ class WatermarkLatencyProfile:
                 "max": self.max_latency_seconds,
             },
             "watermark": {
-                "basis": "p95_source_event_time_latency",
+                "basis": BASELINE_BASIS if self.baseline_delay_seconds is not None else MEASURED_BASIS,
                 "delay_seconds": self.recommended_watermark_delay_seconds,
                 "delay_minutes_rounded_up": math.ceil(
                     self.recommended_watermark_delay_seconds / 60
@@ -207,7 +221,8 @@ def load_watermark_latency_profile(path: Path) -> WatermarkLatencyProfile:
         raise ValueError(f"unsupported watermark profile schema: {raw.get('schema_version')}")
     if raw.get("measurement", {}).get("percentile_method") != PERCENTILE_METHOD:
         raise ValueError("watermark latency profile must use nearest_rank percentiles")
-    if raw.get("watermark", {}).get("basis") != "p95_source_event_time_latency":
+    basis = raw.get("watermark", {}).get("basis")
+    if basis not in (MEASURED_BASIS, BASELINE_BASIS):
         raise ValueError("watermark latency profile must be based on p95 source latency")
 
     source = raw["source"]
@@ -229,6 +244,7 @@ def load_watermark_latency_profile(path: Path) -> WatermarkLatencyProfile:
         p95_latency_seconds=int(latency["p95"]),
         p99_latency_seconds=int(latency["p99"]),
         max_latency_seconds=int(latency["max"]),
+        baseline_delay_seconds=int(raw["watermark"]["delay_seconds"]) if basis == BASELINE_BASIS else None,
     )
     profile.validate()
     persisted_delay = int(raw["watermark"]["delay_seconds"])
