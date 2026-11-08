@@ -34,15 +34,10 @@ from fraudstream.jobs.bronze.ingest_transactions import (
     SCHEMA_VERSION_V2,
     TRANSACTION_FILE_SUFFIX,
 )
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
 )
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
@@ -86,7 +81,7 @@ class BronzeValidationConfig:
     source_uri: str = DEFAULT_SOURCE_URI
     master: str = DEFAULT_MASTER
     report_path: Path | None = None
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
@@ -96,7 +91,6 @@ class BronzeValidationConfig:
 
         if not self.source_dir.exists():
             raise FileNotFoundError(f"source_dir does not exist: {self.source_dir}")
-        self.spark_ui.validate()
 
     @property
     def bronze_table(self) -> str:
@@ -184,17 +178,13 @@ def validate_bronze_transactions(config: BronzeValidationConfig) -> BronzeValida
     source_files = _discover_source_files(config.source_dir, config.source_uri, config.warehouse)
     source_stats = _collect_source_stats(source_files, config.warehouse)
 
-    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
+    spark = _build_spark_session(config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres)
     try:
-        announce_spark_ui(spark, config.spark_ui)
-        set_spark_job_group(
-            spark,
-            "bronze-validate-raw-preservation",
-            "Bronze validation: reconcile rows, source files, partitions, and raw format problems",
+        spark.sparkContext.setJobDescription(
+            "Bronze validation: reconcile rows, source files, partitions, and raw format problems"
         )
         bronze_stats = _collect_bronze_stats(spark, config.bronze_table)
-        clear_spark_job_group(spark)
-        retain_spark_ui(spark, config.spark_ui)
+        keep_ui_open(spark, config.retain_ui)
     finally:
         spark.stop()
 
@@ -304,6 +294,9 @@ def _collect_bronze_stats(spark: Any, bronze_table: str) -> BronzeValidationStat
     from pyspark.sql import functions as spark_functions
 
     bronze_dataframe = spark.table(bronze_table)
+    if "device_id" not in bronze_dataframe.columns:
+        # A table loaded only from v1 files has no v2 columns yet.
+        bronze_dataframe = bronze_dataframe.withColumn("device_id", spark_functions.lit(None).cast("string"))
     checks = bronze_dataframe.agg(
         spark_functions.count("*").alias("row_count"),
         spark_functions.countDistinct("_source_file_path").alias("distinct_source_file_count"),
@@ -467,7 +460,7 @@ def _safe_int(value: Any) -> int:
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
@@ -488,7 +481,7 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
+    return configure_spark_builder(builder, retain_ui).getOrCreate()
 
 
 def _write_report(result: BronzeValidationResult, report_path: Path) -> None:
@@ -518,7 +511,7 @@ def build_parser() -> argparse.ArgumentParser:
     )
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--report-path", type=Path)
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
@@ -534,7 +527,7 @@ def main(argv: list[str] | None = None) -> int:
         source_uri=args.source_uri,
         master=args.master,
         report_path=args.report_path,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),

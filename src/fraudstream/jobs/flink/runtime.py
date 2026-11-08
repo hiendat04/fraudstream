@@ -49,6 +49,7 @@ from fraudstream.jobs.flink.transactions import (
     create_feature_accumulator,
     event_business_fingerprint,
     extract_event_timestamp_ms,
+    flink_jar_paths,
     json_dumps,
     merge_feature_accumulators,
     parse_transaction_message,
@@ -321,7 +322,8 @@ def build_streaming_feature_topology(config: StreamingFeatureConfig) -> StreamEx
     # Kafka stays the low-latency contract for downstream consumers/alerts;
     # Iceberg is the durable, joinable copy used to attach fraud/chargeback
     # labels that arrive weeks after the transaction.
-    attach_iceberg_sinks(environment, deduplicated_events, customer_features, merchant_features, config)
+    if config.iceberg_sink:
+        attach_iceberg_sinks(environment, deduplicated_events, customer_features, merchant_features, config)
 
     return environment
 
@@ -350,7 +352,7 @@ def _register_hadoop_environment(config: StreamingFeatureConfig) -> None:
     same way it picks up `HADOOP_CLASSPATH`.
     """
 
-    jar_paths = [str(config.connector_jar), *(str(p) for p in sorted(config.iceberg_jars_dir.glob("*.jar")))]
+    jar_paths = [str(path) for path in flink_jar_paths(config)]
     existing_classpath = os.environ.get("HADOOP_CLASSPATH", "")
     os.environ["HADOOP_CLASSPATH"] = os.pathsep.join(path for path in (existing_classpath, *jar_paths) if path)
 
@@ -374,7 +376,8 @@ def _register_hadoop_environment(config: StreamingFeatureConfig) -> None:
 
 
 def _build_environment(config: StreamingFeatureConfig) -> StreamExecutionEnvironment:
-    _register_hadoop_environment(config)
+    if config.iceberg_sink:
+        _register_hadoop_environment(config)
     runtime_settings = Configuration()
     if config.flink_ui_enabled:
         runtime_settings.set_string("rest.address", "localhost")
@@ -387,8 +390,7 @@ def _build_environment(config: StreamingFeatureConfig) -> StreamExecutionEnviron
     environment.set_parallelism(config.parallelism)
     if not config.operator_chaining_enabled:
         environment.disable_operator_chaining()
-    environment.add_jars(_jar_uri(config.connector_jar))
-    for jar_path in sorted(config.iceberg_jars_dir.glob("*.jar")):
+    for jar_path in flink_jar_paths(config):
         environment.add_jars(_jar_uri(jar_path))
     environment.get_config().set_auto_watermark_interval(1_000)
     environment.enable_checkpointing(

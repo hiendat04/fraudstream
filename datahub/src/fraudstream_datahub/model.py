@@ -153,7 +153,6 @@ OFFLINE_FEATURE_TABLE_NAMES = (
     "feat_customer_rolling",
     "feat_customer_total_orders_90d",
     "feat_merchant_risk_rolling",
-    "feat_transaction_training",
 )
 
 CORE_GOLD_DATASETS = tuple(
@@ -273,10 +272,6 @@ PIPELINES = (
             (_gold("fact_customer_daily"), _gold("feat_customer_total_orders_90d")),
             (_gold("fact_transactions"), _gold("feat_merchant_risk_rolling")),
             (_gold("fact_merchant_daily"), _gold("feat_merchant_risk_rolling")),
-            (_gold("fact_transactions"), _gold("feat_transaction_training")),
-            (_gold("fact_account_daily"), _gold("feat_transaction_training")),
-            (_gold("feat_customer_rolling"), _gold("feat_transaction_training")),
-            (_gold("feat_merchant_risk_rolling"), _gold("feat_transaction_training")),
         ),
     ),
     PipelineSpec(
@@ -614,32 +609,25 @@ def _gold_core_table_completeness(root: Path) -> tuple[bool, str, Mapping[str, A
     }
 
 
-def _training_row_grain(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
+def _feature_source_matches_gold(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
     features = _read_json(root, "data/gold/_offline_features_summary.json")
-    fact_rows = _integer(features, "source_fact_transaction_count")
-    training_rows = _integer(features, "training_row_count")
-    passed = (
-        fact_rows > 0
-        and fact_rows == training_rows
-        and features.get("training_row_count_matches_fact") is True
-    )
-    return passed, "The training table must have exactly one row per source transaction.", {
-        "source_fact_rows": fact_rows,
-        "training_rows": training_rows,
+    gold = _read_json(root, "data/gold/_gold_transactions_summary.json")
+    source_rows = _integer(features, "source_fact_transaction_count")
+    fact_rows = _integer(gold, "fact_transaction_count")
+    passed = source_rows > 0 and source_rows == fact_rows
+    return passed, "Features must be built from every validated Gold transaction.", {
+        "feature_source_rows": source_rows,
+        "gold_fact_rows": fact_rows,
     }
 
 
-def _training_id_uniqueness(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
-    features = _read_json(root, "data/gold/_offline_features_summary.json")
-    training_rows = _integer(features, "training_row_count")
-    distinct_ids = _integer(features, "training_distinct_transaction_count")
-    passed = (
-        training_rows == distinct_ids
-        and features.get("training_transaction_ids_are_unique") is True
-    )
-    return passed, "Training transaction IDs must be unique.", {
-        "training_rows": training_rows,
-        "distinct_transaction_ids": distinct_ids,
+def _feature_table_completeness(root: Path) -> tuple[bool, str, Mapping[str, Any]]:
+    table_counts = _table_counts(_read_json(root, "data/gold/_offline_features_summary.json"))
+    missing = sorted(set(OFFLINE_FEATURE_TABLE_NAMES) - set(table_counts))
+    empty = sorted(name for name in OFFLINE_FEATURE_TABLE_NAMES if table_counts.get(name, 0) <= 0)
+    return not missing and not empty, "Every offline feature table must exist and contain rows.", {
+        "missing_tables": ",".join(missing) or "none",
+        "empty_tables": ",".join(empty) or "none",
     }
 
 
@@ -706,8 +694,8 @@ EVALUATORS: dict[str, Evaluator] = {
     "silver_status_accounting": _silver_status_accounting,
     "gold_fact_matches_silver": _gold_fact_matches_silver,
     "gold_core_table_completeness": _gold_core_table_completeness,
-    "training_row_grain": _training_row_grain,
-    "training_id_uniqueness": _training_id_uniqueness,
+    "feature_source_matches_gold": _feature_source_matches_gold,
+    "feature_table_completeness": _feature_table_completeness,
     "rag_sources_present": _rag_sources_present,
     "rag_chunks_embedded": _rag_chunks_embedded,
     "rag_stores_agree": _rag_stores_agree,

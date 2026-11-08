@@ -18,23 +18,22 @@ from __future__ import annotations
 import argparse
 import csv
 import json
+import re
 import sys
-from dataclasses import dataclass, field
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from pathlib import Path
 from typing import Any, Sequence
 from uuid import uuid4
 
 from fraudstream import storage
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
+    parse_spark_conf,
 )
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
@@ -50,7 +49,9 @@ from fraudstream.jobs.warehouse import (
     truncate_tables_cascade,
     warehouse_config_from_args,
     write_iceberg_table,
+    postgres_window,
     write_jdbc_table,
+    write_postgres_copy,
 )
 
 
@@ -110,6 +111,11 @@ METADATA_COLUMNS = [
 PARTITION_COLUMNS = ["ingest_date", "schema_version", "transaction_date"]
 BRONZE_COLUMNS = [*RAW_COLUMNS, *METADATA_COLUMNS, *PARTITION_COLUMNS]
 SUPPORTED_WRITE_MODES = {"append", "overwrite", "errorifexists", "ignore"}
+TRANSACTION_DATE_PATTERN = re.compile(r"transaction_date=(\d{4}-\d{2}-\d{2})")
+
+
+class SchemaEvolutionError(ValueError):
+    """The source changed a column's type; Bronze only ever adds columns, so the run stops."""
 
 
 @dataclass(frozen=True)
@@ -132,11 +138,15 @@ class BronzeIngestionConfig:
     ingest_date: str | None = None
     source_system: str = DEFAULT_SOURCE_SYSTEM
     source_dataset: str = DEFAULT_SOURCE_DATASET
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
+    spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
+    from_date: str | None = None
+    to_date: str | None = None
 
     def validate(self) -> None:
         """Raise ValueError when the ingestion config is not usable."""
@@ -148,7 +158,9 @@ class BronzeIngestionConfig:
             raise FileNotFoundError(f"source_dir does not exist: {self.source_dir}")
         if self.manifest_path is not None and not self.manifest_path.exists():
             raise FileNotFoundError(f"manifest_path does not exist: {self.manifest_path}")
-        self.spark_ui.validate()
+        for value in (self.from_date, self.to_date):
+            if value is not None:
+                date.fromisoformat(value)
 
 
 @dataclass(frozen=True)
@@ -215,6 +227,9 @@ class BronzeIngestionResult:
     write_mode: str
     spark_version: str
     completed_at: str
+    spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_rows: dict[str, int] = field(default_factory=dict)
+    added_columns: tuple[str, ...] = ()
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable ingestion summary."""
@@ -232,6 +247,9 @@ class BronzeIngestionResult:
             "ingest_date": self.ingest_date,
             "write_mode": self.write_mode,
             "spark_version": self.spark_version,
+            "spark_conf": self.spark_conf,
+            "postgres_rows": self.postgres_rows,
+            "added_columns": list(self.added_columns),
             "completed_at": self.completed_at,
         }
 
@@ -240,11 +258,13 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
     """Read raw transaction CSV partitions from MinIO and write the Bronze Iceberg table."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
-    bronze_dataframe = None
+    spark = _build_spark_session(
+        config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+    )
     try:
-        announce_spark_ui(spark, config.spark_ui)
         context = _build_run_context(config)
+        if config.write_mode == "append":
+            _refuse_ingested_dates(spark, _bronze_table(config), context.manifest.files)
 
         raw_dataframe = _read_raw_source_files(spark, context.manifest.files, config.warehouse)
         enriched_dataframe = _add_bronze_metadata(
@@ -253,42 +273,33 @@ def ingest_transactions_to_bronze(config: BronzeIngestionConfig) -> BronzeIngest
             source_system=config.source_system,
             source_dataset=config.source_dataset,
         )
-        bronze_dataframe = _prepare_for_reuse(enriched_dataframe)
-
-        set_spark_job_group(
-            spark,
-            "bronze-write-raw-transactions",
-            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write to the Iceberg table on MinIO",
+        spark.sparkContext.setJobDescription(
+            "Bronze: parse raw CSV, preserve schema problems, add lineage, and write to the Iceberg table on MinIO"
         )
-        _write_bronze_iceberg(bronze_dataframe, config)
+        added_columns = _write_bronze_iceberg(enriched_dataframe, config)
 
-        set_spark_job_group(
-            spark,
-            "bronze-profile-offline-problems",
-            "Bronze: profile duplicates, schema versions, and transaction-date coverage",
+        spark.sparkContext.setJobDescription(
+            "Bronze: profile duplicates, schema versions, and transaction-date coverage"
         )
         result = _build_ingestion_result(
-            bronze_dataframe=bronze_dataframe,
+            bronze_dataframe=_written_rows(spark, config, context.ingest_run_id),
             config=config,
             context=context,
             spark_version=spark.version,
         )
+        result = replace(result, added_columns=tuple(added_columns))
 
         if config.write_to_postgres:
-            set_spark_job_group(
-                spark,
-                "bronze-write-postgres",
-                "Bronze: write raw_transaction_ingest_runs and raw_transactions directly to PostgreSQL",
+            spark.sparkContext.setJobDescription(
+                "Bronze: write raw_transaction_ingest_runs and raw_transactions directly to PostgreSQL"
             )
-            _write_bronze_postgres(spark, bronze_dataframe, result, context, config)
+            postgres_rows = _write_bronze_postgres(spark, result, context, config)
+            result = replace(result, postgres_rows={"bronze.raw_transactions": postgres_rows})
 
-        clear_spark_job_group(spark)
         _write_summary(result, config.output_dir)
-        retain_spark_ui(spark, config.spark_ui)
+        keep_ui_open(spark, config.retain_ui)
         return result
     finally:
-        if bronze_dataframe is not None:
-            bronze_dataframe.unpersist(blocking=False)
         spark.stop()
 
 
@@ -310,10 +321,11 @@ def _build_run_context(config: BronzeIngestionConfig) -> BronzeRunContext:
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
+    spark_conf: dict[str, str] | None = None,
 ) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
@@ -332,7 +344,8 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
+    builder = configure_spark_builder(builder, retain_ui)
+    return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
 def _discover_source_manifest(config: BronzeIngestionConfig) -> SourceManifest:
@@ -349,11 +362,58 @@ def _discover_source_manifest(config: BronzeIngestionConfig) -> SourceManifest:
         return SourceManifest(
             path=manifest_path,
             created_at=manifest.get("created_at"),
-            files=files,
+            files=_in_date_range(files, config.from_date, config.to_date),
         )
 
     files = tuple(storage.list_keys(config.warehouse, config.source_uri, suffix=TRANSACTION_FILE_SUFFIX))
-    return SourceManifest(path=None, created_at=None, files=files)
+    return SourceManifest(path=None, created_at=None, files=_in_date_range(files, config.from_date, config.to_date))
+
+
+def _transaction_date(uri: str) -> str:
+    match = TRANSACTION_DATE_PATTERN.search(uri)
+    if match is None:
+        raise ValueError(f"No transaction_date in source file path: {uri}")
+    return match.group(1)
+
+
+def _in_date_range(files: Sequence[str], from_date: str | None, to_date: str | None) -> tuple[str, ...]:
+    """The files whose transaction_date falls between the two dates, both included."""
+
+    return tuple(
+        uri for uri in files
+        if (from_date is None or _transaction_date(uri) >= from_date) and (to_date is None or _transaction_date(uri) <= to_date)
+    )
+
+
+def _refuse_ingested_dates(spark: Any, table: str, files: Sequence[str]) -> None:
+    """Appending a date the table already holds would load it twice, so stop and name the dates."""
+
+    if not spark.catalog.tableExists(table):
+        return
+    # The partitions metadata table answers from Iceberg's manifests, without scanning the rows.
+    held = {row[0] for row in spark.sql(f"SELECT DISTINCT partition.transaction_date FROM {table}.partitions").collect()}
+    overlap = sorted(held & {_transaction_date(uri) for uri in files})
+    if overlap:
+        shown = ", ".join(overlap[:5]) + (f" and {len(overlap) - 5} more" if len(overlap) > 5 else "")
+        raise ValueError(f"{table} already holds transaction dates {shown}; use --from-date, or --write-mode overwrite")
+
+
+def evolve_table_schema(spark: Any, table: str, dataframe: Any) -> list[str]:
+    """Add the dataframe's new columns to an existing table and return them, in dataframe order.
+
+    Columns are only added, never dropped or retyped; a column whose type differs
+    from the table's raises SchemaEvolutionError before anything changes.
+    """
+
+    existing = {field.name: field.dataType for field in spark.table(table).schema}
+    changed = [field.name for field in dataframe.schema if field.name in existing and field.dataType != existing[field.name]]
+    if changed:
+        raise SchemaEvolutionError(f"{table}: the source changed the type of {', '.join(changed)}")
+    added = [field for field in dataframe.schema if field.name not in existing]
+    if added:
+        columns = ", ".join(f"`{field.name}` {field.dataType.simpleString().upper()}" for field in added)
+        spark.sql(f"ALTER TABLE {table} ADD COLUMNS ({columns})")
+    return [field.name for field in added]
 
 
 def _read_raw_source_files(spark: Any, source_files: Sequence[str], warehouse: WarehouseConfig) -> Any:
@@ -545,38 +605,52 @@ def _read_csv_files(spark: Any, source_files: Sequence[str], source_columns: Seq
     return dataframe.na.fill("", subset=list(source_columns))
 
 
-def _prepare_for_reuse(dataframe: Any) -> Any:
-    """Persist the Bronze DataFrame because writing and metric checks reuse it."""
+def _written_rows(spark: Any, config: BronzeIngestionConfig, ingest_run_id: str) -> Any:
+    """This run's rows, read back from Iceberg with only the columns the summary needs.
 
-    from pyspark import StorageLevel
+    Profiling the table instead of a cached copy of the CSV keeps memory flat: at
+    300 million rows a cache does not fit, and reading a few Parquet columns is cheap.
+    """
 
-    return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
+    from pyspark.sql import functions as spark_functions
 
-
-def _write_bronze_iceberg(bronze_dataframe: Any, config: BronzeIngestionConfig) -> None:
-    """Write Bronze rows into the `bronze.raw_transactions` Iceberg table on MinIO."""
-
-    write_iceberg_table(
-        bronze_dataframe,
-        f"{config.iceberg.catalog_name}.bronze.raw_transactions",
-        PARTITION_COLUMNS,
-        config.write_mode,
+    return (
+        spark.table(_bronze_table(config))
+        .where(spark_functions.col("_ingest_run_id") == ingest_run_id)
+        .select("transaction_id", "schema_version", "transaction_date")
     )
+
+
+def _bronze_table(config: BronzeIngestionConfig) -> str:
+    return f"{config.iceberg.catalog_name}.bronze.raw_transactions"
+
+
+def _write_bronze_iceberg(bronze_dataframe: Any, config: BronzeIngestionConfig) -> list[str]:
+    """Write Bronze rows into the `bronze.raw_transactions` Iceberg table on MinIO; return the columns an append added."""
+
+    table = _bronze_table(config)
+    added_columns: list[str] = []
+    if config.write_mode == "append" and bronze_dataframe.sparkSession.catalog.tableExists(table):
+        added_columns = evolve_table_schema(bronze_dataframe.sparkSession, table, bronze_dataframe)
+    write_iceberg_table(bronze_dataframe, table, PARTITION_COLUMNS, config.write_mode)
+    return added_columns
 
 
 def _write_bronze_postgres(
     spark: Any,
-    bronze_dataframe: Any,
     result: BronzeIngestionResult,
     context: BronzeRunContext,
     config: BronzeIngestionConfig,
-) -> None:
-    """Write the ingest-run audit row and raw Bronze rows directly to PostgreSQL.
+) -> int:
+    """Write the ingest-run audit row, then the newest days of raw Bronze rows, to PostgreSQL.
 
     `raw_transactions._ingest_run_id` references `raw_transaction_ingest_runs`,
     so on a full refresh both tables are truncated together first (PostgreSQL
     resolves the foreign-key order), then each table is appended in
-    parent-then-child order so the reference is always valid on insert.
+    parent-then-child order so the reference is always valid on insert. The
+    raw rows are a window read back from Iceberg, replaced on every run, so on
+    an append run only raw_transactions is truncated and the run history stays.
+    Returns the raw rows written.
     """
 
     ingest_runs_table = "bronze.raw_transaction_ingest_runs"
@@ -584,10 +658,15 @@ def _write_bronze_postgres(
 
     if config.write_mode == "overwrite":
         truncate_tables_cascade(spark, [raw_transactions_table, ingest_runs_table], config.postgres)
+    else:
+        truncate_tables_cascade(spark, [raw_transactions_table], config.postgres)
 
     ingest_run_dataframe = _build_ingest_run_dataframe(spark, result, context, config)
     write_jdbc_table(ingest_run_dataframe, ingest_runs_table, config.postgres, mode="append")
-    write_jdbc_table(_cast_bronze_dates_for_postgres(bronze_dataframe), raw_transactions_table, config.postgres, mode="append")
+    rows = postgres_window(
+        spark.table(_bronze_table(config)), "transaction_date", config.postgres_days
+    )
+    return write_postgres_copy(_cast_bronze_dates_for_postgres(rows), raw_transactions_table, config.postgres, mode="append")
 
 
 def _cast_bronze_dates_for_postgres(bronze_dataframe: Any) -> Any:
@@ -650,7 +729,11 @@ def _build_ingest_run_dataframe(
 
 
 def _select_raw_columns(dataframe: Any) -> Any:
-    """Return the DataFrame with all Bronze raw columns present in order."""
+    """Return the base columns, then the evolved ones the run's files have, all as strings, in order.
+
+    An evolved column no file in this run has stays out of Bronze, so a v1-only
+    table has no v2 columns until a run that brings them adds them.
+    """
 
     from pyspark.sql import functions as spark_functions
 
@@ -658,7 +741,7 @@ def _select_raw_columns(dataframe: Any) -> Any:
     for column_name in [*RAW_COLUMNS, "_corrupt_record"]:
         if column_name in dataframe.columns:
             selected_columns.append(spark_functions.col(column_name).cast("string").alias(column_name))
-        else:
+        elif column_name not in EVOLVED_COLUMNS:
             selected_columns.append(spark_functions.lit(None).cast("string").alias(column_name))
     return dataframe.select(*selected_columns)
 
@@ -685,8 +768,11 @@ def _add_bronze_metadata(
     row_window = Window.partitionBy(CSV_SOURCE_PATH_COLUMN).orderBy(spark_functions.monotonically_increasing_id())
     metadata_dataframe = metadata_dataframe.withColumn("_source_row_number", spark_functions.row_number().over(row_window))
 
+    # Every raw column takes part, present or not, so a row's hash doesn't depend on which files ran with it.
     hash_fields = [
         spark_functions.coalesce(spark_functions.col(column_name), spark_functions.lit(RAW_HASH_NULL_TOKEN))
+        if column_name in metadata_dataframe.columns
+        else spark_functions.lit(RAW_HASH_NULL_TOKEN)
         for column_name in RAW_COLUMNS
     ]
 
@@ -706,7 +792,7 @@ def _add_bronze_metadata(
         .withColumn("_ingested_at", spark_functions.lit(context.ingested_at).cast("timestamp"))
         .withColumn("_raw_record_hash", spark_functions.sha2(spark_functions.concat_ws("||", *hash_fields), 256))
         .withColumn("ingest_date", spark_functions.lit(context.ingest_date))
-        .select(*BRONZE_COLUMNS)
+        .select(*[column for column in BRONZE_COLUMNS if column not in EVOLVED_COLUMNS or column in metadata_dataframe.columns])
     )
 
 
@@ -736,6 +822,7 @@ def _build_ingestion_result(
         ingest_date=context.ingest_date,
         write_mode=config.write_mode,
         spark_version=spark_version,
+        spark_conf=config.spark_conf,
         completed_at=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
 
@@ -799,10 +886,14 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--ingest-run-id")
     parser.add_argument("--ingest-date")
-    add_spark_ui_arguments(parser)
+    parser.add_argument("--from-date", help="Ingest only files on or after this transaction_date (YYYY-MM-DD).")
+    parser.add_argument("--to-date", help="Ingest only files on or before this transaction_date (YYYY-MM-DD).")
+    add_retain_ui_argument(parser)
+    add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of raw_transactions; 0 keeps all.")
     parser.add_argument(
         "--skip-postgres-write",
         action="store_true",
@@ -824,11 +915,15 @@ def main(argv: list[str] | None = None) -> int:
         write_mode=args.write_mode,
         ingest_run_id=args.ingest_run_id,
         ingest_date=args.ingest_date,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
+        spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
+        from_date=args.from_date,
+        to_date=args.to_date,
     )
     try:
         result = ingest_transactions_to_bronze(config)

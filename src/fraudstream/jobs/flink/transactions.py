@@ -69,6 +69,7 @@ class StreamingFeatureConfig:
     group_id: str = DEFAULT_GROUP_ID
     connector_jar: Path = DEFAULT_CONNECTOR_JAR
     iceberg_jars_dir: Path = DEFAULT_ICEBERG_JARS_DIR
+    iceberg_sink: bool = True
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
@@ -90,6 +91,7 @@ class StreamingFeatureConfig:
     checkpoint_timeout_seconds: int = 120
     watermark_latency_profile: Path = DEFAULT_PROFILE_PATH
     watermark_delay_seconds: int | None = None
+    watermark_delay_basis: str = "measured_p95_source_event_time_latency"
     allowed_lateness_minutes: int = 40
     idle_partition_timeout_seconds: int = 60
     deduplication_ttl_hours: int = 24
@@ -150,7 +152,7 @@ class StreamingFeatureConfig:
             if self.watermark_delay_seconds != measured_delay:
                 raise ValueError(
                     "watermark_delay_seconds must match the p95 in the measured "
-                    "latency profile"
+                    "latency profile, or the delay a baseline profile sets"
                 )
         if require_connector_jar and self.watermark_delay_seconds is None:
             raise ValueError("watermark delay must be resolved from a measured latency profile")
@@ -165,12 +167,13 @@ class StreamingFeatureConfig:
                 f"Kafka connector JAR does not exist: {self.connector_jar}. "
                 "Run the connector setup command from docs/data_engineering/07_flink_streaming_pipeline.md."
             )
-        if require_connector_jar and not any(self.iceberg_jars_dir.glob("*.jar")):
+        if require_connector_jar and self.iceberg_sink and not any(self.iceberg_jars_dir.glob("*.jar")):
             raise FileNotFoundError(
                 f"No Iceberg/Postgres/hadoop-aws JARs found in {self.iceberg_jars_dir}. "
                 "Run the Iceberg jar setup command from docs/data_engineering/07_flink_streaming_pipeline.md."
             )
-        self.iceberg.validate()
+        if self.iceberg_sink:
+            self.iceberg.validate()
 
     def resolve_watermark_delay(self) -> "StreamingFeatureConfig":
         """Load the measured source p95 when no programmatic value is present."""
@@ -181,6 +184,7 @@ class StreamingFeatureConfig:
         return replace(
             self,
             watermark_delay_seconds=profile.recommended_watermark_delay_seconds,
+            watermark_delay_basis=profile.delay_basis,
         )
 
     def apply_benchmark_profile(self) -> "StreamingFeatureConfig":
@@ -221,6 +225,7 @@ class StreamingFeatureConfig:
             "group_id": self.group_id,
             "connector_jar": str(self.connector_jar),
             "iceberg_jars_dir": str(self.iceberg_jars_dir),
+            "iceberg_sink": self.iceberg_sink,
             "iceberg_catalog": {
                 "catalog_name": self.iceberg.catalog_name,
                 "catalog_type": self.iceberg.catalog_type,
@@ -250,7 +255,7 @@ class StreamingFeatureConfig:
             "checkpoint_interval_seconds": self.checkpoint_interval_seconds,
             "watermark": {
                 "strategy": "bounded_out_of_orderness",
-                "delay_basis": "measured_p95_source_event_time_latency",
+                "delay_basis": self.watermark_delay_basis,
                 "latency_profile": str(self.watermark_latency_profile),
                 "delay_seconds": self.watermark_delay_seconds,
             },
@@ -264,6 +269,13 @@ class StreamingFeatureConfig:
                 "merchant_txn_count": self.merchant_alert_txn_count,
             },
         }
+
+
+def flink_jar_paths(config: StreamingFeatureConfig) -> list[Path]:
+    """The jars Flink loads: the Kafka connector, plus the Iceberg ones when the Iceberg sink is on."""
+
+    iceberg_jars = sorted(config.iceberg_jars_dir.glob("*.jar")) if config.iceberg_sink else []
+    return [config.connector_jar, *iceberg_jars]
 
 
 @dataclass(frozen=True)
@@ -705,6 +717,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--group-id", default=DEFAULT_GROUP_ID)
     parser.add_argument("--connector-jar", type=Path, default=DEFAULT_CONNECTOR_JAR)
     parser.add_argument("--iceberg-jars-dir", type=Path, default=DEFAULT_ICEBERG_JARS_DIR)
+    parser.add_argument(
+        "--iceberg-sink",
+        action=argparse.BooleanOptionalAction,
+        default=True,
+        help="Also write features to Iceberg; --no-iceberg-sink writes to Kafka only.",
+    )
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
@@ -757,6 +775,7 @@ def config_from_args(args: argparse.Namespace) -> StreamingFeatureConfig:
         group_id=args.group_id,
         connector_jar=args.connector_jar,
         iceberg_jars_dir=args.iceberg_jars_dir,
+        iceberg_sink=args.iceberg_sink,
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),

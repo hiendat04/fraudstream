@@ -63,7 +63,7 @@ class GoldTransactionsTest(TestCase):
                 {table.table_name for table in result.table_results},
                 set(CORE_GOLD_TABLE_NAMES),
             )
-            self.assertFalse(_iceberg_table_exists("iceberg.gold.feat_transaction_training", iceberg.warehouse_uri))
+            self.assertFalse(_iceberg_table_exists("iceberg.gold.feat_customer_rolling", iceberg.warehouse_uri))
             self.assertTrue((gold_dir / "_gold_transactions_summary.json").exists())
 
             fact_rows = {row["transaction_id"]: row for row in _read_iceberg_rows("iceberg.gold.fact_transactions", iceberg.warehouse_uri)}
@@ -90,23 +90,9 @@ class GoldTransactionsTest(TestCase):
                 )
             )
             self.assertEqual(feature_result.source_fact_transaction_count, 5)
-            self.assertEqual(feature_result.training_row_count, 5)
-            self.assertEqual(feature_result.training_distinct_transaction_count, 5)
 
             merchant_rows = _read_iceberg_rows("iceberg.gold.feat_merchant_risk_rolling", iceberg.warehouse_uri)
             self.assertNotIn("UNKNOWN", {row["merchant_dim_id"] for row in merchant_rows})
-
-            training_rows = _read_iceberg_rows("iceberg.gold.feat_transaction_training", iceberg.warehouse_uri)
-            training_by_id = {row["transaction_id"]: row for row in training_rows}
-            self.assertEqual(len(training_rows), 5)
-            self.assertEqual(set(training_by_id), set(fact_rows))
-            self.assertTrue(training_by_id["txn_005"]["merchant_feature_available"])
-            self.assertEqual(training_by_id["txn_005"]["merchant_txn_count_1d"], 2)
-            self.assertEqual(training_by_id["txn_005"]["merchant_category_txn_count_1d"], 1)
-            self.assertAlmostEqual(
-                training_by_id["txn_005"]["merchant_vs_category_amount_ratio_30d"],
-                1.25,
-            )
 
             summary = _read_json(gold_dir / "_gold_transactions_summary.json")
             table_names = {table["table_name"] for table in summary["tables"]}
@@ -119,7 +105,6 @@ class GoldTransactionsTest(TestCase):
             }
             self.assertIn("feat_customer_total_orders_90d", feature_table_names)
             self.assertIn("feat_merchant_risk_rolling", feature_table_names)
-            self.assertTrue(feature_summary["training_row_count_matches_fact"])
 
     def test_builds_merchant_burst_fraud_rate_and_category_features(self) -> None:
         """Merchant features should use calendar windows and omit the skewed unknown key."""
@@ -202,6 +187,79 @@ class GoldTransactionsTest(TestCase):
         self.assertEqual(latest["merchant_category_txn_count_30d"], 156)
         self.assertAlmostEqual(latest["merchant_category_prior_fraud_rate_30d"], 4 / 156)
         self.assertAlmostEqual(latest["merchant_vs_category_amount_ratio_30d"], 1.0)
+
+
+    def test_postgres_keeps_whole_dimensions_and_the_newest_facts(self) -> None:
+        """Dimensions go to PostgreSQL whole; facts and the tables keyed to them keep the newest day."""
+
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
+            _write_silver_fixture(iceberg)
+            written: dict[str, list] = {}
+
+            def capture(rows, table, postgres, mode="overwrite"):
+                written[table.removeprefix("gold.")] = rows.collect()
+                return len(written[table.removeprefix("gold.")])
+
+            with patch("fraudstream.jobs.gold.transactions.write_postgres_copy", capture), \
+                    patch("fraudstream.jobs.gold.transactions.truncate_tables_cascade"):
+                result = build_gold_transactions(GoldTransactionsConfig(
+                    output_dir=root_dir / "gold", write_mode="overwrite",
+                    processed_at=datetime.fromisoformat("2026-07-09T00:00:00+00:00"),
+                    warehouse=warehouse, iceberg=iceberg, postgres_days=1,
+                ))
+
+            iceberg_rows = {table.table_name: table.row_count for table in result.table_results}
+            for table_name, rows in written.items():
+                if table_name.startswith("dim_"):
+                    self.assertEqual(len(rows), iceberg_rows[table_name], table_name)
+            facts = written["fact_transactions"]
+            newest = max(row["event_date"] for row in facts)
+            self.assertTrue(all(row["event_date"] == newest for row in facts))
+            self.assertLess(len(facts), iceberg_rows["fact_transactions"])
+            fact_ids = {row["transaction_id"] for row in facts}
+            self.assertLessEqual({row["transaction_id"] for row in written["fact_transaction_quality_issue"]}, fact_ids)
+            self.assertEqual(result.to_dict()["tables"][0]["postgres_rows"], iceberg_rows["dim_date"])
+
+    def test_from_date_builds_gold_only_from_recent_silver_rows(self) -> None:
+        from datetime import date
+        from unittest.mock import patch
+
+        with TemporaryDirectory() as tmp_dir:
+            root_dir = Path(tmp_dir)
+            warehouse = WarehouseConfig(uri=f"file://{root_dir}/warehouse")
+            iceberg = IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=f"file://{root_dir}/warehouse/iceberg")
+            _write_silver_fixture(iceberg)
+            written: dict[str, list] = {}
+
+            def capture(rows, table, postgres, mode="overwrite"):
+                written[table.removeprefix("gold.")] = rows.collect()
+                return len(written[table.removeprefix("gold.")])
+
+            with patch("fraudstream.jobs.gold.transactions.write_postgres_copy", capture), \
+                    patch("fraudstream.jobs.gold.transactions.truncate_tables_cascade"):
+                result = build_gold_transactions(GoldTransactionsConfig(
+                    output_dir=root_dir / "gold", write_mode="overwrite",
+                    processed_at=datetime.fromisoformat("2026-07-09T00:00:00+00:00"),
+                    warehouse=warehouse, iceberg=iceberg, from_date="2026-01-02",
+                ))
+
+            fact_dates = {row["event_date"] for row in written["fact_transactions"]}
+            self.assertIn(date(2026, 1, 2), fact_dates)
+            self.assertNotIn(date(2026, 1, 1), fact_dates)
+            fact_ids = {row["transaction_id"] for row in written["fact_transactions"]}
+            self.assertLessEqual(
+                {row["transaction_id"] for row in written["fact_transaction_quality_issue"]}, fact_ids
+            )
+            self.assertEqual(result.to_dict()["from_date"], "2026-01-02")
+
+    def test_from_date_must_be_a_date(self) -> None:
+        with self.assertRaises(ValueError):
+            GoldTransactionsConfig(from_date="last-120-days").validate()
 
 
 def _write_silver_fixture(iceberg: IcebergCatalogConfig) -> None:
@@ -460,6 +518,23 @@ def _read_json(path: Path) -> dict:
 
     with path.open("r", encoding="utf-8") as file:
         return json.load(file)
+
+
+class PostgresWindowRulesTest(TestCase):
+    """Every Gold table PostgreSQL holds has a window rule, and the dimensions have none."""
+
+    def test_window_keeps_dimensions_whole(self) -> None:
+        import re
+
+        from fraudstream.jobs.gold.transactions import POSTGRES_FACT_KEYED_TABLES, POSTGRES_WINDOW_COLUMNS
+
+        schema = (Path(__file__).parents[2] / "infra/postgres/init/001_create_fraudstream_schema.sql").read_text()
+        tables = set(re.findall(r"CREATE TABLE IF NOT EXISTS gold\.(\w+)", schema)) - {"transaction_labels"}
+        windowed = set(POSTGRES_WINDOW_COLUMNS) | POSTGRES_FACT_KEYED_TABLES
+
+        self.assertFalse({table for table in windowed if table.startswith("dim_")})
+        self.assertEqual({table for table in tables if not table.startswith("dim_")}, windowed)
+        self.assertFalse(set(POSTGRES_WINDOW_COLUMNS) & POSTGRES_FACT_KEYED_TABLES)
 
 
 if __name__ == "__main__":

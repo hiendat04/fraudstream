@@ -581,50 +581,7 @@ CREATE INDEX IF NOT EXISTS ix_feat_merchant_risk_rolling_feature_date
 CREATE INDEX IF NOT EXISTS ix_feat_merchant_risk_rolling_category_date
     ON gold.feat_merchant_risk_rolling (merchant_category, feature_date);
 
-CREATE TABLE IF NOT EXISTS gold.feat_transaction_training (
-    transaction_id TEXT PRIMARY KEY REFERENCES gold.fact_transactions (transaction_id) ON DELETE CASCADE,
-    event_timestamp TIMESTAMPTZ NOT NULL,
-    created TIMESTAMPTZ NOT NULL DEFAULT now(),
-    customer_key BIGINT NOT NULL REFERENCES gold.dim_customer (customer_key),
-    account_key BIGINT NOT NULL REFERENCES gold.dim_account (account_key),
-    merchant_key BIGINT NOT NULL REFERENCES gold.dim_merchant (merchant_key),
-    date_key INTEGER NOT NULL REFERENCES gold.dim_date (date_key),
-    amount NUMERIC(18, 2) NOT NULL,
-    channel TEXT NOT NULL,
-    transaction_status TEXT NOT NULL,
-    customer_txn_count_7d BIGINT,
-    customer_amount_sum_30d NUMERIC(18, 2),
-    customer_distinct_merchant_count_7d BIGINT,
-    account_txn_count_1d BIGINT,
-    account_amount_sum_1d NUMERIC(18, 2),
-    merchant_feature_available BOOLEAN NOT NULL DEFAULT false,
-    merchant_txn_count_1d BIGINT,
-    merchant_txn_count_7d BIGINT,
-    merchant_txn_count_30d BIGINT,
-    merchant_fraud_rate_1d DOUBLE PRECISION,
-    merchant_prior_fraud_rate_30d DOUBLE PRECISION,
-    merchant_burst_ratio_1d_to_prior_30d DOUBLE PRECISION,
-    merchant_category_txn_count_1d BIGINT,
-    merchant_category_prior_fraud_rate_30d DOUBLE PRECISION,
-    merchant_vs_category_amount_ratio_30d DOUBLE PRECISION,
-    device_distinct_customer_count_1d BIGINT,
-    ip_distinct_account_count_1d BIGINT,
-    quality_issue_count INTEGER NOT NULL DEFAULT 0,
-    duplicate_record_count INTEGER NOT NULL DEFAULT 1,
-    arrival_delay_minutes DOUBLE PRECISION,
-    is_fraud BOOLEAN NOT NULL,
-    _gold_processed_at TIMESTAMPTZ NOT NULL DEFAULT now()
-);
-
-ALTER TABLE gold.feat_transaction_training
-    ADD COLUMN IF NOT EXISTS merchant_feature_available BOOLEAN NOT NULL DEFAULT false,
-    ADD COLUMN IF NOT EXISTS merchant_txn_count_7d BIGINT,
-    ADD COLUMN IF NOT EXISTS merchant_txn_count_30d BIGINT,
-    ADD COLUMN IF NOT EXISTS merchant_prior_fraud_rate_30d DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS merchant_burst_ratio_1d_to_prior_30d DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS merchant_category_txn_count_1d BIGINT,
-    ADD COLUMN IF NOT EXISTS merchant_category_prior_fraud_rate_30d DOUBLE PRECISION,
-    ADD COLUMN IF NOT EXISTS merchant_vs_category_amount_ratio_30d DOUBLE PRECISION;
+DROP TABLE IF EXISTS gold.feat_transaction_training;
 
 -- No foreign key to gold.fact_transactions here on purpose: this table is
 -- loaded straight from the generator's raw label CSV, independent of the

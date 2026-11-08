@@ -26,19 +26,18 @@ from pathlib import Path
 from typing import Any, Iterable, Sequence
 
 from fraudstream.jobs.bronze.ingest_transactions import (
+    EVOLVED_COLUMNS,
     DEFAULT_MASTER,
     SCHEMA_VERSION_V2,
     SUPPORTED_WRITE_MODES,
 )
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
+    parse_spark_conf,
 )
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
@@ -53,7 +52,8 @@ from fraudstream.jobs.warehouse import (
     postgres_config_from_args,
     warehouse_config_from_args,
     write_iceberg_table,
-    write_jdbc_table,
+    postgres_window,
+    write_postgres_copy,
 )
 
 
@@ -152,11 +152,13 @@ class SilverTransactionsConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
+    spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
 
     def validate(self) -> None:
         """Raise when the Silver job cannot run with this config."""
@@ -164,7 +166,6 @@ class SilverTransactionsConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
-        self.spark_ui.validate()
 
     @property
     def resolved_quality_output_dir(self) -> Path:
@@ -212,6 +213,8 @@ class SilverTransactionsResult:
     spark_version: str
     processed_at: str
     completed_at: str
+    spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_rows: dict[str, int] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable job summary."""
@@ -232,6 +235,8 @@ class SilverTransactionsResult:
             "event_date_count": self.event_date_count,
             "write_mode": self.write_mode,
             "spark_version": self.spark_version,
+            "spark_conf": self.spark_conf,
+            "postgres_rows": self.postgres_rows,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
         }
@@ -256,55 +261,52 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
     """Read Bronze transactions, deduplicate, and write Silver Parquet."""
 
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
+    spark = _build_spark_session(
+        config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+    )
     ranked_dataframe = None
     try:
-        announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
-        bronze_dataframe = spark.table(config.bronze_table)
+        bronze_dataframe = _ensure_evolved_columns(spark.table(config.bronze_table))
         cleaned_dataframe = _clean_bronze_transactions(bronze_dataframe, processed_at)
         ranked_dataframe = _persist_for_reuse(_rank_transactions_for_deduplication(cleaned_dataframe))
         silver_dataframe = _select_silver_rows(ranked_dataframe)
         quality_issue_dataframe = _select_quality_issue_rows(ranked_dataframe, processed_at)
 
-        set_spark_job_group(
-            spark,
-            "silver-write-selected-transactions",
-            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows to MinIO + PostgreSQL",
+        spark.sparkContext.setJobDescription(
+            "Silver: clean types, detect late arrivals, rank duplicates, and write selected rows to MinIO + PostgreSQL"
         )
         _write_silver_iceberg(silver_dataframe, config)
+        postgres_rows: dict[str, int] = {}
         if config.write_to_postgres:
-            write_jdbc_table(silver_dataframe, "silver.stg_transactions", config.postgres, mode=config.write_mode)
+            rows = postgres_window(spark.table(config.silver_table), "event_date", config.postgres_days)
+            postgres_rows["silver.stg_transactions"] = write_postgres_copy(rows, "silver.stg_transactions", config.postgres)
 
-        set_spark_job_group(
-            spark,
-            "silver-write-quality-evidence",
-            "Silver: write quarantined, warning, and duplicate-rejected evidence",
-        )
+        spark.sparkContext.setJobDescription("Silver: write quarantined, warning, and duplicate-rejected evidence")
         _write_quality_issue_iceberg(quality_issue_dataframe, config)
         if config.write_to_postgres:
-            write_jdbc_table(
-                quality_issue_dataframe,
-                "silver.stg_transaction_quality_issues",
-                config.postgres,
-                mode=config.write_mode,
+            issues = spark.table(config.silver_quality_table)
+            # Rows quarantined for a missing event time have no date to window on; keep them all.
+            rows = postgres_window(issues, "event_date", config.postgres_days)
+            if config.postgres_days > 0:
+                rows = rows.unionByName(issues.where(issues.event_date.isNull()))
+            postgres_rows["silver.stg_transaction_quality_issues"] = write_postgres_copy(
+                rows, "silver.stg_transaction_quality_issues", config.postgres
             )
 
-        set_spark_job_group(
-            spark,
-            "silver-profile-offline-problems",
-            "Silver: measure duplicate, late-arrival, schema-evolution, and quality outcomes",
+        spark.sparkContext.setJobDescription(
+            "Silver: measure duplicate, late-arrival, schema-evolution, and quality outcomes"
         )
         result = _build_result(
             ranked_dataframe=ranked_dataframe,
             config=config,
             processed_at=processed_at,
             spark_version=spark.version,
+            postgres_rows=postgres_rows,
         )
         _write_summary(result, config.output_dir)
         _write_quality_report(_build_quality_report(ranked_dataframe, result), result.quality_report_path)
-        clear_spark_job_group(spark)
-        retain_spark_ui(spark, config.spark_ui)
+        keep_ui_open(spark, config.retain_ui)
         return result
     finally:
         if ranked_dataframe is not None:
@@ -314,10 +316,11 @@ def build_silver_transactions(config: SilverTransactionsConfig) -> SilverTransac
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
+    spark_conf: dict[str, str] | None = None,
 ) -> Any:
     """Create a Spark session or raise a clear dependency error."""
 
@@ -336,7 +339,8 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
+    builder = configure_spark_builder(builder, retain_ui)
+    return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
 def _clean_bronze_transactions(bronze_dataframe: Any, processed_at: datetime) -> Any:
@@ -646,11 +650,22 @@ def _record_action() -> Any:
 
 
 def _persist_for_reuse(dataframe: Any) -> Any:
-    """Persist ranked candidates because writing and metrics reuse them."""
+    """Keep ranked candidates on disk because writing and metrics reuse them; in memory they fill the heap at this size."""
 
     from pyspark import StorageLevel
 
-    return dataframe.persist(StorageLevel.MEMORY_AND_DISK)
+    return dataframe.persist(StorageLevel.DISK_ONLY)
+
+
+def _ensure_evolved_columns(dataframe: Any) -> Any:
+    """Add the v2 columns a v1-only Bronze table doesn't have yet, as null strings."""
+
+    from pyspark.sql import functions as spark_functions
+
+    for column_name in EVOLVED_COLUMNS:
+        if column_name not in dataframe.columns:
+            dataframe = dataframe.withColumn(column_name, spark_functions.lit(None).cast("string"))
+    return dataframe
 
 
 def _write_silver_iceberg(silver_dataframe: Any, config: SilverTransactionsConfig) -> None:
@@ -670,6 +685,7 @@ def _build_result(
     config: SilverTransactionsConfig,
     processed_at: datetime,
     spark_version: str,
+    postgres_rows: dict[str, int] | None = None,
 ) -> SilverTransactionsResult:
     """Build a compact summary for the completed Silver job."""
 
@@ -691,6 +707,8 @@ def _build_result(
         event_date_count=metrics.event_date_count,
         write_mode=config.write_mode,
         spark_version=spark_version,
+        spark_conf=config.spark_conf,
+        postgres_rows=postgres_rows or {},
         processed_at=_to_utc_string(processed_at),
         completed_at=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
@@ -883,10 +901,12 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--master", default=DEFAULT_MASTER)
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for _silver_processed_at.")
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
+    add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of the Silver tables; 0 keeps all.")
     parser.add_argument(
         "--skip-postgres-write",
         action="store_true",
@@ -905,11 +925,13 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
+        spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
     )
     try:
         result = build_silver_transactions(config)

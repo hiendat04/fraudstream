@@ -25,22 +25,20 @@ from fraudstream.jobs.gold.transactions import (
     _build_feat_customer_rolling,
     _build_feat_customer_total_orders_90d,
     _build_feat_merchant_risk_rolling,
-    _build_feat_transaction_training,
     _build_merchant_category_daily,
     _build_merchant_category_rolling,
     _parse_datetime,
     _select_gold_columns,
+    POSTGRES_WINDOW_COLUMNS,
     _to_utc_string,
 )
-from fraudstream.jobs.spark_ui import (
-    SparkUIConfig,
-    add_spark_ui_arguments,
-    announce_spark_ui,
-    clear_spark_job_group,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
+    add_spark_conf_argument,
+    apply_spark_conf,
     configure_spark_builder,
-    retain_spark_ui,
-    set_spark_job_group,
-    spark_ui_config_from_args,
+    keep_ui_open,
+    parse_spark_conf,
 )
 from fraudstream.jobs.warehouse import (
     IcebergCatalogConfig,
@@ -55,7 +53,8 @@ from fraudstream.jobs.warehouse import (
     postgres_config_from_args,
     warehouse_config_from_args,
     write_iceberg_table,
-    write_jdbc_table,
+    postgres_window,
+    write_postgres_copy,
 )
 
 
@@ -73,11 +72,13 @@ class OfflineFeatureConfig:
     master: str = DEFAULT_MASTER
     write_mode: str = DEFAULT_WRITE_MODE
     processed_at: datetime | None = None
-    spark_ui: SparkUIConfig = field(default_factory=SparkUIConfig)
+    retain_ui: int = 0
     warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
     iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
     postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     write_to_postgres: bool = True
+    spark_conf: dict[str, str] = field(default_factory=dict)
+    postgres_days: int = 0
 
     def validate(self) -> None:
         """Raise when required core Gold inputs or runtime values are invalid."""
@@ -85,7 +86,6 @@ class OfflineFeatureConfig:
         if self.write_mode not in SUPPORTED_WRITE_MODES:
             allowed = ", ".join(sorted(SUPPORTED_WRITE_MODES))
             raise ValueError(f"write_mode must be one of: {allowed}")
-        self.spark_ui.validate()
 
     def gold_table_name(self, table_name: str) -> str:
         """Return the Iceberg-catalog-qualified name of one core Gold or feature table."""
@@ -100,6 +100,7 @@ class OfflineFeatureTableResult:
     table_name: str
     iceberg_table: str
     row_count: int
+    postgres_rows: int | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable table result."""
@@ -108,6 +109,7 @@ class OfflineFeatureTableResult:
             "table_name": self.table_name,
             "iceberg_table": self.iceberg_table,
             "row_count": self.row_count,
+            "postgres_rows": self.postgres_rows,
         }
 
 
@@ -121,17 +123,8 @@ class OfflineFeatureResult:
     processed_at: str
     completed_at: str
     source_fact_transaction_count: int
-    training_distinct_transaction_count: int
     table_results: tuple[OfflineFeatureTableResult, ...]
-
-    @property
-    def training_row_count(self) -> int:
-        """Return the transaction-training feature row count."""
-
-        for table in self.table_results:
-            if table.table_name == "feat_transaction_training":
-                return table.row_count
-        return 0
+    spark_conf: dict[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable feature-build summary."""
@@ -140,17 +133,10 @@ class OfflineFeatureResult:
             "gold_dir": str(self.gold_dir),
             "write_mode": self.write_mode,
             "spark_version": self.spark_version,
+            "spark_conf": self.spark_conf,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
             "source_fact_transaction_count": self.source_fact_transaction_count,
-            "training_row_count": self.training_row_count,
-            "training_distinct_transaction_count": self.training_distinct_transaction_count,
-            "training_row_count_matches_fact": (
-                self.training_row_count == self.source_fact_transaction_count
-            ),
-            "training_transaction_ids_are_unique": (
-                self.training_row_count == self.training_distinct_transaction_count
-            ),
             "tables": [table.to_dict() for table in self.table_results],
         }
 
@@ -162,21 +148,22 @@ class OfflineFeatureFrames:
     feat_customer_rolling: Any
     feat_customer_total_orders_90d: Any
     feat_merchant_risk_rolling: Any
-    feat_transaction_training: Any
 
 
 def build_offline_features(config: OfflineFeatureConfig) -> OfflineFeatureResult:
     """Read validated core Gold facts and materialize offline feature tables."""
 
+    from pyspark import StorageLevel
+
     config.validate()
-    spark = _build_spark_session(config.master, config.spark_ui, config.warehouse, config.iceberg, config.postgres)
+    spark = _build_spark_session(
+        config.master, config.retain_ui, config.warehouse, config.iceberg, config.postgres, config.spark_conf
+    )
     persisted_frames: list[Any] = []
     try:
-        announce_spark_ui(spark, config.spark_ui)
         processed_at = config.processed_at or datetime.now(UTC)
         fact_transactions = spark.table(config.gold_table_name("fact_transactions"))
         fact_customer_daily = spark.table(config.gold_table_name("fact_customer_daily"))
-        fact_account_daily = spark.table(config.gold_table_name("fact_account_daily"))
         fact_merchant_daily = spark.table(config.gold_table_name("fact_merchant_daily"))
 
         merchant_category_rolling = _build_merchant_category_rolling(
@@ -198,14 +185,6 @@ def build_offline_features(config: OfflineFeatureConfig) -> OfflineFeatureResult
                 processed_at,
             ),
             feat_merchant_risk_rolling=feat_merchant_risk_rolling,
-            feat_transaction_training=_build_feat_transaction_training(
-                fact_transactions=fact_transactions,
-                feat_customer_rolling=feat_customer_rolling,
-                fact_account_daily=fact_account_daily,
-                feat_merchant_risk_rolling=feat_merchant_risk_rolling,
-                merchant_category_rolling=merchant_category_rolling,
-                processed_at=processed_at,
-            ),
         )
 
         persisted_frames.extend(
@@ -218,31 +197,23 @@ def build_offline_features(config: OfflineFeatureConfig) -> OfflineFeatureResult
             ]
         )
         for dataframe in persisted_frames:
-            dataframe.persist()
+            dataframe.persist(StorageLevel.DISK_ONLY)
 
-        set_spark_job_group(
-            spark,
-            "offline-features-source-count",
-            "Offline features: count source Gold transactions",
-        )
+        spark.sparkContext.setJobDescription("Offline features: count source Gold transactions")
         source_fact_transaction_count = fact_transactions.count()
-        table_results, training_distinct_transaction_count = _write_feature_tables(
-            frames,
-            config,
-        )
+        table_results = _write_feature_tables(frames, config)
         result = OfflineFeatureResult(
             gold_dir=config.gold_dir,
             write_mode=config.write_mode,
             spark_version=spark.version,
+            spark_conf=config.spark_conf,
             processed_at=_to_utc_string(processed_at),
             completed_at=_to_utc_string(datetime.now(UTC)),
             source_fact_transaction_count=source_fact_transaction_count,
-            training_distinct_transaction_count=training_distinct_transaction_count,
             table_results=tuple(table_results),
         )
         _write_summary(result, config.gold_dir)
-        clear_spark_job_group(spark)
-        retain_spark_ui(spark, config.spark_ui)
+        keep_ui_open(spark, config.retain_ui)
         return result
     finally:
         for dataframe in persisted_frames:
@@ -252,10 +223,11 @@ def build_offline_features(config: OfflineFeatureConfig) -> OfflineFeatureResult
 
 def _build_spark_session(
     master: str,
-    spark_ui: SparkUIConfig | None = None,
+    retain_ui: int = 0,
     warehouse: WarehouseConfig | None = None,
     iceberg: IcebergCatalogConfig | None = None,
     postgres: PostgresJdbcConfig | None = None,
+    spark_conf: dict[str, str] | None = None,
 ) -> Any:
     """Create the Spark session used by the offline feature job."""
 
@@ -277,25 +249,24 @@ def _build_spark_session(
     )
     builder = configure_object_storage(builder, warehouse or WarehouseConfig())
     builder = configure_iceberg_catalog(builder, iceberg or IcebergCatalogConfig(), postgres or PostgresJdbcConfig())
-    return configure_spark_builder(builder, spark_ui or SparkUIConfig()).getOrCreate()
+    builder = configure_spark_builder(builder, retain_ui)
+    return apply_spark_conf(builder, spark_conf or {}).getOrCreate()
 
 
 def _write_feature_tables(
     frames: OfflineFeatureFrames,
     config: OfflineFeatureConfig,
-) -> tuple[list[OfflineFeatureTableResult], int]:
-    """Write feature frames and collect row-grain evidence for validation."""
+) -> list[OfflineFeatureTableResult]:
+    """Write each feature table to Iceberg and PostgreSQL and count its rows."""
 
-    from pyspark.sql import functions as spark_functions
+    from pyspark import StorageLevel
 
     table_writes = (
         ("feat_customer_rolling", frames.feat_customer_rolling, ("feature_date",)),
         ("feat_customer_total_orders_90d", frames.feat_customer_total_orders_90d, ()),
         ("feat_merchant_risk_rolling", frames.feat_merchant_risk_rolling, ("feature_date",)),
-        ("feat_transaction_training", frames.feat_transaction_training, ()),
     )
     results: list[OfflineFeatureTableResult] = []
-    training_distinct_transaction_count = 0
     shared_feature_tables = {
         "feat_customer_rolling",
         "feat_merchant_risk_rolling",
@@ -305,35 +276,25 @@ def _write_feature_tables(
         selected_dataframe = _select_gold_columns(dataframe, table_name)
         unpersist_after_write = table_name not in shared_feature_tables
         if unpersist_after_write:
-            selected_dataframe.persist()
+            selected_dataframe.persist(StorageLevel.DISK_ONLY)
         try:
-            set_spark_job_group(
-                selected_dataframe.sparkSession,
-                f"offline-features-build-{table_name}",
-                f"Offline features: materialize and write {table_name} to MinIO + PostgreSQL",
+            selected_dataframe.sparkSession.sparkContext.setJobDescription(
+                f"Offline features: materialize and write {table_name} to MinIO + PostgreSQL"
             )
-            if table_name == "feat_transaction_training":
-                metrics = selected_dataframe.agg(
-                    spark_functions.count("*").alias("row_count"),
-                    spark_functions.countDistinct("transaction_id").alias(
-                        "distinct_transaction_count"
-                    ),
-                ).first()
-                row_count = int(metrics["row_count"])
-                training_distinct_transaction_count = int(
-                    metrics["distinct_transaction_count"]
-                )
-            else:
-                row_count = selected_dataframe.count()
+            row_count = selected_dataframe.count()
 
             write_iceberg_table(selected_dataframe, iceberg_table, partition_columns, config.write_mode)
+            postgres_rows = None
             if config.write_to_postgres:
-                write_jdbc_table(selected_dataframe, f"gold.{table_name}", config.postgres, mode=config.write_mode)
+                spark = selected_dataframe.sparkSession
+                rows = postgres_window(spark.table(iceberg_table), POSTGRES_WINDOW_COLUMNS[table_name], config.postgres_days)
+                postgres_rows = write_postgres_copy(rows, f"gold.{table_name}", config.postgres)
             results.append(
                 OfflineFeatureTableResult(
                     table_name=table_name,
                     iceberg_table=iceberg_table,
                     row_count=row_count,
+                    postgres_rows=postgres_rows,
                 )
             )
         finally:
@@ -343,7 +304,7 @@ def _write_feature_tables(
     written_names = tuple(table.table_name for table in results)
     if written_names != OFFLINE_FEATURE_TABLE_NAMES:
         raise RuntimeError("offline feature table write order does not match its contract")
-    return results, training_distinct_transaction_count
+    return results
 
 
 def _write_summary(result: OfflineFeatureResult, output_dir: Path) -> None:
@@ -368,10 +329,12 @@ def build_parser() -> argparse.ArgumentParser:
         default=DEFAULT_WRITE_MODE,
     )
     parser.add_argument("--processed-at", help="Optional ISO timestamp used for feature metadata.")
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
+    add_spark_conf_argument(parser)
     add_warehouse_arguments(parser)
     add_iceberg_arguments(parser)
     add_postgres_arguments(parser)
+    parser.add_argument("--postgres-days", type=int, default=0, help="Days PostgreSQL keeps of the feature tables; 0 keeps all.")
     parser.add_argument(
         "--skip-postgres-write",
         action="store_true",
@@ -389,11 +352,13 @@ def main(argv: list[str] | None = None) -> int:
         master=args.master,
         write_mode=args.write_mode,
         processed_at=_parse_datetime(args.processed_at) if args.processed_at else None,
-        spark_ui=spark_ui_config_from_args(args),
+        retain_ui=args.retain_ui,
+        spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),
         iceberg=iceberg_config_from_args(args),
         postgres=postgres_config_from_args(args),
         write_to_postgres=not args.skip_postgres_write,
+        postgres_days=args.postgres_days,
     )
     try:
         result = build_offline_features(config)

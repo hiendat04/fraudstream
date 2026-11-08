@@ -36,7 +36,7 @@ RUN pip install --no-cache-dir \
 RUN python -c "\
 from pyspark.sql import SparkSession; \
 SparkSession.builder.master('local[1]').appName('jar-prefetch') \
-    .config('spark.jars.packages', 'org.apache.hadoop:hadoop-aws:3.4.1,org.postgresql:postgresql:42.7.4,org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0') \
+    .config('spark.jars.packages', 'org.apache.hadoop:hadoop-aws:3.4.1,org.postgresql:postgresql:42.7.4,org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0') \
     .getOrCreate().stop()"
 
 COPY ml/src /opt/fraudstream/ml/src

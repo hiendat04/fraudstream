@@ -171,7 +171,7 @@ def validate_core_gold_summary(
 
 
 def validate_offline_feature_summary(gold_dir: str | Path) -> dict[str, int]:
-    """Verify feature outputs and one-training-row-per-transaction invariants."""
+    """Verify every feature table was written from all validated Gold transactions."""
 
     gold_path = Path(gold_dir)
     feature_summary = _load_json(gold_path / FEATURE_SUMMARY_FILE_NAME)
@@ -184,33 +184,12 @@ def validate_offline_feature_summary(gold_dir: str | Path) -> dict[str, int]:
         )
     source_fact_rows = _required_int(feature_summary, "source_fact_transaction_count")
     core_fact_rows = _required_int(gold_summary, "fact_transaction_count")
-    training_rows = _required_int(feature_summary, "training_row_count")
-    distinct_training_ids = _required_int(
-        feature_summary,
-        "training_distinct_transaction_count",
-    )
     if source_fact_rows <= 0 or source_fact_rows != core_fact_rows:
         raise PipelineValidationError(
             "feature source count differs from validated Gold: "
             f"feature_source={source_fact_rows}, gold_fact={core_fact_rows}"
         )
-    if training_rows != source_fact_rows:
-        raise PipelineValidationError(
-            f"training row grain failed: training={training_rows}, fact={source_fact_rows}"
-        )
-    if distinct_training_ids != training_rows:
-        raise PipelineValidationError(
-            "training transaction IDs are not unique: "
-            f"rows={training_rows}, distinct_ids={distinct_training_ids}"
-        )
-    if feature_summary.get("training_row_count_matches_fact") is not True:
-        raise PipelineValidationError("feature summary row-count check is false")
-    if feature_summary.get("training_transaction_ids_are_unique") is not True:
-        raise PipelineValidationError("feature summary uniqueness check is false")
-    return {
-        "fact_transaction_rows": source_fact_rows,
-        "training_rows": training_rows,
-    }
+    return {"fact_transaction_rows": source_fact_rows}
 
 
 def silver_summary_path(silver_dir: str | Path) -> Path:

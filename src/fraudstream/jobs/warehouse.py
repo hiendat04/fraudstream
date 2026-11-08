@@ -23,7 +23,7 @@ DEFAULT_POSTGRES_DATABASE = "fraudstream"
 
 HADOOP_AWS_PACKAGE = "org.apache.hadoop:hadoop-aws:3.4.1"
 POSTGRESQL_JDBC_PACKAGE = "org.postgresql:postgresql:42.7.4"
-ICEBERG_SPARK_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.0_2.13:1.11.0"
+ICEBERG_SPARK_PACKAGE = "org.apache.iceberg:iceberg-spark-runtime-4.1_2.13:1.11.0"
 
 DEFAULT_ICEBERG_CATALOG_NAME = "iceberg"
 DEFAULT_ICEBERG_CATALOG_TYPE = "jdbc"
@@ -294,6 +294,37 @@ def write_iceberg_table(
         return
 
     raise ValueError(f"Unsupported Iceberg write mode: {mode!r}")
+
+
+def postgres_window(dataframe: Any, date_column: str, days: int) -> Any:
+    """Keep the rows within `days` of the newest date in `date_column`; `days <= 0` keeps them all.
+
+    PostgreSQL is the serving copy and holds only a recent window; Iceberg holds
+    every row. A timestamp column is compared by its date.
+    """
+
+    if days <= 0:
+        return dataframe
+
+    from pyspark.sql import functions as F
+
+    row_date = F.to_date(F.col(date_column))
+    newest = dataframe.agg(F.max(row_date)).first()[0]
+    if newest is None:
+        return dataframe.limit(0)
+    return dataframe.where(row_date > F.date_sub(F.lit(newest), days))
+
+
+def write_postgres_copy(rows: Any, table: str, postgres: PostgresJdbcConfig, mode: str = "overwrite") -> int:
+    """Write the rows PostgreSQL keeps and return how many there were.
+
+    Callers pass rows read back from the Iceberg table they just wrote, windowed,
+    so the copy costs a pruned read rather than recomputing the job. The copy is
+    replaced on every run: it is a window of the newest days, not a history.
+    """
+
+    write_jdbc_table(rows, table, postgres, mode=mode)
+    return rows.count()
 
 
 def write_jdbc_table(dataframe: Any, table: str, postgres: PostgresJdbcConfig, mode: str) -> None:

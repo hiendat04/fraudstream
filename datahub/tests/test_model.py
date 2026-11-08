@@ -7,6 +7,7 @@ from pathlib import Path
 
 from fraudstream_datahub.model import (
     DATASETS_BY_NAME,
+    OFFLINE_FEATURE_TABLE_NAMES,
     PIPELINES,
     ContractError,
     evaluate_contracts,
@@ -167,10 +168,7 @@ def _write_validation_artifacts(root: Path) -> None:
         root / "data/gold/_offline_features_summary.json",
         {
             "source_fact_transaction_count": 100,
-            "training_row_count": 100,
-            "training_distinct_transaction_count": 100,
-            "training_row_count_matches_fact": True,
-            "training_transaction_ids_are_unique": True,
+            "tables": [{"table_name": name, "row_count": 1} for name in OFFLINE_FEATURE_TABLE_NAMES],
         },
     )
     _write_json(root / "data/rag/_rag_index_summary.json", RAG_SUMMARY)

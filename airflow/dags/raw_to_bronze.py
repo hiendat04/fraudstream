@@ -13,6 +13,7 @@ from fraudstream_airflow.dag_helpers import (
     MINIO_KWARGS,
     SPARK_POOL,
     project_python_command,
+    spark_job_command,
     verify_source_manifest,
 )
 from fraudstream.orchestration.validation import (
@@ -57,7 +58,7 @@ with DAG(
         ingest_bronze = BashOperator(
             task_id="ingest_bronze",
             pool=SPARK_POOL,
-            bash_command=project_python_command(
+            bash_command=spark_job_command(
                 "fraudstream.jobs.bronze.ingest_transactions",
                 """
                 --source-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
@@ -66,6 +67,7 @@ with DAG(
                 --manifest-path "{{ var.value.fraudstream_raw_transactions_dir }}/_manifest.json"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_bronze_silver }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --ingest-run-id "{{ run_id }}"
                 --ingest-date "{{ (dag_run.logical_date or dag_run.start_date).strftime('%Y-%m-%d') }}"

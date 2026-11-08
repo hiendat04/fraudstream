@@ -11,7 +11,7 @@ from fraudstream_airflow.assets import (
     BRONZE_TRANSACTIONS_VALIDATED,
     CORE_GOLD_TRANSACTIONS_VALIDATED,
 )
-from fraudstream_airflow.dag_helpers import DEFAULT_ARGS, SPARK_POOL, project_python_command
+from fraudstream_airflow.dag_helpers import DEFAULT_ARGS, SPARK_POOL, spark_job_command
 from fraudstream.orchestration.validation import (
     validate_bronze_report,
     validate_core_gold_summary,
@@ -42,13 +42,14 @@ with DAG(
         build_silver = BashOperator(
             task_id="build_silver",
             pool=SPARK_POOL,
-            bash_command=project_python_command(
+            bash_command=spark_job_command(
                 "fraudstream.jobs.silver.transactions",
                 """
                 --output-dir "{{ var.value.fraudstream_silver_transactions_dir }}"
                 --quality-output-dir "{{ var.value.fraudstream_silver_quality_dir }}"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_bronze_silver }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
                 """,
@@ -72,12 +73,13 @@ with DAG(
         BashOperator(
             task_id="build_core_gold",
             pool=SPARK_POOL,
-            bash_command=project_python_command(
+            bash_command=spark_job_command(
                 "fraudstream.jobs.gold.transactions",
                 """
                 --output-dir "{{ var.value.fraudstream_gold_dir }}"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_gold }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
                 --core-only

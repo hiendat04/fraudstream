@@ -7,18 +7,24 @@ import json
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
+from tempfile import TemporaryDirectory
 from unittest import TestCase, main
+from unittest.mock import patch
 
 from fraudstream.jobs.flink.transactions import (
+    DEFAULT_CONNECTOR_JAR,
     StreamingFeatureConfig,
     add_event_to_accumulator,
     build_alert_records,
     build_feature_record,
     build_late_record,
+    build_parser,
+    config_from_args,
     create_feature_accumulator,
     event_business_fingerprint,
     event_time_window,
     extract_event_timestamp_ms,
+    flink_jar_paths,
     parse_transaction_message,
 )
 
@@ -190,6 +196,20 @@ class FlinkStreamingTransactionsTest(TestCase):
 
         with self.assertRaisesRegex(ValueError, "flink_ui_port"):
             config.validate()
+
+    def test_no_iceberg_sink_skips_the_iceberg_jars(self) -> None:
+        with TemporaryDirectory() as temporary_directory:
+            iceberg_jars = Path(temporary_directory)
+            (iceberg_jars / "iceberg-flink-runtime.jar").touch()
+            with_sink = StreamingFeatureConfig(iceberg_jars_dir=iceberg_jars)
+            without_sink = StreamingFeatureConfig(iceberg_jars_dir=iceberg_jars, iceberg_sink=False)
+
+            self.assertEqual(flink_jar_paths(with_sink), [DEFAULT_CONNECTOR_JAR, iceberg_jars / "iceberg-flink-runtime.jar"])
+            self.assertEqual(flink_jar_paths(without_sink), [DEFAULT_CONNECTOR_JAR])
+        self.assertFalse(without_sink.to_dict()["iceberg_sink"])
+        credentials = {name: "test" for name in ("MINIO_ACCESS_KEY", "MINIO_SECRET_KEY", "POSTGRES_USER", "POSTGRES_PASSWORD")}
+        with patch.dict("os.environ", credentials):
+            self.assertFalse(config_from_args(build_parser().parse_args(["--no-iceberg-sink"])).iceberg_sink)
 
     def test_timestamp_extraction_returns_zero_for_invalid_json(self) -> None:
         self.assertEqual(extract_event_timestamp_ms("not-json"), 0)

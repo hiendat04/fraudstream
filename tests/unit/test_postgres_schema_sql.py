@@ -54,7 +54,6 @@ class PostgresSchemaSqlTest(unittest.TestCase):
             "gold.feat_customer_rolling",
             "gold.feat_customer_total_orders_90d",
             "gold.feat_merchant_risk_rolling",
-            "gold.feat_transaction_training",
         ]
 
         for table_name in expected_tables:
@@ -74,7 +73,6 @@ class PostgresSchemaSqlTest(unittest.TestCase):
             "gold.feat_customer_rolling",
             "gold.feat_customer_total_orders_90d",
             "gold.feat_merchant_risk_rolling",
-            "gold.feat_transaction_training",
         ):
             table_body = self._table_body(table_name)
             self.assertIn("event_timestamp TIMESTAMPTZ NOT NULL", table_body)

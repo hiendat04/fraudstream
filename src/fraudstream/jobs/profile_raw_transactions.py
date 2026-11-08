@@ -24,12 +24,10 @@ from pathlib import Path
 from typing import Any
 
 from fraudstream import storage
-from fraudstream.jobs.spark_ui import (
-    add_spark_ui_arguments,
-    announce_spark_ui,
+from fraudstream.jobs.spark_settings import (
+    add_retain_ui_argument,
     configure_spark_builder,
-    retain_spark_ui,
-    spark_ui_config_from_args,
+    keep_ui_open,
 )
 from fraudstream.jobs.warehouse import add_warehouse_arguments, configure_object_storage, warehouse_config_from_args
 
@@ -84,7 +82,7 @@ def build_parser() -> argparse.ArgumentParser:
         help="Local folder with the generator's _manifest.json; the profile is written next to it.",
     )
     parser.add_argument("--master", default="local[*]")
-    add_spark_ui_arguments(parser)
+    add_retain_ui_argument(parser)
     add_warehouse_arguments(parser)
     return parser
 
@@ -96,13 +94,11 @@ def main(argv: list[str] | None = None) -> int:
 
     args = build_parser().parse_args(argv)
     warehouse = warehouse_config_from_args(args)
-    spark_ui = spark_ui_config_from_args(args)
     files = json.loads((args.source_dir / "_manifest.json").read_text(encoding="utf-8"))["files"]
 
     builder = configure_object_storage(SparkSession.builder.appName("fraudstream-raw-profile").master(args.master), warehouse)
-    spark = configure_spark_builder(builder, spark_ui).getOrCreate()
+    spark = configure_spark_builder(builder, args.retain_ui).getOrCreate()
     try:
-        announce_spark_ui(spark, spark_ui)
         read = spark.read.option("header", "true")
         profile = profile_raw_transactions(
             read.csv([uri for uri in files if "schema_version=v1/" in uri]),
@@ -110,7 +106,7 @@ def main(argv: list[str] | None = None) -> int:
             stored_bytes=sum(storage.object_size(warehouse, uri) for uri in files),
             file_count=len(files),
         )
-        retain_spark_ui(spark, spark_ui)
+        keep_ui_open(spark, args.retain_ui)
     finally:
         spark.stop()
 

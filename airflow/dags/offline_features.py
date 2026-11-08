@@ -11,7 +11,7 @@ from fraudstream_airflow.assets import (
     CORE_GOLD_TRANSACTIONS_VALIDATED,
     OFFLINE_FEATURES_VALIDATED,
 )
-from fraudstream_airflow.dag_helpers import DEFAULT_ARGS, SPARK_POOL, project_python_command
+from fraudstream_airflow.dag_helpers import DEFAULT_ARGS, SPARK_POOL, spark_job_command
 from fraudstream.orchestration.validation import (
     validate_core_gold_summary,
     validate_offline_feature_summary,
@@ -43,12 +43,13 @@ with DAG(
         build_offline_features = BashOperator(
             task_id="build_offline_features",
             pool=SPARK_POOL,
-            bash_command=project_python_command(
+            bash_command=spark_job_command(
                 "fraudstream.jobs.gold.offline_features",
                 """
                 --gold-dir "{{ var.value.fraudstream_gold_dir }}"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_gold }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
                 """,
@@ -58,13 +59,14 @@ with DAG(
         build_transaction_labels = BashOperator(
             task_id="build_transaction_labels",
             pool=SPARK_POOL,
-            bash_command=project_python_command(
+            bash_command=spark_job_command(
                 "fraudstream.jobs.gold.transaction_labels",
                 """
                 --labels-uri "{{ var.value.fraudstream_labels_uri }}"
                 --gold-dir "{{ var.value.fraudstream_gold_dir }}"
                 --warehouse-uri "{{ var.value.fraudstream_warehouse_uri }}"
                 --master "{{ var.value.fraudstream_spark_master }}"
+                --postgres-days "{{ var.value.fraudstream_postgres_days_gold }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --processed-at "{{ (dag_run.logical_date or dag_run.start_date).isoformat() }}"
                 """,
