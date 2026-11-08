@@ -23,7 +23,7 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 
 | Area | Result |
 |---|---|
-| Spark | main job **11.7x faster** (246 s → 21 s) with AQE and right-sized shuffles |
+| Spark | Silver sort **17x faster** per task (665 s → 39 s) with AQE and 800 shuffle partitions; an hour-long skewed join task cut to 28 s |
 | Flink | job graph cut **80%** (30 → 6 vertices) by operator chaining |
 | Fraud detection model | test PR-AUC **1.77x** the fraud base rate, on a time-ordered split |
 | Serving | p95 **280 ms**, p99 **390 ms**, **0 of 15,000** failed at 50 req/s over HTTPS |
@@ -209,13 +209,13 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 |---|---|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Data engineering** | | |
 | Data generators | 663 million offline rows (115 GB of CSV in MinIO) and 512,500 stream events, with skew, schema change, duplicates, late and out-of-order data | [02_data_generator.md](docs/edai-1/02_data_generator.md) |
-| Bronze, Silver, Gold | Raw preserved, then cleaned and deduplicated, then a star schema with daily aggregates. Written to Iceberg and PostgreSQL | [03_bronze_ingestion.md](docs/data_engineering/03_bronze_ingestion.md)<br>[04_silver_transactions.md](docs/data_engineering/04_silver_transactions.md)<br>[05_gold_tables.md](docs/data_engineering/05_gold_tables.md)                       |
+| Bronze, Silver, Gold | Raw kept, then cleaned and deduplicated, then a star schema with daily aggregates. Iceberg holds every row, PostgreSQL a recent window | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
 | Feature engineering | Velocity, merchant risk, amount anomaly, device/IP reuse and late-arrival features | [06_feature_engineering.md](docs/data_engineering/06_feature_engineering.md)                                                                                                                               |
-| Flink streaming | Validation, dedup, five-minute windows, late-event handling and alerts | [07_flink_streaming_pipeline.md](docs/data_engineering/07_flink_streaming_pipeline.md)<br>[08_flink_window_processing.md](docs/data_engineering/08_flink_window_processing.md)                                              |
+| Flink streaming | Dedup, five-minute windows, measured watermark with late events and corrections, alerts | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
 | Orchestration | Three Airflow DAGs linked by validated data assets | [09_orchestration_flow.md](docs/data_engineering/09_orchestration_flow.md)<br>[10_airflow_workflow_demonstration.md](docs/data_engineering/10_airflow_workflow_demonstration.md)                                            |
 | Governance | DataHub catalog, lineage, contracts and assertions; database ERDs; quality report | [11_data_governance_datahub.md](docs/data_engineering/11_data_governance_datahub.md)<br>[12_database_schema.md](docs/data_engineering/12_database_schema.md)<br>[13_data_quality_report.md](docs/data_engineering/13_data_quality_report.md) |
 | Lakehouse | Iceberg on MinIO and Trino | [14_lakehouse_iceberg.md](docs/data_engineering/14_lakehouse_iceberg.md) |
-| Performance | Measured Spark and Flink tuning | [silver_job_optimization.md](docs/data_engineering/optimization/spark/silver_job_optimization.md)<br>[streaming_job_optimization.md](docs/data_engineering/optimization/flink/streaming_job_optimization.md)                |
+| Performance | Measured Spark skew, spill and schema evolution; Flink throughput and late events | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
 | **ML platform** | | |
 | Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/ml/16_feature_store.md)                                                                                                                                           |
 | Model training | XGBoost against a logistic baseline, split by date, and a Kubeflow pipeline | [17_ml_training.md](docs/ml/17_ml_training.md)<br>[18_ml_pipeline.md](docs/ml/18_ml_pipeline.md)                                                                                                |
