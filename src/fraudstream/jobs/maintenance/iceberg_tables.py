@@ -72,27 +72,37 @@ def table_file_stats(spark: Any, table: str) -> dict[str, int]:
 
 
 def compact_table(spark: Any, table: str, target_file_bytes: int = TARGET_FILE_BYTES) -> dict[str, Any]:
-    """Merge small data files, then fold position deletes into fewer delete files."""
+    """Merge small data files with their deletes applied, then drop the delete files left pointing at nothing."""
 
     catalog, name = _split(table)
     data = _call(
         spark,
-        f"{catalog}.system.rewrite_data_files(table => '{name}', strategy => 'binpack', "
+        f"{catalog}.system.rewrite_data_files(table => '{name}', strategy => 'binpack', options => map("
+        f"'target-file-size-bytes', '{target_file_bytes}', "
         # Iceberg skips fewer than 5 files by default; any two small files are worth merging.
-        f"options => map('target-file-size-bytes', '{target_file_bytes}', 'min-input-files', '2'))",
+        "'min-input-files', '2', "
+        # Flink's upserts leave delete files: rewrite every data file one applies to, and drop the equality deletes
+        # that no longer apply to any file.
+        "'delete-file-threshold', '1', 'remove-dangling-deletes', 'true'))",
     )
-    deletes = _call(spark, f"{catalog}.system.rewrite_position_delete_files(table => '{name}')")
+    # Position deletes still name the files just rewritten; rewriting them all drops the entries for files gone.
+    deletes = _call(
+        spark, f"{catalog}.system.rewrite_position_delete_files(table => '{name}', options => map('rewrite-all', 'true'))"
+    )
     return {**data, "position_deletes": deletes}
 
 
-def zorder_table(spark: Any, table: str, columns: Sequence[str]) -> dict[str, Any]:
-    """Rewrite every data file so rows close on all of `columns` land in the same files."""
+def zorder_table(spark: Any, table: str, columns: Sequence[str], where: str | None = None) -> dict[str, Any]:
+    """Rewrite the data files (only those `where` matches, if given) so rows close on all of `columns` share files."""
 
     catalog, name = _split(table)
+    if where is not None and '"' in where:
+        raise ValueError(f"write the filter with single quotes: {where!r}")
+    only = f', where => "{where}"' if where else ""
     return _call(
         spark,
         f"{catalog}.system.rewrite_data_files(table => '{name}', strategy => 'sort', "
-        f"sort_order => 'zorder({','.join(columns)})', options => map('rewrite-all', 'true'))",
+        f"sort_order => 'zorder({','.join(columns)})', options => map('rewrite-all', 'true'){only})",
     )
 
 
@@ -111,7 +121,11 @@ def expire_old_snapshots(spark: Any, table: str, retain_last: int = 5) -> dict[s
 
 
 def maintain(
-    spark: Any, tables: Sequence[str], zorder: dict[str, list[str]], steps: Sequence[str] = STEPS
+    spark: Any,
+    tables: Sequence[str],
+    zorder: dict[str, list[str]],
+    steps: Sequence[str] = STEPS,
+    zorder_where: str | None = None,
 ) -> dict[str, dict[str, Any]]:
     """Compact (or z-order) each table, then expire its snapshots. A failing table doesn't stop the others."""
 
@@ -122,7 +136,7 @@ def maintain(
         try:
             entry["before"] = table_file_stats(spark, table)
             if "compact" in steps and table in zorder:
-                entry["actions"]["zorder"] = zorder_table(spark, table, zorder[table])
+                entry["actions"]["zorder"] = zorder_table(spark, table, zorder[table], zorder_where)
             elif "compact" in steps:
                 entry["actions"]["compact"] = compact_table(spark, table)
             if "expire" in steps:
@@ -166,6 +180,9 @@ def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Compact, z-order and expire snapshots of Iceberg tables.")
     parser.add_argument("--table", action="append", default=[], help="Full table name, such as iceberg.streaming.x. Repeatable.")
     parser.add_argument("--zorder", action="append", default=[], help="TABLE=col1,col2: z-order this table instead of compacting it. Repeatable.")
+    parser.add_argument(
+        "--zorder-where", help="Z-order only the files this filter matches, such as \"event_date >= DATE '2026-03-01'\"."
+    )
     parser.add_argument("--step", choices=[*STEPS, "all"], default="all", help="Run only compaction or only expiry.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--master", default="local[*]")
@@ -195,7 +212,7 @@ def main(argv: list[str] | None = None) -> int:
     builder = configure_iceberg_catalog(builder, iceberg_config_from_args(args), postgres_config_from_args(args))
     spark = apply_spark_conf(configure_spark_builder(builder, retain_ui=0), parse_spark_conf(args.spark_conf)).getOrCreate()
     try:
-        report = maintain(spark, args.table, zorder, STEPS if args.step == "all" else (args.step,))
+        report = maintain(spark, args.table, zorder, STEPS if args.step == "all" else (args.step,), args.zorder_where)
     finally:
         spark.stop()
 

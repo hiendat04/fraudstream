@@ -75,6 +75,34 @@ class IcebergMaintenanceTest(TestCase):
         self.assertEqual((after["data_files"], after["small_files"], after["delete_files"]), (1, 1, 0))
         self.assertEqual(self._rows(table), rows_before)
 
+    def test_compaction_folds_delete_files_into_the_data(self) -> None:
+        table = "iceberg.streaming.upserts"
+        self.spark.sql(
+            f"CREATE TABLE {table} (customer_id STRING, amount DOUBLE) USING iceberg "
+            "TBLPROPERTIES ('format-version' = '2', 'write.delete.mode' = 'merge-on-read')"
+        )
+        self.spark.sql(f"INSERT INTO {table} VALUES ('c0', 0.0), ('c1', 1.0)")
+        self.spark.sql(f"INSERT INTO {table} VALUES ('c2', 2.0), ('c3', 3.0)")
+        # One row out of each file, so Iceberg writes delete files instead of dropping whole files.
+        self.spark.sql(f"DELETE FROM {table} WHERE amount IN (1.0, 2.0)")
+        self.assertGreater(table_file_stats(self.spark, table)["delete_files"], 0)
+
+        compact_table(self.spark, table)
+
+        self.assertEqual(table_file_stats(self.spark, table)["delete_files"], 0)
+        self.assertEqual(sorted(row.amount for row in self.spark.table(table).collect()), [0.0, 3.0])
+
+    def test_zorder_rewrites_only_the_files_the_filter_matches(self) -> None:
+        table = "iceberg.silver.zorder_where"
+        self.spark.sql(f"CREATE TABLE {table} (customer_id STRING, event_date DATE) USING iceberg PARTITIONED BY (event_date)")
+        for day in ("2026-02-28", "2026-03-01", "2026-03-01"):
+            self.spark.sql(f"INSERT INTO {table} VALUES ('c1', DATE '{day}')")
+
+        result = zorder_table(self.spark, table, ["customer_id"], where="event_date >= DATE '2026-03-01'")
+
+        self.assertEqual(result["rewritten_data_files_count"], 2)
+        self.assertEqual(self.spark.table(table).count(), 3)
+
     def test_zorder_keeps_every_row(self) -> None:
 
         table = "iceberg.silver.zorder"
