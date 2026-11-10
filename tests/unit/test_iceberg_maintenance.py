@@ -119,6 +119,28 @@ class IcebergMaintenanceTest(TestCase):
         self.assertNotIn("write.parquet.row-group-size-bytes", properties)
         self.assertEqual(self.spark.table(table).count(), 20_000)
 
+    def test_zorder_reads_past_the_first_eight_bytes_of_an_id(self) -> None:
+        table = "iceberg.silver.zorder_long_ids"
+        self.spark.sql(
+            f"CREATE TABLE {table} (customer_id STRING, merchant_id STRING) USING iceberg "
+            "TBLPROPERTIES ('write.target-file-size-bytes' = '1024')"
+        )
+        self.spark.range(4_000).selectExpr(
+            "format_string('cust_%08d', CAST(rand(1) * 500000 AS INT)) AS customer_id",
+            "format_string('merch_%08d', CAST(rand(2) * 50000 AS INT)) AS merchant_id",
+        ).coalesce(1).writeTo(table).append()
+
+        zorder_table(self.spark, table, ["customer_id", "merchant_id"])
+
+        # The first 8 bytes, cust_000 to cust_004, split customers into 5 bands of 100,000; each file should hold far less.
+        bounds = self.spark.sql(
+            f"SELECT readable_metrics.customer_id.lower_bound AS low, readable_metrics.customer_id.upper_bound AS high "
+            f"FROM {table}.files"
+        ).collect()
+        widths = [int(row.high[5:]) - int(row.low[5:]) for row in bounds]
+        self.assertGreater(len(widths), 10)
+        self.assertLess(sum(widths) / len(widths), 40_000)
+
     def test_zorder_keeps_every_row(self) -> None:
 
         table = "iceberg.silver.zorder"

@@ -48,6 +48,8 @@ REPORT_FILE_NAME = "_maintenance_report.json"
 ROW_GROUP_PROPERTY = "write.parquet.row-group-size-bytes"
 # Small enough that one day of Silver (about 40 MB) splits into several row groups a lookup can skip.
 ZORDER_ROW_GROUP_BYTES = 8 * 1024 * 1024
+# Enough bytes to take in a whole id, such as merch_00027073.
+ZORDER_TEXT_BYTES = 16
 
 
 def table_file_stats(spark: Any, table: str) -> dict[str, int]:
@@ -110,7 +112,9 @@ def zorder_table(spark: Any, table: str, columns: Sequence[str], where: str | No
     only = f', where => "{where}"' if where else ""
     rewrite = (
         f"{catalog}.system.rewrite_data_files(table => '{name}', strategy => 'sort', "
-        f"sort_order => 'zorder({','.join(columns)})', options => map('rewrite-all', 'true'){only})"
+        f"sort_order => 'zorder({','.join(columns)})', "
+        # Iceberg z-orders text by its first 8 bytes by default; every id starts with "cust_00" or "merch_00".
+        f"options => map('rewrite-all', 'true', 'var-length-contribution', '{ZORDER_TEXT_BYTES}'){only})"
     )
     previous = {row.key: row.value for row in spark.sql(f"SHOW TBLPROPERTIES {table}").collect()}.get(ROW_GROUP_PROPERTY)
     spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ('{ROW_GROUP_PROPERTY}' = '{ZORDER_ROW_GROUP_BYTES}')")
