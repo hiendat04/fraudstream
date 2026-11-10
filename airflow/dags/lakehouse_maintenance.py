@@ -21,17 +21,18 @@ TABLES = (
     "iceberg.gold.feat_customer_total_orders_90d",
     "iceberg.gold.feat_merchant_risk_rolling",
 )
-TABLE_ARGUMENTS = "\n".join(f"--table {table}" for table in TABLES)
 REPORT_DIR = "{{ var.value.fraudstream_project_root }}/data/maintenance"
 
 
-def maintenance_command(step: str) -> str:
+def maintenance_command(action: str) -> str:
+    """Run one maintenance action, `compact` or `expire`, on every table."""
+
+    tables = "\n".join(f"--{action} {table}" for table in TABLES)
     return spark_job_command(
         "fraudstream.jobs.maintenance.iceberg_tables",
         f"""
-        --step {step}
-        {TABLE_ARGUMENTS}
-        --output-dir "{REPORT_DIR}/{step}"
+        {tables}
+        --output-dir "{REPORT_DIR}/{action}"
         --warehouse-uri "{{{{ var.value.fraudstream_warehouse_uri }}}}"
         --master "{{{{ var.value.fraudstream_spark_master }}}}"
         """,

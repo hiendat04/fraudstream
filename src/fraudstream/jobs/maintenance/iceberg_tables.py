@@ -7,16 +7,18 @@ close values of the given columns share files, which lets a filter on those
 columns skip most files. Every rewrite keeps the old files for time travel until
 their snapshots expire, so expiry runs last and frees them.
 
-    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.maintenance.iceberg_tables --table iceberg.streaming.customer_features_5m
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.maintenance.iceberg_tables --compact iceberg.streaming.customer_features_5m
     ... --zorder iceberg.silver.stg_transactions=customer_id,merchant_id
+    ... --expire iceberg.streaming.customer_features_5m
 """
 
 from __future__ import annotations
 
 import argparse
 import json
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
+from functools import partial
 from pathlib import Path
 from typing import Any
 
@@ -43,7 +45,9 @@ SMALL_FILE_BYTES = 32 * 1024 * 1024
 ORPHAN_AGE_HOURS = 72
 DEFAULT_OUTPUT_DIR = Path("data/maintenance")
 REPORT_FILE_NAME = "_maintenance_report.json"
-STEPS = ("compact", "expire")
+ROW_GROUP_PROPERTY = "write.parquet.row-group-size-bytes"
+# Small enough that one day of Silver (about 40 MB) splits into several row groups a lookup can skip.
+ZORDER_ROW_GROUP_BYTES = 8 * 1024 * 1024
 
 
 def table_file_stats(spark: Any, table: str) -> dict[str, int]:
@@ -93,17 +97,30 @@ def compact_table(spark: Any, table: str, target_file_bytes: int = TARGET_FILE_B
 
 
 def zorder_table(spark: Any, table: str, columns: Sequence[str], where: str | None = None) -> dict[str, Any]:
-    """Rewrite the data files (only those `where` matches, if given) so rows close on all of `columns` share files."""
+    """Rewrite the data files (only those `where` matches, if given) so rows close on all of `columns` share files.
+
+    A query skips a Parquet row group whose value range misses its filter, so clustering only pays off when each file
+    holds many small row groups. The rewrite uses small ones, then the table's own setting is put back, because the
+    unsorted daily writes would only lose compression with them.
+    """
 
     catalog, name = _split(table)
     if where is not None and '"' in where:
         raise ValueError(f"write the filter with single quotes: {where!r}")
     only = f', where => "{where}"' if where else ""
-    return _call(
-        spark,
+    rewrite = (
         f"{catalog}.system.rewrite_data_files(table => '{name}', strategy => 'sort', "
-        f"sort_order => 'zorder({','.join(columns)})', options => map('rewrite-all', 'true'){only})",
+        f"sort_order => 'zorder({','.join(columns)})', options => map('rewrite-all', 'true'){only})"
     )
+    previous = {row.key: row.value for row in spark.sql(f"SHOW TBLPROPERTIES {table}").collect()}.get(ROW_GROUP_PROPERTY)
+    spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ('{ROW_GROUP_PROPERTY}' = '{ZORDER_ROW_GROUP_BYTES}')")
+    try:
+        return _call(spark, rewrite)
+    finally:
+        if previous is None:
+            spark.sql(f"ALTER TABLE {table} UNSET TBLPROPERTIES ('{ROW_GROUP_PROPERTY}')")
+        else:
+            spark.sql(f"ALTER TABLE {table} SET TBLPROPERTIES ('{ROW_GROUP_PROPERTY}' = '{previous}')")
 
 
 def expire_old_snapshots(spark: Any, table: str, retain_last: int = 5) -> dict[str, Any]:
@@ -122,33 +139,39 @@ def expire_old_snapshots(spark: Any, table: str, retain_last: int = 5) -> dict[s
 
 def maintain(
     spark: Any,
-    tables: Sequence[str],
-    zorder: dict[str, list[str]],
-    steps: Sequence[str] = STEPS,
+    compact: Sequence[str] = (),
+    zorder: dict[str, list[str]] | None = None,
+    expire: Sequence[str] = (),
     zorder_where: str | None = None,
-) -> dict[str, dict[str, Any]]:
-    """Compact (or z-order) each table, then expire its snapshots. A failing table doesn't stop the others."""
+) -> dict[str, dict[str, dict[str, Any]]]:
+    """Run each action only on the tables named for it, and record each table's files before and after.
 
-    report: dict[str, dict[str, Any]] = {}
-    for table in dict.fromkeys([*tables, *zorder]):
-        entry: dict[str, Any] = {"before": None, "after": None, "actions": {}, "error": None}
-        report[table] = entry
-        try:
-            entry["before"] = table_file_stats(spark, table)
-            if "compact" in steps and table in zorder:
-                entry["actions"]["zorder"] = zorder_table(spark, table, zorder[table], zorder_where)
-            elif "compact" in steps:
-                entry["actions"]["compact"] = compact_table(spark, table)
-            if "expire" in steps:
-                entry["actions"]["expire_snapshots"] = expire_old_snapshots(spark, table)
-            entry["after"] = table_file_stats(spark, table)
-        except Exception as error:  # noqa: BLE001 - recorded in the report, and the next table still runs
-            entry["error"] = f"{type(error).__name__}: {error}"
+    The actions don't depend on each other. When one run has several, expiry goes last, so it can free the files the
+    rewrites just replaced. A failing table doesn't stop the others.
+    """
+
+    actions: dict[str, dict[str, Callable[[], dict[str, Any]]]] = {
+        "compact": {table: partial(compact_table, spark, table) for table in compact},
+        "zorder": {table: partial(zorder_table, spark, table, columns, zorder_where) for table, columns in (zorder or {}).items()},
+        "expire": {table: partial(expire_old_snapshots, spark, table) for table in expire},
+    }
+    report: dict[str, dict[str, dict[str, Any]]] = {}
+    for action, runs in actions.items():
+        for table, run in runs.items():
+            entry: dict[str, Any] = {"before": None, "after": None, "result": None, "error": None}
+            report.setdefault(action, {})[table] = entry
+            try:
+                entry["before"] = table_file_stats(spark, table)
+                entry["result"] = run()
+                entry["after"] = table_file_stats(spark, table)
+            except Exception as error:  # noqa: BLE001 - recorded in the report, and the next table still runs
+                entry["error"] = f"{type(error).__name__}: {error}"
     return report
 
 
-def report_failed(report: dict[str, dict[str, Any]]) -> bool:
-    return bool(report) and all(entry["error"] for entry in report.values())
+def report_failed(report: dict[str, dict[str, dict[str, Any]]]) -> bool:
+    entries = [entry for tables in report.values() for entry in tables.values()]
+    return bool(entries) and all(entry["error"] for entry in entries)
 
 
 def parse_zorder(values: Sequence[str]) -> dict[str, list[str]]:
@@ -178,12 +201,12 @@ def _call(spark: Any, procedure: str) -> dict[str, Any]:
 
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(description="Compact, z-order and expire snapshots of Iceberg tables.")
-    parser.add_argument("--table", action="append", default=[], help="Full table name, such as iceberg.streaming.x. Repeatable.")
-    parser.add_argument("--zorder", action="append", default=[], help="TABLE=col1,col2: z-order this table instead of compacting it. Repeatable.")
+    parser.add_argument("--compact", action="append", default=[], metavar="TABLE", help="Compact this table, such as iceberg.streaming.x. Repeatable.")
+    parser.add_argument("--zorder", action="append", default=[], metavar="TABLE=col1,col2", help="Z-order this table by these columns. Repeatable.")
+    parser.add_argument("--expire", action="append", default=[], metavar="TABLE", help="Expire this table's old snapshots. Repeatable.")
     parser.add_argument(
         "--zorder-where", help="Z-order only the files this filter matches, such as \"event_date >= DATE '2026-03-01'\"."
     )
-    parser.add_argument("--step", choices=[*STEPS, "all"], default="all", help="Run only compaction or only expiry.")
     parser.add_argument("--output-dir", type=Path, default=DEFAULT_OUTPUT_DIR)
     parser.add_argument("--master", default="local[*]")
     add_warehouse_arguments(parser)
@@ -202,8 +225,8 @@ def main(argv: list[str] | None = None) -> int:
         zorder = parse_zorder(args.zorder)
     except ValueError as error:
         parser.error(str(error))
-    if not args.table and not zorder:
-        parser.error("give at least one --table or --zorder")
+    if not (args.compact or zorder or args.expire):
+        parser.error("give at least one --compact, --zorder or --expire")
 
     builder = SparkSession.builder.appName("fraudstream-iceberg-maintenance").master(args.master).config(
         "spark.sql.session.timeZone", "UTC"
@@ -212,7 +235,7 @@ def main(argv: list[str] | None = None) -> int:
     builder = configure_iceberg_catalog(builder, iceberg_config_from_args(args), postgres_config_from_args(args))
     spark = apply_spark_conf(configure_spark_builder(builder, retain_ui=0), parse_spark_conf(args.spark_conf)).getOrCreate()
     try:
-        report = maintain(spark, args.table, zorder, STEPS if args.step == "all" else (args.step,), args.zorder_where)
+        report = maintain(spark, args.compact, zorder, args.expire, args.zorder_where)
     finally:
         spark.stop()
 

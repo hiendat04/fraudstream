@@ -5,6 +5,7 @@ from __future__ import annotations
 import importlib.util
 from tempfile import TemporaryDirectory
 from unittest import TestCase, main, skipUnless
+from unittest.mock import patch
 
 from fraudstream.jobs.gold.transactions import _build_spark_session
 from fraudstream.jobs.maintenance.iceberg_tables import (
@@ -31,8 +32,8 @@ class ArgumentsTest(TestCase):
             parse_zorder(["iceberg.silver.stg_transactions"])
 
     def test_the_run_fails_only_when_every_table_failed(self) -> None:
-        self.assertFalse(report_failed({"a": {"error": None}, "b": {"error": "boom"}}))
-        self.assertTrue(report_failed({"a": {"error": "boom"}, "b": {"error": "boom"}}))
+        self.assertFalse(report_failed({"compact": {"a": {"error": None}}, "expire": {"b": {"error": "boom"}}}))
+        self.assertTrue(report_failed({"compact": {"a": {"error": "boom"}}, "expire": {"b": {"error": "boom"}}}))
 
 
 @skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
@@ -103,6 +104,21 @@ class IcebergMaintenanceTest(TestCase):
         self.assertEqual(result["rewritten_data_files_count"], 2)
         self.assertEqual(self.spark.table(table).count(), 3)
 
+    def test_zorder_writes_small_row_groups_and_restores_the_table_setting(self) -> None:
+        table = "iceberg.silver.zorder_row_groups"
+        self.spark.sql(f"CREATE TABLE {table} (customer_id STRING, merchant_id STRING) USING iceberg")
+        self.spark.range(20_000).selectExpr("uuid() AS customer_id", "uuid() AS merchant_id").coalesce(1).writeTo(table).append()
+
+        with patch("fraudstream.jobs.maintenance.iceberg_tables.ZORDER_ROW_GROUP_BYTES", 65_536):
+            zorder_table(self.spark, table, ["customer_id", "merchant_id"])
+
+        # Iceberg records one split offset per Parquet row group.
+        [offsets] = [row.split_offsets for row in self.spark.table(f"{table}.files").collect()]
+        self.assertGreater(len(offsets), 1)
+        properties = {row.key for row in self.spark.sql(f"SHOW TBLPROPERTIES {table}").collect()}
+        self.assertNotIn("write.parquet.row-group-size-bytes", properties)
+        self.assertEqual(self.spark.table(table).count(), 20_000)
+
     def test_zorder_keeps_every_row(self) -> None:
 
         table = "iceberg.silver.zorder"
@@ -125,30 +141,29 @@ class IcebergMaintenanceTest(TestCase):
         self.assertEqual(self.spark.table(table).count(), 8)
 
     def test_one_failing_table_does_not_stop_the_rest(self) -> None:
-
         table = "iceberg.gold.feat_healthy"
         self._append_rows_one_at_a_time(table, 3)
 
-        report = maintain(self.spark, ["iceberg.gold.feat_missing", table], zorder={})
+        report = maintain(self.spark, compact=["iceberg.gold.feat_missing", table])["compact"]
 
         self.assertIn("feat_missing", report["iceberg.gold.feat_missing"]["error"])
         self.assertIsNone(report[table]["error"])
         self.assertEqual((report[table]["before"]["data_files"], report[table]["after"]["data_files"]), (3, 1))
-        self.assertEqual(list(report[table]["actions"]), ["compact", "expire_snapshots"])
 
-    def test_each_step_runs_on_its_own(self) -> None:
-        table = "iceberg.streaming.steps"
-        self._append_rows_one_at_a_time(table, 7)
+    def test_each_action_touches_only_its_own_tables(self) -> None:
+        compacted, zordered, expired = "iceberg.streaming.only_compact", "iceberg.silver.only_zorder", "iceberg.streaming.only_expire"
+        for table in (compacted, zordered, expired):
+            self._append_rows_one_at_a_time(table, 7)
 
-        expired = maintain(self.spark, [table], zorder={}, steps=("expire",))[table]
-        self.assertEqual(list(expired["actions"]), ["expire_snapshots"])
-        self.assertEqual(expired["after"]["data_files"], 7)
-        self.assertEqual(self.spark.table(f"{table}.snapshots").count(), 5)
+        report = maintain(self.spark, compact=[compacted], zorder={zordered: ["customer_id"]}, expire=[expired])
 
-        compacted = maintain(self.spark, [table], zorder={}, steps=("compact",))[table]
-        self.assertEqual(list(compacted["actions"]), ["compact"])
-        self.assertEqual(compacted["after"]["data_files"], 1)
-
+        self.assertEqual({action: list(tables) for action, tables in report.items()}, {
+            "compact": [compacted], "zorder": [zordered], "expire": [expired],
+        })
+        snapshots = lambda table: self.spark.table(f"{table}.snapshots").count()
+        self.assertEqual((table_file_stats(self.spark, compacted)["data_files"], snapshots(compacted)), (1, 8))
+        self.assertEqual(snapshots(zordered), 8)
+        self.assertEqual((table_file_stats(self.spark, expired)["data_files"], snapshots(expired)), (7, 5))
 
 if __name__ == "__main__":
     main()

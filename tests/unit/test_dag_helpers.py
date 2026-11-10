@@ -84,11 +84,14 @@ class MaintenanceDagTest(TestCase):
                 self.assertEqual(task.pool, dag_helpers.SPARK_POOL)
                 self.assertIn("python -m fraudstream.jobs.maintenance.iceberg_tables", task.bash_command)
                 self.assertIn("--spark-conf", task.bash_command)
-                tables = re.findall(r"--table (\S+)", task.bash_command)
+        for task_id, action, other in (("compact_tables", "compact", "expire"), ("expire_snapshots", "expire", "compact")):
+            with self.subTest(task=task_id):
+                command = tasks[task_id].bash_command
+                tables = re.findall(rf"--{action} (\S+)", command)
                 self.assertEqual(len([table for table in tables if table.startswith("iceberg.streaming.")]), 3)
                 self.assertEqual(len([table for table in tables if table.startswith("iceberg.gold.feat_")]), 3)
-        self.assertIn("--step compact", tasks["compact_tables"].bash_command)
-        self.assertIn("--step expire", tasks["expire_snapshots"].bash_command)
+                self.assertNotIn(f"--{other} ", command)
+                self.assertNotIn("--zorder", command)
 
 
 class _FakeTask:
