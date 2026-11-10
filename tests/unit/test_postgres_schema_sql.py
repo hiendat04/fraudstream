@@ -9,6 +9,7 @@ from pathlib import Path
 
 SCHEMA_SQL_PATH = Path("infra/postgres/init/001_create_fraudstream_schema.sql")
 DOCKER_COMPOSE_PATH = Path("docker-compose.yml")
+INDEX_BENCHMARK_SQL_PATH = Path("infra/postgres/benchmarks/index_benchmark.sql")
 
 
 class PostgresSchemaSqlTest(unittest.TestCase):
@@ -89,6 +90,39 @@ class PostgresSchemaSqlTest(unittest.TestCase):
         match = re.search(pattern, self.schema_sql, flags=re.DOTALL)
         self.assertIsNotNone(match, f"missing table definition for {table_name}")
         return match.group(1)
+
+
+class IndexBenchmarkSqlTest(unittest.TestCase):
+    """The index benchmark drops indexes, so it must only ever drop real ones, and only inside a rollback."""
+
+    @classmethod
+    def setUpClass(cls) -> None:
+        cls.schema_sql = SCHEMA_SQL_PATH.read_text(encoding="utf-8")
+        cls.benchmark_sql = INDEX_BENCHMARK_SQL_PATH.read_text(encoding="utf-8")
+
+    def test_every_benchmarked_index_exists_in_the_schema(self) -> None:
+        dropped = re.findall(r"^DROP INDEX (\w+)\.(\w+);", self.benchmark_sql, flags=re.MULTILINE)
+
+        self.assertEqual(len(dropped), 6)
+        for schema_name, index_name in dropped:
+            with self.subTest(index=index_name):
+                self.assertRegex(
+                    self.schema_sql,
+                    rf"CREATE (UNIQUE )?INDEX IF NOT EXISTS {index_name}\s+ON {schema_name}\.",
+                )
+
+    def test_every_drop_is_rolled_back(self) -> None:
+        self.assertNotRegex(self.benchmark_sql, r"(?im)^\s*(COMMIT|END)\s*;")
+        inside_transaction = False
+        for line in self.benchmark_sql.splitlines():
+            statement = line.strip().upper()
+            if statement == "BEGIN;":
+                inside_transaction = True
+            elif statement == "ROLLBACK;":
+                inside_transaction = False
+            elif statement.startswith("DROP"):
+                self.assertTrue(inside_transaction, line)
+        self.assertFalse(inside_transaction, "the file ends inside a transaction")
 
 
 if __name__ == "__main__":

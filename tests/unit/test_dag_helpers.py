@@ -70,5 +70,58 @@ class CredentialsTest(TestCase):
                     self.assertIsNone(re.search(r"PASSWORD|SECRET_KEY", dag.read()), name)
 
 
+class MaintenanceDagTest(TestCase):
+    def test_maintenance_dag_runs_compaction_then_expiry(self) -> None:
+        dag, tasks = _load_dag_with_fake_airflow("lakehouse_maintenance.py")
+
+        self.assertEqual(
+            (dag["dag_id"], dag["schedule"], dag["catchup"]), ("fraudstream_lakehouse_maintenance", "0 2 * * *", False)
+        )
+        self.assertEqual(list(tasks), ["compact_tables", "expire_snapshots"])
+        self.assertEqual(tasks["compact_tables"].downstream, [tasks["expire_snapshots"]])
+        for task in tasks.values():
+            with self.subTest(task=task.task_id):
+                self.assertEqual(task.pool, dag_helpers.SPARK_POOL)
+                self.assertIn("python -m fraudstream.jobs.maintenance.iceberg_tables", task.bash_command)
+                self.assertIn("--spark-conf", task.bash_command)
+        for task_id, action, other in (("compact_tables", "compact", "expire"), ("expire_snapshots", "expire", "compact")):
+            with self.subTest(task=task_id):
+                command = tasks[task_id].bash_command
+                tables = re.findall(rf"--{action} (\S+)", command)
+                self.assertEqual(len([table for table in tables if table.startswith("iceberg.streaming.")]), 3)
+                self.assertEqual(len([table for table in tables if table.startswith("iceberg.gold.feat_")]), 3)
+                self.assertNotIn(f"--{other} ", command)
+                self.assertNotIn("--zorder", command)
+
+
+class _FakeTask:
+    def __init__(self, registry: dict[str, _FakeTask], task_id: str, bash_command: str, pool: str | None = None) -> None:
+        self.task_id, self.bash_command, self.pool, self.downstream = task_id, bash_command, pool, []
+        registry[task_id] = self
+
+    def __rshift__(self, other: _FakeTask) -> _FakeTask:
+        self.downstream.append(other)
+        return other
+
+
+def _load_dag_with_fake_airflow(file_name: str) -> tuple[dict[str, object], dict[str, _FakeTask]]:
+    """Run a DAG file against stand-ins for the Airflow classes it uses, which aren't installed here."""
+
+    import runpy
+    from contextlib import nullcontext
+    from types import ModuleType
+
+    dag: dict[str, object] = {}
+    tasks: dict[str, _FakeTask] = {}
+    sdk, bash, pendulum = ModuleType("airflow.sdk"), ModuleType("airflow.providers.standard.operators.bash"), ModuleType("pendulum")
+    pendulum.datetime = lambda *args, **kwargs: None  # type: ignore[attr-defined]
+    sdk.DAG = lambda **kwargs: dag.update(kwargs) or nullcontext()  # type: ignore[attr-defined]
+    bash.BashOperator = lambda **kwargs: _FakeTask(tasks, **kwargs)  # type: ignore[attr-defined]
+    path = os.path.join(os.path.dirname(__file__), "..", "..", "airflow", "dags", file_name)
+    with patch.dict("sys.modules", {"airflow.sdk": sdk, "airflow.providers.standard.operators.bash": bash, "pendulum": pendulum}):
+        runpy.run_path(path, run_name="dag_under_test")
+    return dag, tasks
+
+
 if __name__ == "__main__":
     main()
