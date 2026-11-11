@@ -102,7 +102,7 @@ with DAG(
             + f'export PYTHONPATH="{ROOT}/datahub/src"\n'
             + "/home/airflow/datahub/bin/python -m fraudstream_datahub.publish "
             + f'--project-root "{ROOT}" --pipeline fraudstream_rag_index '
-            + '--server "$DATAHUB_GMS_URL" --ui-url http://localhost:18081\n'
+            + '--server "$DATAHUB_GMS_URL" --ui-url "{{ var.value.fraudstream_airflow_ui_url }}"\n'
         ),
     )
 
