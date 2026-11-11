@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import json
 import os
 import re
 from unittest import TestCase, main
@@ -68,6 +69,21 @@ class CredentialsTest(TestCase):
             if name.endswith(".py"):
                 with open(os.path.join(dags, name), encoding="utf-8") as dag:
                     self.assertIsNone(re.search(r"PASSWORD|SECRET_KEY", dag.read()), name)
+
+    def test_dags_read_shared_values_from_airflow(self) -> None:
+        root = os.path.join(os.path.dirname(__file__), "..", "..", "airflow")
+        with open(os.path.join(root, "config", "variables.json"), encoding="utf-8") as variables:
+            defined = set(json.load(variables))
+        dags = os.path.join(root, "dags")
+        for name in sorted(os.listdir(dags)):
+            if not name.endswith(".py"):
+                continue
+            with self.subTest(dag=name), open(os.path.join(dags, name), encoding="utf-8") as dag:
+                source = dag.read()
+                used = set(re.findall(r"var\.value\.(\w+)", source)) | set(re.findall(r"var\.json\.get\('(\w+)'", source))
+                self.assertLessEqual(used, defined, "a Variable the DAG reads is missing from variables.json")
+                # Hosts, deploy paths and data folders belong in Variables, so a new environment changes no DAG.
+                self.assertIsNone(re.search(r"https?://|localhost|/opt/airflow|project_root }}/data/", source))
 
 
 class MaintenanceDagTest(TestCase):

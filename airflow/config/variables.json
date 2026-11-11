@@ -13,6 +13,7 @@
   "fraudstream_warehouse_uri": "s3a://fraudstream/warehouse",
   "fraudstream_spark_master": "local[4]",
   "fraudstream_spark_pool_slots": "1",
+  "fraudstream_maintenance_dir": "/opt/airflow/project/data/maintenance",
   "fraudstream_spark_conf": "{\"spark.sql.adaptive.enabled\": \"true\", \"spark.sql.adaptive.skewJoin.enabled\": \"true\", \"spark.sql.shuffle.partitions\": \"800\", \"spark.sql.adaptive.advisoryPartitionSizeInBytes\": \"128m\"}",
   "fraudstream_postgres_days_bronze_silver": "1",
   "fraudstream_postgres_days_gold": "7",
@@ -24,5 +25,6 @@
   "fraudstream_drift_summary_dir": "/opt/airflow/project/data/monitoring/drift",
   "fraudstream_rag_handbook_uri": "s3a://fraudstream/rag/handbook",
   "fraudstream_rag_run_dir": "/opt/airflow/project/data/rag/runs",
-  "fraudstream_rag_summary_path": "/opt/airflow/project/data/rag/_rag_index_summary.json"
+  "fraudstream_rag_summary_path": "/opt/airflow/project/data/rag/_rag_index_summary.json",
+  "fraudstream_airflow_ui_url": "http://localhost:18081"
 }

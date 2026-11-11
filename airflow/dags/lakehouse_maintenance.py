@@ -21,7 +21,7 @@ TABLES = (
     "iceberg.gold.feat_customer_total_orders_90d",
     "iceberg.gold.feat_merchant_risk_rolling",
 )
-REPORT_DIR = "{{ var.value.fraudstream_project_root }}/data/maintenance"
+REPORT_DIR = "{{ var.value.fraudstream_maintenance_dir }}"
 
 
 def maintenance_command(action: str) -> str:
