@@ -1,0 +1,7 @@
+# Used instead of .dockerignore when building Dockerfile: send only what the image copies.
+*
+!pyproject.toml
+!uv.lock
+!src
+!configs
+**/__pycache__

@@ -1,0 +1,12 @@
+#   docker build -f Dockerfile.baseline -t fraudstream:baseline .
+FROM python:3.14-bookworm
+
+RUN apt-get update && apt-get install --yes default-jre-headless
+
+ENV JAVA_HOME=/usr/lib/jvm/default-java
+
+WORKDIR /app
+COPY . .
+RUN pip install ".[kafka,spark,storage]"
+
+CMD ["fraudstream-generate-offline", "--help"]
