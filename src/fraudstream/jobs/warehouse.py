@@ -1,10 +1,4 @@
-"""Shared MinIO (S3A) object storage and direct-to-PostgreSQL JDBC helpers.
-
-Every offline Spark job (Bronze, Silver, Gold, offline features) reads and
-writes its own Parquet tables in MinIO and writes its own PostgreSQL tables
-over JDBC at the end of its run. This module centralizes the Spark session
-configuration and CLI conventions those jobs share
-"""
+"""What every Spark job shares: MinIO, the Iceberg catalog, and the PostgreSQL copy."""
 
 from __future__ import annotations
 
@@ -32,11 +26,7 @@ SUPPORTED_ICEBERG_CATALOG_TYPES = {"jdbc", "hadoop"}
 
 @dataclass(frozen=True)
 class WarehouseConfig:
-    """MinIO / S3A location and credentials for Parquet storage.
-
-    The credentials default to empty, for local `file://` runs; anything that
-    reads them from the environment requires them.
-    """
+    """Where MinIO is and how to log in. Empty keys are for local `file://` runs."""
 
     uri: str = DEFAULT_WAREHOUSE_URI
     endpoint: str = DEFAULT_MINIO_ENDPOINT
@@ -45,13 +35,7 @@ class WarehouseConfig:
 
     @classmethod
     def from_env(cls) -> "WarehouseConfig":
-        """Build a WarehouseConfig from the same env vars `add_warehouse_arguments` reads.
-
-        For code that talks to MinIO outside of a job's own CLI parsing --
-        e.g. an Airflow `PythonOperator` callable, which gets its arguments
-        from `op_kwargs`, not `sys.argv`, but still runs inside a container
-        where `MINIO_ENDPOINT`/`MINIO_ACCESS_KEY`/`MINIO_SECRET_KEY` are set.
-        """
+        """Read the MinIO settings from the environment, for code without a command line, such as an Airflow callable."""
 
         return cls(
             uri=_env_value("FRAUDSTREAM_WAREHOUSE_URI", DEFAULT_WAREHOUSE_URI),
@@ -63,27 +47,14 @@ class WarehouseConfig:
 
 @dataclass(frozen=True)
 class IcebergCatalogConfig:
-    """Iceberg catalog settings.
-
-    `catalog_type="jdbc"` (the default, used by every real job) backs the
-    catalog with the same PostgreSQL instance the jobs already write to over
-    plain JDBC -- it only stores table metadata (which files make up which
-    table version) there; table data still lives in MinIO under
-    `warehouse_uri`, in Iceberg's own layout.
-
-    `catalog_type="hadoop"` stores catalog metadata directly under
-    `warehouse_uri` instead, with no database involved. Unit tests use this
-    with a local `file://` `warehouse_uri` so they can exercise real Iceberg
-    reads/writes without a running Postgres, the same way they already run
-    Spark against a local filesystem path instead of real MinIO.
-    """
+    """The Iceberg catalog: "jdbc" keeps its table list in PostgreSQL, "hadoop" (tests only) in files."""
 
     catalog_name: str = DEFAULT_ICEBERG_CATALOG_NAME
     catalog_type: str = DEFAULT_ICEBERG_CATALOG_TYPE
     warehouse_uri: str = DEFAULT_WAREHOUSE_URI
 
     def validate(self) -> None:
-        """Raise when the Iceberg catalog config is not usable."""
+        """Reject an unknown catalog type."""
 
         if self.catalog_type not in SUPPORTED_ICEBERG_CATALOG_TYPES:
             allowed = ", ".join(sorted(SUPPORTED_ICEBERG_CATALOG_TYPES))
@@ -92,7 +63,7 @@ class IcebergCatalogConfig:
 
 @dataclass(frozen=True)
 class PostgresJdbcConfig:
-    """PostgreSQL JDBC connection settings for direct Spark writes."""
+    """How Spark reaches PostgreSQL."""
 
     host: str = DEFAULT_POSTGRES_HOST
     port: int = DEFAULT_POSTGRES_PORT
@@ -102,23 +73,19 @@ class PostgresJdbcConfig:
 
     @property
     def url(self) -> str:
-        """Return the JDBC connection URL for this PostgreSQL database."""
+        """The JDBC URL."""
 
         return f"jdbc:postgresql://{self.host}:{self.port}/{self.database}"
 
 
 def warehouse_path(uri: str, *parts: str) -> str:
-    """Join a warehouse root URI with one or more path segments.
-
-    `uri` is a plain string (e.g. `s3a://fraudstream/warehouse`), not a
-    `pathlib.Path` -- `Path` normalizes `//` and breaks URI schemes.
-    """
+    """Join a URI and path parts. Not `pathlib.Path`, which turns `s3a://` into `s3a:/`."""
 
     return "/".join((uri.rstrip("/"), *parts))
 
 
 def add_warehouse_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add the shared MinIO/S3A warehouse arguments to one job parser."""
+    """Add the MinIO flags to a job's parser."""
 
     parser.add_argument(
         "--warehouse-uri",
@@ -135,7 +102,7 @@ def add_warehouse_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def warehouse_config_from_args(args: argparse.Namespace) -> WarehouseConfig:
-    """Build a WarehouseConfig from parsed CLI arguments."""
+    """The MinIO settings from parsed flags."""
 
     return WarehouseConfig(
         uri=args.warehouse_uri,
@@ -146,7 +113,7 @@ def warehouse_config_from_args(args: argparse.Namespace) -> WarehouseConfig:
 
 
 def add_iceberg_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add the shared Iceberg catalog arguments to one job parser."""
+    """Add the Iceberg catalog flags to a job's parser."""
 
     parser.add_argument(
         "--iceberg-catalog-name",
@@ -167,7 +134,7 @@ def add_iceberg_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def iceberg_config_from_args(args: argparse.Namespace) -> IcebergCatalogConfig:
-    """Build an IcebergCatalogConfig from parsed CLI arguments."""
+    """The Iceberg settings from parsed flags."""
 
     return IcebergCatalogConfig(
         catalog_name=args.iceberg_catalog_name,
@@ -177,7 +144,7 @@ def iceberg_config_from_args(args: argparse.Namespace) -> IcebergCatalogConfig:
 
 
 def add_postgres_arguments(parser: argparse.ArgumentParser) -> None:
-    """Add the shared PostgreSQL JDBC arguments to one job parser."""
+    """Add the PostgreSQL flags to a job's parser."""
 
     parser.add_argument("--postgres-host", default=_env_value("POSTGRES_HOST", DEFAULT_POSTGRES_HOST))
     parser.add_argument("--postgres-port", type=int, default=_env_int("POSTGRES_PORT", DEFAULT_POSTGRES_PORT))
@@ -187,7 +154,7 @@ def add_postgres_arguments(parser: argparse.ArgumentParser) -> None:
 
 
 def postgres_config_from_args(args: argparse.Namespace) -> PostgresJdbcConfig:
-    """Build a PostgresJdbcConfig from parsed CLI arguments."""
+    """The PostgreSQL settings from parsed flags."""
 
     return PostgresJdbcConfig(
         host=args.postgres_host,
@@ -199,7 +166,7 @@ def postgres_config_from_args(args: argparse.Namespace) -> PostgresJdbcConfig:
 
 
 def configure_object_storage(builder: Any, warehouse: WarehouseConfig) -> Any:
-    """Add MinIO (S3A) and the PostgreSQL JDBC driver to a SparkSession builder."""
+    """Point Spark at MinIO and load the PostgreSQL driver."""
 
     return (
         builder.config("spark.jars.packages", f"{HADOOP_AWS_PACKAGE},{POSTGRESQL_JDBC_PACKAGE}")
@@ -217,26 +184,10 @@ def configure_iceberg_catalog(
     iceberg: IcebergCatalogConfig,
     postgres: PostgresJdbcConfig,
 ) -> Any:
-    """Register an Iceberg catalog on a SparkSession builder.
+    """Register the Iceberg catalog on a Spark builder.
 
-    `catalog_type="jdbc"` (every real job) reuses the same PostgreSQL
-    instance `configure_object_storage` already wires the JDBC driver for --
-    Iceberg's `JdbcCatalog` auto-creates its own `iceberg_tables` /
-    `iceberg_namespace_properties` bookkeeping tables there, separate from
-    the `bronze`/`silver`/`gold` serving schemas. `io-impl` reuses
-    HadoopFileIO so table data reads/writes go through the same
-    `spark.hadoop.fs.s3a.*` settings already configured for MinIO, instead of
-    pulling in a second S3 client via iceberg-aws-bundle.
-
-    `catalog_type="hadoop"` (unit tests only) stores catalog metadata
-    directly under `warehouse_uri` with no database involved, so tests can
-    exercise real Iceberg reads/writes against a local `file://` path without
-    a running Postgres.
-
-    Call this *after* `configure_object_storage` on the same builder: both
-    set `spark.jars.packages`, and this one's value (which repeats the
-    hadoop-aws/postgresql packages alongside the new Iceberg one) is the
-    complete list that should win.
+    Call it after `configure_object_storage`: its package list includes theirs and must win.
+    HadoopFileIO makes Iceberg reuse the S3A settings for MinIO instead of a second S3 client.
     """
 
     iceberg.validate()
@@ -268,13 +219,9 @@ def write_iceberg_table(
     partition_columns: Sequence[str],
     mode: str,
 ) -> None:
-    """Write a Spark DataFrame into an Iceberg table, creating it if needed.
+    """Write rows to an Iceberg table, creating it on the first run.
 
-    `mode="overwrite"` matches every job's current default full-refresh
-    behavior: `createOrReplace()` creates the table on the first run and
-    replaces its data (keeping the Iceberg table identity/history) on every
-    later run, in one call. `mode="append"` requires the table to already
-    exist, so it is created empty first when missing.
+    "overwrite" replaces the data and keeps the table's history; "append" adds to it.
     """
 
     writer = dataframe.writeTo(table).using("iceberg")
@@ -297,11 +244,7 @@ def write_iceberg_table(
 
 
 def postgres_window(dataframe: Any, date_column: str, days: int) -> Any:
-    """Keep the rows within `days` of the newest date in `date_column`; `days <= 0` keeps them all.
-
-    PostgreSQL is the serving copy and holds only a recent window; Iceberg holds
-    every row. A timestamp column is compared by its date.
-    """
+    """Keep the newest `days` days of `date_column`; 0 or less keeps every row."""
 
     if days <= 0:
         return dataframe
@@ -316,27 +259,17 @@ def postgres_window(dataframe: Any, date_column: str, days: int) -> Any:
 
 
 def write_postgres_copy(rows: Any, table: str, postgres: PostgresJdbcConfig, mode: str = "overwrite") -> int:
-    """Write the rows PostgreSQL keeps and return how many there were.
-
-    Callers pass rows read back from the Iceberg table they just wrote, windowed,
-    so the copy costs a pruned read rather than recomputing the job. The copy is
-    replaced on every run: it is a window of the newest days, not a history.
-    """
+    """Write the PostgreSQL copy and return its row count."""
 
     write_jdbc_table(rows, table, postgres, mode=mode)
     return rows.count()
 
 
 def write_jdbc_table(dataframe: Any, table: str, postgres: PostgresJdbcConfig, mode: str) -> None:
-    """Write a Spark DataFrame directly into one PostgreSQL table over JDBC.
+    """Write rows into a PostgreSQL table over JDBC.
 
-    `mode="overwrite"` truncates instead of dropping the table (`truncate`
-    option) so the hand-authored DDL -- constraints, foreign keys, the SCD2
-    partial-unique indexes -- survives instead of being replaced by a
-    Spark-inferred schema. Tables with foreign keys between them should be
-    truncated together first with `truncate_tables_cascade` and written here
-    with `mode="append"` instead, since PostgreSQL's single-table TRUNCATE
-    fails when other selected tables still hold referencing rows.
+    "overwrite" truncates rather than drops, so the table's keys and indexes survive.
+    Tables linked by foreign keys: `truncate_tables_cascade` them first, then append.
     """
 
     (
@@ -353,27 +286,14 @@ def write_jdbc_table(dataframe: Any, table: str, postgres: PostgresJdbcConfig, m
 
 
 def truncate_tables_cascade(spark: Any, tables: Sequence[str], postgres: PostgresJdbcConfig) -> None:
-    """Truncate several PostgreSQL tables together through Spark's own JDBC driver.
-
-    A single multi-table `TRUNCATE ... CASCADE` lets PostgreSQL resolve
-    foreign-key dependency order itself -- something a per-table Spark JDBC
-    overwrite cannot do. This uses the Postgres JDBC driver already loaded
-    onto the Spark session's JVM (see `configure_object_storage`) through the
-    session's own gateway, so no separate Python database client is involved.
-    """
+    """Empty several PostgreSQL tables in one statement, so their foreign keys don't block it."""
 
     if not tables:
         return
 
     quoted_tables = ", ".join('"' + table.replace(".", '"."') + '"' for table in tables)
     jvm = spark.sparkContext._jvm
-    # The postgresql jar arrives via `spark.jars.packages` (Ivy) on the
-    # current thread's *context* classloader. `DriverManager.getConnection`
-    # additionally filters candidate drivers by the *caller's* classloader
-    # (py4j's, here), which can't see a driver loaded that way even after
-    # `Class.forName` registers it -- so this instantiates the driver
-    # directly and calls `connect()` on it, bypassing that visibility check
-    # entirely instead of going through `DriverManager`.
+    # DriverManager can't see a driver Spark loaded at run time, so connect through the driver itself.
     driver_class = jvm.java.lang.Class.forName(
         "org.postgresql.Driver", True, jvm.Thread.currentThread().getContextClassLoader()
     )
@@ -393,7 +313,7 @@ def truncate_tables_cascade(spark: Any, tables: Sequence[str], postgres: Postgre
 
 
 def required_env(name: str) -> str:
-    """A credential from the environment; there is no default to fall back to."""
+    """A credential from the environment, or an error."""
 
     value = os.environ.get(name)
     if not value:
@@ -402,20 +322,20 @@ def required_env(name: str) -> str:
 
 
 def _add_secret_argument(parser: argparse.ArgumentParser, flag: str, name: str) -> None:
-    """A credential option: the environment variable when set, otherwise required on the command line."""
+    """A credential flag: from the environment when set, otherwise required."""
 
     value = os.environ.get(name)
     parser.add_argument(flag, default=value or None, required=not value, help=f"Defaults to ${name}.")
 
 
 def _env_value(name: str, default: str) -> str:
-    """Read an environment variable with a default."""
+    """An environment variable, or the default."""
 
     return os.environ.get(name, default)
 
 
 def _env_int(name: str, default: int) -> int:
-    """Read an integer environment variable with a default."""
+    """An integer environment variable, or the default."""
 
     raw_value = os.environ.get(name)
     return int(raw_value) if raw_value else default
