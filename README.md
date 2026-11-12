@@ -213,7 +213,7 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 | Feature engineering | Velocity, merchant risk, amount anomaly, device/IP reuse and late-arrival features | [06_feature_engineering.md](docs/data_engineering/06_feature_engineering.md)                                                                                                                               |
 | Flink streaming | Dedup, five-minute windows, measured watermark with late events and corrections, alerts | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
 | Orchestration | Three Airflow DAGs linked by validated data assets | [05_data_pipeline_orchestration.md](docs/edai-1/05_data_pipeline_orchestration.md) |
-| Governance | DataHub catalog, lineage, contracts and assertions; database ERDs; quality report | [11_data_governance_datahub.md](docs/data_engineering/11_data_governance_datahub.md)<br>[04_data_storage.md](docs/edai-1/04_data_storage.md)<br>[13_data_quality_report.md](docs/data_engineering/13_data_quality_report.md) |
+| Governance | DataHub catalog, each pipeline's lineage, and its checks as assertions | [06_data_governance.md](docs/edai-1/06_data_governance.md) |
 | Lakehouse and warehouse | Iceberg on MinIO keeps every row, PostgreSQL a recent window; partitioning, compaction and z-order measured in Trino, indexes for each serving lookup | [04_data_storage.md](docs/edai-1/04_data_storage.md) |
 | Performance | Measured Spark skew, spill and schema evolution; Flink throughput and late events | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
 | **ML platform** | | |

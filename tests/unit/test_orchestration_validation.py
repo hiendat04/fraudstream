@@ -136,6 +136,21 @@ class OrchestrationValidationTest(TestCase):
                 {"fact_transaction_rows": 5},
             )
 
+    def test_a_gold_build_from_a_date_is_checked_against_the_silver_rows_it_read(self) -> None:
+        with TemporaryDirectory() as tmp_dir:
+            root = Path(tmp_dir)
+            silver_summary_path = root / "silver_summary.json"
+            _write_json(silver_summary_path, {"output_row_count": 9})
+            tables = [{"table_name": name, "row_count": 1} for name in CORE_GOLD_TABLE_NAMES]
+            summary = {"build_scope": "core", "from_date": "2026-03-03", "fact_transaction_count": 1, "tables": tables}
+
+            _write_json(root / "_gold_transactions_summary.json", {**summary, "silver_row_count": 1})
+            self.assertEqual(validate_core_gold_summary(root, silver_summary_path), {"silver_rows": 1, "fact_transaction_rows": 1})
+
+            _write_json(root / "_gold_transactions_summary.json", {**summary, "silver_row_count": 2})
+            with self.assertRaisesRegex(PipelineValidationError, "grain"):
+                validate_core_gold_summary(root, silver_summary_path)
+
     def _materialization_summary(self, *, non_null=5, view_names=None, spot_check_views=None):
         """Build a materialization summary fixture with the given watermark and spot-check state."""
 

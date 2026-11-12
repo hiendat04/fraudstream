@@ -587,7 +587,8 @@ def _gold_fact_matches_silver(root: Path) -> tuple[bool, str, Mapping[str, Any]]
     gold = _read_json(root, "data/gold/_gold_transactions_summary.json")
     silver = _read_json(root, "data/silver/transactions/_silver_transactions_summary.json")
     fact_rows = _integer(gold, "fact_transaction_count")
-    silver_rows = _integer(silver, "output_row_count")
+    # A Gold build from a date reads only Silver's newest days, and records how many rows that was.
+    silver_rows = _integer(gold, "silver_row_count") if gold.get("from_date") else _integer(silver, "output_row_count")
     passed = gold.get("build_scope") == "core" and fact_rows > 0 and fact_rows == silver_rows
     return passed, "Gold transaction grain must match selected Silver transactions.", {
         "gold_fact_rows": fact_rows,

@@ -160,7 +160,11 @@ def validate_core_gold_summary(
             f"Gold summary is missing core tables: {', '.join(missing_tables)}"
         )
     fact_rows = table_counts["fact_transactions"]
-    silver_rows = _required_int(silver_summary, "output_row_count")
+    # A Gold build from a date reads only Silver's newest days, and records how many rows that was.
+    if summary.get("from_date"):
+        silver_rows = _required_int(summary, "silver_row_count")
+    else:
+        silver_rows = _required_int(silver_summary, "output_row_count")
     if fact_rows <= 0 or fact_rows != silver_rows:
         raise PipelineValidationError(
             f"Gold transaction grain failed: fact={fact_rows}, silver={silver_rows}"

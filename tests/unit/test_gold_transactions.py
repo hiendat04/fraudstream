@@ -256,6 +256,7 @@ class GoldTransactionsTest(TestCase):
                 {row["transaction_id"] for row in written["fact_transaction_quality_issue"]}, fact_ids
             )
             self.assertEqual(result.to_dict()["from_date"], "2026-01-02")
+            self.assertEqual(result.to_dict()["silver_row_count"], len(written["fact_transactions"]))
 
     def test_from_date_must_be_a_date(self) -> None:
         with self.assertRaises(ValueError):
