@@ -208,14 +208,12 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 | Area | What it does | Docs                                                                                                                                                                                      |
 |---|---|-------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------|
 | **Data engineering** | | |
-| Data generators | 663 million offline rows (115 GB of CSV in MinIO) and 512,500 stream events, with skew, schema change, duplicates, late and out-of-order data | [02_data_generator.md](docs/edai-1/02_data_generator.md) |
-| Bronze, Silver, Gold | Raw kept, then cleaned and deduplicated, then a star schema with daily aggregates. Iceberg holds every row, PostgreSQL a recent window | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
-| Feature engineering | Velocity, merchant risk, amount anomaly, device/IP reuse and late-arrival features | [06_feature_engineering.md](docs/data_engineering/06_feature_engineering.md)                                                                                                                               |
-| Flink streaming | Dedup, five-minute windows, measured watermark with late events and corrections, alerts | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
-| Orchestration | Three Airflow DAGs linked by validated data assets | [05_data_pipeline_orchestration.md](docs/edai-1/05_data_pipeline_orchestration.md) |
+| Docker | The batch image in two slim stages with locked dependencies and a non-root user: 13.2 GB → 1.55 GB on disk | [01_docker.md](docs/edai-1/01_docker.md) |
+| Data generation | 663 million offline rows (115 GB of CSV in MinIO) and 512,500 stream events, with skew, schema change, duplicates, late and out-of-order data planted on purpose | [02_data_generator.md](docs/edai-1/02_data_generator.md) |
+| Processing jobs | Spark takes the batch data from Bronze to Silver to Gold, with point-in-time features and labels; Flink dedupes the stream into five-minute windows with a measured watermark. Skew, spill, schema change, duplicates and late events are each handled and measured against a baseline | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
+| Data storage | Iceberg on MinIO keeps every row, PostgreSQL a recent window; partitioning, compaction and z-order measured in Trino, and an index for each serving lookup | [04_data_storage.md](docs/edai-1/04_data_storage.md) |
+| Orchestration | Three Airflow DAGs linked by validated data assets, each one ingest then validate | [05_data_pipeline_orchestration.md](docs/edai-1/05_data_pipeline_orchestration.md) |
 | Governance | DataHub catalog, each pipeline's lineage, and its checks as assertions | [06_data_governance.md](docs/edai-1/06_data_governance.md) |
-| Lakehouse and warehouse | Iceberg on MinIO keeps every row, PostgreSQL a recent window; partitioning, compaction and z-order measured in Trino, indexes for each serving lookup | [04_data_storage.md](docs/edai-1/04_data_storage.md) |
-| Performance | Measured Spark skew, spill and schema evolution; Flink throughput and late events | [03_processing_jobs.md](docs/edai-1/03_processing_jobs.md) |
 | **ML platform** | | |
 | Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/ml/16_feature_store.md)                                                                                                                                           |
 | Model training | XGBoost against a logistic baseline, split by date, and a Kubeflow pipeline | [17_ml_training.md](docs/ml/17_ml_training.md)<br>[18_ml_pipeline.md](docs/ml/18_ml_pipeline.md)                                                                                                |
@@ -284,11 +282,11 @@ docker compose --profile orchestration up --build -d \
   airflow-db airflow-init airflow-api-server airflow-dag-processor airflow-scheduler
 ```
 
-Everything else has its own run instructions in the docs above: Flink
-([07](docs/data_engineering/07_flink_streaming_pipeline.md#run-locally)), Trino
-([15](docs/data_engineering/14_lakehouse_iceberg.md#trino-querying-iceberg-tables)), DataHub
-([11](docs/data_engineering/11_data_governance_datahub.md)), Feast ([17](docs/ml/16_feature_store.md)) and
-the Kubernetes stack ([21](docs/ml/20_local_k8s_platform.md)). Add `--retain-ui 600` or `--retain-ui forever` to any Spark
+Everything else has its own run instructions in the docs above: Spark and Flink
+([03](docs/edai-1/03_processing_jobs.md#run-it)), Trino
+([04](docs/edai-1/04_data_storage.md#lakehouse)), DataHub
+([06](docs/edai-1/06_data_governance.md#setting-up-datahub)), Feast ([16](docs/ml/16_feature_store.md)) and
+the Kubernetes stack ([20](docs/ml/20_local_k8s_platform.md)). Add `--retain-ui 600` or `--retain-ui forever` to any Spark
 job to watch it run and keep its UI open after it finishes, for 10 minutes or until Ctrl+C, or `--flink-ui` to the
 Flink job to watch it run. Stop the services with
 `docker compose down`.
@@ -331,7 +329,7 @@ fraudstream/
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
-│   ├── data_engineering/     # Generators, Bronze/Silver/Gold, Flink, Airflow, DataHub, lakehouse
+│   ├── edai-1/               # Docker, generators, Spark and Flink jobs, storage, Airflow, DataHub
 │   ├── ml/                   # Feature store, training, serving, CI/CD, gateway, IaC, observability, security
 │   ├── llm/                  # The LLM layer: serving, RAG, MCP, agents and their A/B tests
 │   └── ideas/                # Novel ideas, each shown to work on the running platform
