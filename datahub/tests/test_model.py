@@ -54,6 +54,23 @@ class GovernanceModelTests(unittest.TestCase):
         self.assertEqual(len(results), 12)
         self.assertEqual({result.status for result in results}, {"SUCCESS"})
 
+    def test_a_gold_build_from_a_date_is_checked_against_the_silver_rows_it_read(self) -> None:
+        contracts = load_contracts(CONTRACT_DIR)
+        for silver_rows_read, status in ((100, "SUCCESS"), (101, "FAILURE")):
+            with self.subTest(silver_rows_read=silver_rows_read), tempfile.TemporaryDirectory() as temp_dir:
+                root = Path(temp_dir)
+                _write_validation_artifacts(root)
+                gold = root / "data/gold/_gold_transactions_summary.json"
+                summary = json.loads(gold.read_text(encoding="utf-8"))
+                # Silver holds 100 rows; a from-date Gold read only some of them, and the check uses that number.
+                _write_json(root / "data/silver/transactions/_silver_transactions_summary.json", {
+                    **json.loads((root / "data/silver/transactions/_silver_transactions_summary.json").read_text(encoding="utf-8")),
+                    "output_row_count": 650,
+                })
+                _write_json(gold, {**summary, "from_date": "2026-03-03", "silver_row_count": silver_rows_read})
+                statuses = {result.rule.rule_id: result.status for result in evaluate_contracts(root, contracts)}
+                self.assertEqual(statuses["gold-fact-matches-silver"], status)
+
     def test_missing_artifacts_are_reported_as_error_not_success(self) -> None:
         contracts = load_contracts(CONTRACT_DIR)
         with tempfile.TemporaryDirectory() as temp_dir:

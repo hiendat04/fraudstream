@@ -478,6 +478,7 @@ class GoldTransactionsResult:
     table_results: tuple[GoldTableResult, ...]
     spark_conf: dict[str, str] = field(default_factory=dict)
     from_date: str | None = None
+    silver_row_count: int = 0
 
     @property
     def fact_transaction_count(self) -> int:
@@ -499,6 +500,7 @@ class GoldTransactionsResult:
             "spark_version": self.spark_version,
             "spark_conf": self.spark_conf,
             "from_date": self.from_date,
+            "silver_row_count": self.silver_row_count,
             "processed_at": self.processed_at,
             "completed_at": self.completed_at,
             "fact_transaction_count": self.fact_transaction_count,
@@ -545,6 +547,8 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
         silver_rows = spark.table(config.silver_table)
         if config.from_date is not None:
             silver_rows = silver_rows.where(silver_rows.event_date >= config.from_date)
+        # The Gold checks compare the fact table with this, since a from-date build reads only part of Silver.
+        silver_row_count = silver_rows.count()
         silver_dataframe = _prepare_silver_dataframe(silver_rows)
         frames = _build_gold_frames(
             spark,
@@ -578,6 +582,7 @@ def build_gold_transactions(config: GoldTransactionsConfig) -> GoldTransactionsR
             spark_version=spark.version,
             spark_conf=config.spark_conf,
             from_date=config.from_date,
+            silver_row_count=silver_row_count,
             processed_at=_to_utc_string(processed_at),
             completed_at=_to_utc_string(datetime.now(UTC)),
             table_results=tuple(table_results),
