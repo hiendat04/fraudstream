@@ -13,3 +13,7 @@ path "secret/data/platform/pgvector" {
 path "secret/data/platform/gateway" {
   capabilities = ["read"]
 }
+
+path "secret/data/platform/lakefs" {
+  capabilities = ["read"]
+}

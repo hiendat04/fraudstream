@@ -59,7 +59,12 @@ kubernetes() {
 }
 
 case "${1:-all}" in
-  all) policies; approles; kubernetes ;;
+  all)
+    policies; approles
+    # The cluster may be stopped to save memory; its auth waits for `configure.sh kubernetes`.
+    if kubectl get --raw /readyz >/dev/null 2>&1; then kubernetes
+    else echo "==> Kubernetes auth skipped: the kind cluster isn't running; run ./infra/vault/configure.sh kubernetes once it is"
+    fi ;;
   kubernetes) kubernetes ;;
   *) echo "usage: configure.sh [kubernetes]" >&2; exit 2 ;;
 esac

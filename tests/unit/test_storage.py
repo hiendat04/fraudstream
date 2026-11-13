@@ -182,6 +182,20 @@ class S3SchemeTest(TestCase):
         mock_client_factory.return_value = mock_client
         return mock_client_factory, mock_client
 
+    def test_the_raw_repository_is_read_through_lakefs_and_the_rest_through_minio(self) -> None:
+        mock_client_factory, mock_client = self._patch_boto3_client()
+        mock_client.head_object.return_value = {"ContentLength": 1}
+        warehouse = WarehouseConfig(endpoint="http://minio:9000", access_key="ak", secret_key="sk",
+                                    lakefs_endpoint="http://lakefs:8000", lakefs_access_key="lak",
+                                    lakefs_secret_key="lsk")
+
+        storage.object_exists(warehouse, "s3a://fraudstream-raw/main/a.csv")
+        storage.object_exists(warehouse, "s3a://fraudstream/warehouse/b.parquet")
+
+        endpoints = [(call.kwargs["endpoint_url"], call.kwargs["aws_access_key_id"])
+                     for call in mock_client_factory.call_args_list]
+        self.assertEqual(endpoints, [("http://lakefs:8000", "lak"), ("http://minio:9000", "ak")])
+
     def test_client_is_cached_across_calls_for_the_same_warehouse(self) -> None:
         mock_client_factory, mock_client = self._patch_boto3_client()
         mock_client.head_object.side_effect = _not_found_error()

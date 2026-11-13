@@ -21,6 +21,6 @@
   "drift_start_date": "2026-05-01",
   "drift_amount_multiplier_end": 1.6,
   "output_dir": "data/raw_source/offline_transactions",
-  "raw_uri": "s3a://fraudstream/raw/offline_transactions",
-  "labels_uri": "s3a://fraudstream/raw/transaction_labels"
+  "raw_uri": "s3a://fraudstream-raw/main/offline_transactions",
+  "labels_uri": "s3a://fraudstream-raw/main/transaction_labels"
 }

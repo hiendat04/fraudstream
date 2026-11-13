@@ -1,4 +1,9 @@
-"""Generate raw offline transactions, ingest Bronze, and reconcile the result."""
+"""Generate raw offline transactions, ingest Bronze, and reconcile the result.
+
+The generator writes to the run's own lakeFS branch. Main changes only when the
+checked branch merges, so a stopped or failed run leaves main as it was and its
+branch in place to inspect.
+"""
 
 from __future__ import annotations
 
@@ -7,10 +12,12 @@ from airflow.providers.standard.operators.bash import BashOperator
 from airflow.providers.standard.operators.python import PythonOperator
 from airflow.sdk import DAG, TaskGroup
 
+from fraudstream_airflow import lakefs
 from fraudstream_airflow.assets import BRONZE_TRANSACTIONS_VALIDATED
 from fraudstream_airflow.dag_helpers import (
     DEFAULT_ARGS,
-    MINIO_KWARGS,
+    LAKEFS_KWARGS,
+    STORAGE_KWARGS,
     SPARK_POOL,
     project_python_command,
     spark_job_command,
@@ -29,9 +36,16 @@ with DAG(
     catchup=False,
     max_active_runs=1,
     default_args=DEFAULT_ARGS,
+    user_defined_macros={"on_branch": lakefs.on_branch},
     tags=["fraudstream", "batch", "bronze"],
 ) as dag:
     with TaskGroup(group_id="ingest", tooltip="Create and ingest raw source data") as ingest:
+        create_branch = PythonOperator(
+            task_id="create_branch",
+            python_callable=lakefs.create_branch,
+            op_kwargs={"raw_uri": "{{ var.value.fraudstream_raw_uri }}", "run_id": "{{ run_id }}", **LAKEFS_KWARGS},
+        )
+
         generate_raw_source = BashOperator(
             task_id="generate_raw_source",
             bash_command=project_python_command(
@@ -39,8 +53,8 @@ with DAG(
                 """
                 --config "{{ var.value.fraudstream_offline_generator_config }}"
                 --output-dir "{{ var.value.fraudstream_raw_transactions_dir }}"
-                --raw-uri "{{ var.value.fraudstream_raw_uri }}"
-                --labels-uri "{{ var.value.fraudstream_labels_uri }}"
+                --raw-uri "{{ on_branch(var.value.fraudstream_raw_uri, run_id) }}"
+                --labels-uri "{{ on_branch(var.value.fraudstream_labels_uri, run_id) }}"
                 --workers "{{ var.value.fraudstream_generator_workers }}"
                 """,
             ),
@@ -51,8 +65,14 @@ with DAG(
             python_callable=verify_source_manifest,
             op_kwargs={
                 "source_dir": "{{ var.value.fraudstream_raw_transactions_dir }}",
-                **MINIO_KWARGS,
+                **STORAGE_KWARGS,
             },
+        )
+
+        commit_and_merge = PythonOperator(
+            task_id="commit_and_merge",
+            python_callable=lakefs.commit_and_merge,
+            op_kwargs={"raw_uri": "{{ var.value.fraudstream_raw_uri }}", "run_id": "{{ run_id }}", **LAKEFS_KWARGS},
         )
 
         ingest_bronze = BashOperator(
@@ -70,12 +90,13 @@ with DAG(
                 --postgres-days "{{ var.value.fraudstream_postgres_days_bronze_silver }}"
                 --write-mode "{{ var.value.fraudstream_write_mode }}"
                 --ingest-run-id "{{ run_id }}"
+                --source-commit "{{ ti.xcom_pull(task_ids='ingest.commit_and_merge') }}"
                 --ingest-date "{{ (dag_run.logical_date or dag_run.start_date).strftime('%Y-%m-%d') }}"
                 """,
             ),
         )
 
-        generate_raw_source >> verify_source_manifest >> ingest_bronze
+        create_branch >> generate_raw_source >> verify_source_manifest >> commit_and_merge >> ingest_bronze
 
     with TaskGroup(group_id="validate", tooltip="Reconcile Bronze with the raw source") as validate:
         reconcile_bronze = BashOperator(

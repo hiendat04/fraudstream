@@ -16,7 +16,8 @@ kubectl() { command kubectl --context kind-fraudstream "$@"; }
 random_key() { openssl rand -hex 24; }
 
 missing=0
-secret() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d; }
+# Empty when the cluster is down, so the caller makes a new key instead of exiting.
+secret() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d || true; }
 
 # put <path> <json object of fields>: written only if the path is new, with the
 # body from stdin and the token from a file descriptor, never in a command line.
@@ -62,6 +63,14 @@ export AIRFLOW_FERNET_KEY AIRFLOW_JWT_SECRET AIRFLOW_API_SECRET_KEY
 put compose/airflow "$(jq -n '{fernet_key: env.AIRFLOW_FERNET_KEY, jwt_secret: env.AIRFLOW_JWT_SECRET,
   api_secret_key: env.AIRFLOW_API_SECRET_KEY}')"
 put cloud/postgres "$(jq -n '{password: env.CLOUD_POSTGRES_PASSWORD}')"
+
+# lakeFS's admin keys, shaped like AWS's because its S3 gateway is called with them.
+: "${LAKEFS_ACCESS_KEY:=AKIA$(openssl rand -hex 8 | tr a-f A-F)}" "${LAKEFS_SECRET_KEY:=$(random_key)}"
+: "${LAKEFS_ENCRYPT_KEY:=$(random_key)}"
+export LAKEFS_ACCESS_KEY LAKEFS_SECRET_KEY LAKEFS_ENCRYPT_KEY
+put platform/lakefs "$(jq -n '{conn_type: "aws", host: "http://lakefs:8000",
+  login: env.LAKEFS_ACCESS_KEY, password: env.LAKEFS_SECRET_KEY}')"
+put compose/lakefs "$(jq -n '{encrypt_key: env.LAKEFS_ENCRYPT_KEY}')"
 
 echo "==> the LLM, MCP and A2A keys"
 # key_from <namespace> <secret> <field>: the cluster's key, or a new one.

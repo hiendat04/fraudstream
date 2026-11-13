@@ -7,7 +7,7 @@ from datetime import timedelta
 from textwrap import dedent
 from typing import Any
 
-from fraudstream.jobs.warehouse import DEFAULT_MINIO_ENDPOINT, DEFAULT_WAREHOUSE_URI, WarehouseConfig
+from fraudstream.jobs.warehouse import DEFAULT_LAKEFS_ENDPOINT, DEFAULT_MINIO_ENDPOINT, DEFAULT_WAREHOUSE_URI, WarehouseConfig
 from fraudstream.orchestration.validation import validate_source_manifest
 
 
@@ -20,15 +20,22 @@ CREDENTIALS_ENV = {
     "POSTGRES_PASSWORD": "{{ conn.postgres.password }}",
     "MINIO_ACCESS_KEY": "{{ conn.minio.login }}",
     "MINIO_SECRET_KEY": "{{ conn.minio.password }}",
+    "LAKEFS_ACCESS_KEY": "{{ conn.lakefs.login }}",
+    "LAKEFS_SECRET_KEY": "{{ conn.lakefs.password }}",
     "PGVECTOR_USER": "{{ conn.pgvector.login }}",
     "PGVECTOR_PASSWORD": "{{ conn.pgvector.password }}",
     "GATEWAY_USER": "{{ conn.gateway.login }}",
     "GATEWAY_PASSWORD": "{{ conn.gateway.password }}",
 }
-# A Python task has no environment of its own to fill, so it gets MinIO's keys as arguments.
-MINIO_KWARGS = {
+# A Python task has no environment of its own to fill, so it gets the keys as arguments.
+LAKEFS_KWARGS = {
+    "lakefs_access_key": "{{ conn.lakefs.login }}",
+    "lakefs_secret_key": "{{ conn.lakefs.password }}",
+}
+STORAGE_KWARGS = {
     "minio_access_key": "{{ conn.minio.login }}",
     "minio_secret_key": "{{ conn.minio.password }}",
+    **LAKEFS_KWARGS,
 }
 
 DEFAULT_ARGS = {
@@ -44,14 +51,19 @@ DEFAULT_ARGS = {
 }
 
 
-def verify_source_manifest(source_dir: str, *, minio_access_key: str, minio_secret_key: str) -> dict[str, Any]:
-    """The source manifest's quality gate, with MinIO's keys from the minio connection."""
+def verify_source_manifest(
+    source_dir: str, *, minio_access_key: str, minio_secret_key: str, lakefs_access_key: str, lakefs_secret_key: str
+) -> dict[str, Any]:
+    """The source manifest's quality gate, with the keys from the minio and lakefs connections."""
 
     warehouse = WarehouseConfig(
         uri=os.environ.get("FRAUDSTREAM_WAREHOUSE_URI", DEFAULT_WAREHOUSE_URI),
         endpoint=os.environ.get("MINIO_ENDPOINT", DEFAULT_MINIO_ENDPOINT),
         access_key=minio_access_key,
         secret_key=minio_secret_key,
+        lakefs_endpoint=os.environ.get("LAKEFS_ENDPOINT", DEFAULT_LAKEFS_ENDPOINT),
+        lakefs_access_key=lakefs_access_key,
+        lakefs_secret_key=lakefs_secret_key,
     )
     return validate_source_manifest(source_dir, warehouse=warehouse)
 

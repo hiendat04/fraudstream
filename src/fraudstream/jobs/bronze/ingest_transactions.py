@@ -58,7 +58,7 @@ from fraudstream.jobs.warehouse import (
 APP_NAME = "FraudStreamBronzeTransactionIngestion"
 DEFAULT_MASTER = "local[*]"
 DEFAULT_SOURCE_DIR = Path("data/raw_source/offline_transactions")
-DEFAULT_SOURCE_URI = "s3a://fraudstream/raw/offline_transactions"
+DEFAULT_SOURCE_URI = "s3a://fraudstream-raw/main/offline_transactions"
 DEFAULT_OUTPUT_DIR = Path("data/bronze/raw_transactions")
 DEFAULT_SOURCE_SYSTEM = "fraudstream_generator"
 DEFAULT_SOURCE_DATASET = "offline_transactions"
@@ -136,6 +136,7 @@ class BronzeIngestionConfig:
     write_mode: str = DEFAULT_WRITE_MODE
     ingest_run_id: str | None = None
     ingest_date: str | None = None
+    source_commit: str | None = None
     source_system: str = DEFAULT_SOURCE_SYSTEM
     source_dataset: str = DEFAULT_SOURCE_DATASET
     retain_ui: int = 0
@@ -230,6 +231,7 @@ class BronzeIngestionResult:
     spark_conf: dict[str, str] = field(default_factory=dict)
     postgres_rows: dict[str, int] = field(default_factory=dict)
     added_columns: tuple[str, ...] = ()
+    source_commit: str | None = None
 
     def to_dict(self) -> dict[str, Any]:
         """Return a JSON-serializable ingestion summary."""
@@ -250,6 +252,7 @@ class BronzeIngestionResult:
             "spark_conf": self.spark_conf,
             "postgres_rows": self.postgres_rows,
             "added_columns": list(self.added_columns),
+            "source_commit": self.source_commit,
             "completed_at": self.completed_at,
         }
 
@@ -823,6 +826,7 @@ def _build_ingestion_result(
         write_mode=config.write_mode,
         spark_version=spark_version,
         spark_conf=config.spark_conf,
+        source_commit=config.source_commit,
         completed_at=datetime.now(UTC).isoformat(timespec="seconds").replace("+00:00", "Z"),
     )
 
@@ -886,6 +890,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--write-mode", choices=sorted(SUPPORTED_WRITE_MODES), default=DEFAULT_WRITE_MODE)
     parser.add_argument("--ingest-run-id")
     parser.add_argument("--ingest-date")
+    parser.add_argument("--source-commit", help="The lakeFS commit the raw files were read at, kept in the summary.")
     parser.add_argument("--from-date", help="Ingest only files on or after this transaction_date (YYYY-MM-DD).")
     parser.add_argument("--to-date", help="Ingest only files on or before this transaction_date (YYYY-MM-DD).")
     add_retain_ui_argument(parser)
@@ -915,6 +920,7 @@ def main(argv: list[str] | None = None) -> int:
         write_mode=args.write_mode,
         ingest_run_id=args.ingest_run_id,
         ingest_date=args.ingest_date,
+        source_commit=args.source_commit,
         retain_ui=args.retain_ui,
         spark_conf=parse_spark_conf(args.spark_conf),
         warehouse=warehouse_config_from_args(args),

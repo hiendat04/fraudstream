@@ -34,6 +34,7 @@ x-airflow-common: &airflow-common
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
     MINIO_ENDPOINT: "http://minio:9000"
+    LAKEFS_ENDPOINT: "http://lakefs:8000"
     GATEWAY_CA: /opt/airflow/project/local-ca.crt
     PUSHGATEWAY_URL: https://pushgateway.fraudstream.localhost
     PIPELINES_URL: https://pipelines.fraudstream.localhost
@@ -230,6 +231,33 @@ services:
       - |
         mc alias set local http://minio:9000 "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}" "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
         mc mb --ignore-existing local/fraudstream
+        mc mb --ignore-existing local/lakefs
+
+  lakefs:
+    image: treeverse/lakefs:1.88.0
+    container_name: fraudstream-lakefs
+    depends_on:
+      minio-bucket-init:
+        condition: service_completed_successfully
+    ports:
+      - "${LAKEFS_PORT:-18000}:8000"
+    environment:
+      # The local key-value store is the only one that creates the first admin at start-up.
+      LAKEFS_DATABASE_TYPE: local
+      LAKEFS_DATABASE_LOCAL_PATH: /home/lakefs/metadata
+      LAKEFS_AUTH_ENCRYPT_SECRET_KEY: "${LAKEFS_ENCRYPT_KEY:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      LAKEFS_BLOCKSTORE_TYPE: s3
+      LAKEFS_BLOCKSTORE_S3_ENDPOINT: http://minio:9000
+      LAKEFS_BLOCKSTORE_S3_FORCE_PATH_STYLE: "true"
+      LAKEFS_BLOCKSTORE_S3_REGION: us-east-1
+      LAKEFS_BLOCKSTORE_S3_CREDENTIALS_ACCESS_KEY_ID: "${MINIO_ROOT_USER:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      LAKEFS_BLOCKSTORE_S3_CREDENTIALS_SECRET_ACCESS_KEY: "${MINIO_ROOT_PASSWORD:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      LAKEFS_INSTALLATION_USER_NAME: admin
+      LAKEFS_INSTALLATION_ACCESS_KEY_ID: "${LAKEFS_ACCESS_KEY:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+      LAKEFS_INSTALLATION_SECRET_ACCESS_KEY: "${LAKEFS_SECRET_KEY:?run . infra/vault/env.sh to setup environment variables before running any docker compose command}"
+    volumes:
+      # Mounted on the lakefs user's home, which the image already gives that user, so the volume is theirs too.
+      - lakefs-data:/home/lakefs
 
   mlflow:
     build:
@@ -492,6 +520,7 @@ volumes:
   kafka-data:
   postgres-data:
   minio-data:
+  lakefs-data:
   spark-temp:
   airflow-db-data:
   redis-data:

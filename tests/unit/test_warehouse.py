@@ -112,6 +112,20 @@ class ConfigureObjectStorageTest(TestCase):
         self.assertEqual(builder.options["spark.hadoop.fs.s3a.endpoint"], "http://minio:9000")
         self.assertEqual(builder.options["spark.hadoop.fs.s3a.access.key"], "ak")
         self.assertEqual(builder.options["spark.hadoop.fs.s3a.secret.key"], "sk")
+        self.assertFalse(any(".bucket." in key for key in builder.options), "no lakeFS keys, no lakeFS settings")
+
+    def test_the_raw_repository_goes_through_lakefs(self) -> None:
+        builder = configure_object_storage(
+            _RecordingBuilder(),
+            WarehouseConfig(access_key="ak", secret_key="sk", lakefs_endpoint="http://lakefs:8000",
+                            lakefs_access_key="lak", lakefs_secret_key="lsk"),
+        )
+
+        raw = "spark.hadoop.fs.s3a.bucket.fraudstream-raw"
+        self.assertEqual(builder.options[f"{raw}.endpoint"], "http://lakefs:8000")
+        self.assertEqual(builder.options[f"{raw}.access.key"], "lak")
+        self.assertEqual(builder.options[f"{raw}.secret.key"], "lsk")
+        self.assertEqual(builder.options["spark.hadoop.fs.s3a.access.key"], "ak", "other buckets stay on MinIO")
 
 
 class WriteIcebergTableTest(TestCase):
@@ -226,12 +240,25 @@ class RequiredSecretsTest(TestCase):
             config = WarehouseConfig.from_env()
         self.assertEqual((config.access_key, config.secret_key), ("ak", "sk"))
 
+    def test_lakefs_settings_come_from_the_environment(self) -> None:
+        environment = {"MINIO_ACCESS_KEY": "ak", "MINIO_SECRET_KEY": "sk", "LAKEFS_ENDPOINT": "http://lakefs:8000",
+                       "LAKEFS_ACCESS_KEY": "lak", "LAKEFS_SECRET_KEY": "lsk"}
+        with patch.dict(os.environ, environment, clear=True):
+            config = WarehouseConfig.from_env()
+        self.assertEqual(config.s3_settings("fraudstream-raw"), ("http://lakefs:8000", "lak", "lsk"))
+        self.assertEqual(config.s3_settings("fraudstream"), (config.endpoint, "ak", "sk"))
+
+    def test_the_raw_repository_needs_the_lakefs_keys(self) -> None:
+        with self.assertRaisesRegex(ValueError, "LAKEFS_ACCESS_KEY"):
+            WarehouseConfig(access_key="ak", secret_key="sk").s3_settings("fraudstream-raw")
+
     def test_no_password_has_a_default(self) -> None:
         for name in ("DEFAULT_POSTGRES_PASSWORD", "DEFAULT_MINIO_SECRET_KEY",
                      "DEFAULT_POSTGRES_USER", "DEFAULT_MINIO_ACCESS_KEY"):
             self.assertFalse(hasattr(warehouse_module, name), name)
         self.assertEqual((PostgresJdbcConfig().user, PostgresJdbcConfig().password), ("", ""))
         self.assertEqual((WarehouseConfig().access_key, WarehouseConfig().secret_key), ("", ""))
+        self.assertEqual((WarehouseConfig().lakefs_access_key, WarehouseConfig().lakefs_secret_key), ("", ""))
 
 
 @skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
