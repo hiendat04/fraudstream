@@ -47,8 +47,8 @@ from fraudstream.jobs.warehouse import (
 
 TransactionRow = dict[str, str]
 
-DEFAULT_RAW_URI = "s3a://fraudstream/raw/offline_transactions"
-DEFAULT_LABELS_URI = "s3a://fraudstream/raw/transaction_labels"
+DEFAULT_RAW_URI = "s3a://fraudstream-raw/main/offline_transactions"
+DEFAULT_LABELS_URI = "s3a://fraudstream-raw/main/transaction_labels"
 
 BASE_COLUMNS = [
     "transaction_id",

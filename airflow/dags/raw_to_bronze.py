@@ -10,7 +10,7 @@ from airflow.sdk import DAG, TaskGroup
 from fraudstream_airflow.assets import BRONZE_TRANSACTIONS_VALIDATED
 from fraudstream_airflow.dag_helpers import (
     DEFAULT_ARGS,
-    MINIO_KWARGS,
+    STORAGE_KWARGS,
     SPARK_POOL,
     project_python_command,
     spark_job_command,
@@ -51,7 +51,7 @@ with DAG(
             python_callable=verify_source_manifest,
             op_kwargs={
                 "source_dir": "{{ var.value.fraudstream_raw_transactions_dir }}",
-                **MINIO_KWARGS,
+                **STORAGE_KWARGS,
             },
         )
 

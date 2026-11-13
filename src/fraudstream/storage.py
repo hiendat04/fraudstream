@@ -61,7 +61,7 @@ def put_text(warehouse: WarehouseConfig, uri: str, text: str) -> None:
         return
 
     bucket, key = parse_s3_uri(uri)
-    _client(warehouse).put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"))
+    _client(warehouse, bucket).put_object(Bucket=bucket, Key=key, Body=text.encode("utf-8"))
 
 
 def get_text(warehouse: WarehouseConfig, uri: str) -> str:
@@ -71,7 +71,7 @@ def get_text(warehouse: WarehouseConfig, uri: str) -> str:
         return _local_path(uri).read_text(encoding="utf-8")
 
     bucket, key = parse_s3_uri(uri)
-    response = _client(warehouse).get_object(Bucket=bucket, Key=key)
+    response = _client(warehouse, bucket).get_object(Bucket=bucket, Key=key)
     return response["Body"].read().decode("utf-8")
 
 
@@ -85,7 +85,7 @@ def put_file(warehouse: WarehouseConfig, uri: str, path: Path) -> None:
         return
 
     bucket, key = parse_s3_uri(uri)
-    _client(warehouse).upload_file(str(path), bucket, key)
+    _client(warehouse, bucket).upload_file(str(path), bucket, key)
 
 
 @contextmanager
@@ -96,7 +96,7 @@ def open_text(warehouse: WarehouseConfig, uri: str) -> Iterator[TextIO]:
         raw = _local_path(uri).open("rb")
     else:
         bucket, key = parse_s3_uri(uri)
-        raw = _client(warehouse).get_object(Bucket=bucket, Key=key)["Body"]
+        raw = _client(warehouse, bucket).get_object(Bucket=bucket, Key=key)["Body"]
     try:
         binary = gzip.GzipFile(fileobj=raw) if uri.endswith(".gz") else io.BufferedReader(raw)
         yield io.TextIOWrapper(binary, encoding="utf-8", newline="")
@@ -162,7 +162,7 @@ def list_keys(warehouse: WarehouseConfig, uri_prefix: str, suffix: str | None = 
         return sorted(f"{_FILE_SCHEME}{path}" for path in matches)
 
     bucket, prefix = parse_s3_uri(uri_prefix)
-    client = _client(warehouse)
+    client = _client(warehouse, bucket)
     keys: list[str] = []
     continuation_token: str | None = None
     while True:
@@ -195,7 +195,7 @@ def delete_prefix(warehouse: WarehouseConfig, uri_prefix: str) -> None:
         return
 
     bucket, _ = parse_s3_uri(uri_prefix)
-    client = _client(warehouse)
+    client = _client(warehouse, bucket)
     keys = [parse_s3_uri(uri)[1] for uri in list_keys(warehouse, uri_prefix)]
     # S3's batch-delete API takes up to 1000 keys per call, so a generator
     # run's worth of partitions (a few hundred files) is one round trip
@@ -213,7 +213,7 @@ def delete_object(warehouse: WarehouseConfig, uri: str) -> None:
         return
 
     bucket, key = parse_s3_uri(uri)
-    _client(warehouse).delete_object(Bucket=bucket, Key=key)
+    _client(warehouse, bucket).delete_object(Bucket=bucket, Key=key)
 
 
 def _local_path(uri: str) -> Path:
@@ -228,7 +228,7 @@ def _head_object(warehouse: WarehouseConfig, bucket: str, key: str) -> dict[str,
     import botocore.exceptions
 
     try:
-        return _client(warehouse).head_object(Bucket=bucket, Key=key)
+        return _client(warehouse, bucket).head_object(Bucket=bucket, Key=key)
     except botocore.exceptions.ClientError as exc:
         error_code = exc.response.get("Error", {}).get("Code")
         if error_code in {"404", "NoSuchKey"}:
@@ -237,7 +237,7 @@ def _head_object(warehouse: WarehouseConfig, bucket: str, key: str) -> dict[str,
 
 
 @lru_cache(maxsize=8)
-def _client(warehouse: WarehouseConfig) -> Any:
+def _client(warehouse: WarehouseConfig, bucket: str) -> Any:
     """Build (and cache) a boto3 S3 client pointed at MinIO.
 
     `WarehouseConfig` is a frozen, hashable dataclass, so this is keyed on
@@ -255,9 +255,5 @@ def _client(warehouse: WarehouseConfig) -> Any:
             "boto3 is not installed. Run `uv sync --extra storage`, then retry this command."
         ) from exc
 
-    return boto3.client(
-        "s3",
-        endpoint_url=warehouse.endpoint,
-        aws_access_key_id=warehouse.access_key,
-        aws_secret_access_key=warehouse.secret_key,
-    )
+    endpoint, access_key, secret_key = warehouse.s3_settings(bucket)
+    return boto3.client("s3", endpoint_url=endpoint, aws_access_key_id=access_key, aws_secret_access_key=secret_key)

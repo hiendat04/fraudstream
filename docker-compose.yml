@@ -34,6 +34,7 @@ x-airflow-common: &airflow-common
     FRAUDSTREAM_KAFKA_BOOTSTRAP_SERVERS: kafka:29092
     FRAUDSTREAM_WAREHOUSE_URI: "s3a://fraudstream/warehouse"
     MINIO_ENDPOINT: "http://minio:9000"
+    LAKEFS_ENDPOINT: "http://lakefs:8000"
     GATEWAY_CA: /opt/airflow/project/local-ca.crt
     PUSHGATEWAY_URL: https://pushgateway.fraudstream.localhost
     PIPELINES_URL: https://pipelines.fraudstream.localhost

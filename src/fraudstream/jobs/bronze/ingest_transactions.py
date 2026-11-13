@@ -58,7 +58,7 @@ from fraudstream.jobs.warehouse import (
 APP_NAME = "FraudStreamBronzeTransactionIngestion"
 DEFAULT_MASTER = "local[*]"
 DEFAULT_SOURCE_DIR = Path("data/raw_source/offline_transactions")
-DEFAULT_SOURCE_URI = "s3a://fraudstream/raw/offline_transactions"
+DEFAULT_SOURCE_URI = "s3a://fraudstream-raw/main/offline_transactions"
 DEFAULT_OUTPUT_DIR = Path("data/bronze/raw_transactions")
 DEFAULT_SOURCE_SYSTEM = "fraudstream_generator"
 DEFAULT_SOURCE_DATASET = "offline_transactions"

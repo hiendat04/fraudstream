@@ -1,4 +1,4 @@
-"""What every Spark job shares: MinIO, the Iceberg catalog, and the PostgreSQL copy."""
+"""What every Spark job shares: MinIO, lakeFS for the raw zone, the Iceberg catalog, and the PostgreSQL copy."""
 
 from __future__ import annotations
 
@@ -10,6 +10,9 @@ from typing import Any, Sequence
 
 DEFAULT_WAREHOUSE_URI = "s3a://fraudstream/warehouse"
 DEFAULT_MINIO_ENDPOINT = "http://localhost:19000"
+DEFAULT_LAKEFS_ENDPOINT = "http://localhost:18000"
+# The raw zone's lakeFS repository. Its S3 gateway serves it as a bucket whose first folder is the branch.
+LAKEFS_BUCKET = "fraudstream-raw"
 
 DEFAULT_POSTGRES_HOST = "localhost"
 DEFAULT_POSTGRES_PORT = 5432
@@ -26,12 +29,24 @@ SUPPORTED_ICEBERG_CATALOG_TYPES = {"jdbc", "hadoop"}
 
 @dataclass(frozen=True)
 class WarehouseConfig:
-    """Where MinIO is and how to log in. Empty keys are for local `file://` runs."""
+    """Where MinIO and lakeFS are and how to log in. Empty keys are for local `file://` runs."""
 
     uri: str = DEFAULT_WAREHOUSE_URI
     endpoint: str = DEFAULT_MINIO_ENDPOINT
     access_key: str = ""
     secret_key: str = ""
+    lakefs_endpoint: str = DEFAULT_LAKEFS_ENDPOINT
+    lakefs_access_key: str = ""
+    lakefs_secret_key: str = ""
+
+    def s3_settings(self, bucket: str) -> tuple[str, str, str]:
+        """The endpoint and keys for one bucket: lakeFS's for the raw repository, MinIO's for the rest."""
+
+        if bucket != LAKEFS_BUCKET:
+            return self.endpoint, self.access_key, self.secret_key
+        if not (self.lakefs_access_key and self.lakefs_secret_key):
+            raise ValueError(f"LAKEFS_ACCESS_KEY and LAKEFS_SECRET_KEY are needed to reach s3a://{LAKEFS_BUCKET}/")
+        return self.lakefs_endpoint, self.lakefs_access_key, self.lakefs_secret_key
 
     @classmethod
     def from_env(cls) -> "WarehouseConfig":
@@ -42,6 +57,7 @@ class WarehouseConfig:
             endpoint=_env_value("MINIO_ENDPOINT", DEFAULT_MINIO_ENDPOINT),
             access_key=required_env("MINIO_ACCESS_KEY"),
             secret_key=required_env("MINIO_SECRET_KEY"),
+            **_lakefs_from_env(),
         )
 
 
@@ -109,7 +125,18 @@ def warehouse_config_from_args(args: argparse.Namespace) -> WarehouseConfig:
         endpoint=args.minio_endpoint,
         access_key=args.minio_access_key,
         secret_key=args.minio_secret_key,
+        **_lakefs_from_env(),
     )
+
+
+def _lakefs_from_env() -> dict[str, str]:
+    """lakeFS's settings, optional: only jobs that touch the raw zone need them."""
+
+    return {
+        "lakefs_endpoint": _env_value("LAKEFS_ENDPOINT", DEFAULT_LAKEFS_ENDPOINT),
+        "lakefs_access_key": _env_value("LAKEFS_ACCESS_KEY", ""),
+        "lakefs_secret_key": _env_value("LAKEFS_SECRET_KEY", ""),
+    }
 
 
 def add_iceberg_arguments(parser: argparse.ArgumentParser) -> None:
@@ -166,9 +193,9 @@ def postgres_config_from_args(args: argparse.Namespace) -> PostgresJdbcConfig:
 
 
 def configure_object_storage(builder: Any, warehouse: WarehouseConfig) -> Any:
-    """Point Spark at MinIO and load the PostgreSQL driver."""
+    """Point Spark at MinIO, and the raw repository at lakeFS when its keys are set, and load the PostgreSQL driver."""
 
-    return (
+    builder = (
         builder.config("spark.jars.packages", f"{HADOOP_AWS_PACKAGE},{POSTGRESQL_JDBC_PACKAGE}")
         .config("spark.hadoop.fs.s3a.endpoint", warehouse.endpoint)
         .config("spark.hadoop.fs.s3a.access.key", warehouse.access_key)
@@ -176,6 +203,15 @@ def configure_object_storage(builder: Any, warehouse: WarehouseConfig) -> Any:
         .config("spark.hadoop.fs.s3a.path.style.access", "true")
         .config("spark.hadoop.fs.s3a.impl", "org.apache.hadoop.fs.s3a.S3AFileSystem")
         .config("spark.hadoop.fs.s3a.connection.ssl.enabled", "false")
+    )
+    if not warehouse.lakefs_access_key:
+        return builder
+    endpoint, access_key, secret_key = warehouse.s3_settings(LAKEFS_BUCKET)
+    raw = f"spark.hadoop.fs.s3a.bucket.{LAKEFS_BUCKET}"
+    return (
+        builder.config(f"{raw}.endpoint", endpoint)
+        .config(f"{raw}.access.key", access_key)
+        .config(f"{raw}.secret.key", secret_key)
     )
 
 
