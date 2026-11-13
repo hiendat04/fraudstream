@@ -48,6 +48,7 @@ class BronzeTransactionIngestionTest(TestCase):
                     output_dir=output_dir,
                     ingest_run_id="test_bronze_ingest",
                     ingest_date="2026-07-04",
+                    source_commit="683c18da07d1",
                     write_mode="overwrite",
                     warehouse=WarehouseConfig(uri=f"file://{warehouse_dir}"),
                     iceberg=IcebergCatalogConfig(catalog_type="hadoop", warehouse_uri=iceberg_uri),
@@ -57,6 +58,7 @@ class BronzeTransactionIngestionTest(TestCase):
 
             self.assertEqual(result.row_count, 3)
             self.assertEqual(result.source_file_count, 2)
+            self.assertEqual(result.to_dict()["source_commit"], "683c18da07d1", "the lakeFS commit it read")
             self.assertEqual(result.duplicate_transaction_id_count, 1)
             self.assertEqual(result.schema_versions, ("v1", "v2"))
             self.assertEqual(result.transaction_date_count, 2)

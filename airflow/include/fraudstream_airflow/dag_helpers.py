@@ -27,12 +27,15 @@ CREDENTIALS_ENV = {
     "GATEWAY_USER": "{{ conn.gateway.login }}",
     "GATEWAY_PASSWORD": "{{ conn.gateway.password }}",
 }
-# A Python task has no environment of its own to fill, so it gets MinIO's and lakeFS's keys as arguments.
+# A Python task has no environment of its own to fill, so it gets the keys as arguments.
+LAKEFS_KWARGS = {
+    "lakefs_access_key": "{{ conn.lakefs.login }}",
+    "lakefs_secret_key": "{{ conn.lakefs.password }}",
+}
 STORAGE_KWARGS = {
     "minio_access_key": "{{ conn.minio.login }}",
     "minio_secret_key": "{{ conn.minio.password }}",
-    "lakefs_access_key": "{{ conn.lakefs.login }}",
-    "lakefs_secret_key": "{{ conn.lakefs.password }}",
+    **LAKEFS_KWARGS,
 }
 
 DEFAULT_ARGS = {
