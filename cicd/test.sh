@@ -2,10 +2,13 @@
 # Run one project's test suite, or all of them.
 #   ./cicd/test.sh            every suite
 #   ./cicd/test.sh api ml     just those
+#   ./cicd/test.sh integration  the tests against real services (needs Docker)
 set -euo pipefail
 cd "$(dirname "$0")/.."
 
 run_root()          { PYTHONPATH=src:airflow/include uv run python -m unittest discover -s tests/unit -p 'test_*.py'; }
+# Needs Docker: each test starts its own throwaway containers. Not in the default list.
+run_integration()   { PYTHONPATH=src:airflow/include uv run --extra storage --extra integration python -m unittest discover -s tests/integration -p 'test_*.py'; }
 run_ml()            { cd ml && PYTHONPATH=src uv run python -m unittest discover -s tests; }
 run_pipelines()     { cd pipelines && PYTHONPATH=src uv run python -m unittest discover -s tests; }
 run_feature_store() { cd feature_store && PYTHONPATH=src:../src uv run python -m unittest discover -s tests; }
