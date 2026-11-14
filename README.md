@@ -23,6 +23,7 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 
 | Area | Result |
 |---|---|
+| Raw zone | a stopped run left **730 of 730** files on `main` in lakeFS; the same stop deleted 726 of them before |
 | Spark | Silver sort **17x faster** per task (665 s → 39 s) with AQE and 800 shuffle partitions; an hour-long skewed join task cut to 28 s |
 | Flink | job graph cut **80%** (30 → 6 vertices) by operator chaining |
 | Fraud detection model | test PR-AUC **1.77x** the fraud base rate, on a time-ordered split |
@@ -34,7 +35,7 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 | RAG | **12 of 12** golden questions find their page |
 | Agents | **6 of 6** eval questions answered with citations; a conversation starts in **2.06 s** |
 | Cloud | the serving path on GKE for about **$0.20 an hour**, up and down in one command |
-| Secrets | **18** in Vault, **0** in the repository |
+| Secrets | **20** in Vault, **0** in the repository |
 
 ## Highlights
 
@@ -45,6 +46,9 @@ those problems on purpose and builds the whole MLOps loop around handling them.
   using a watermark calibrated from measured p95 delay, not a guess.
 - **Point-in-time-safe features.** Eight explicit leakage rules, and a Feast store (Redis
   online, Iceberg offline) so training and serving see the same features.
+- **A raw zone with commits and branches.** The raw CSVs sit in a lakeFS repository. Each
+  batch run writes to its own branch and reaches `main` only after its checks pass, so a
+  stopped run can't touch the data everything else is built from.
 - **Real orchestration and governance.** Asset-driven Airflow DAGs with validation gates
   that stop bad data early. DataHub shows lineage, contracts and quality results.
 - **Reproducible ML.** Distributed XGBoost on Kubeflow. Every model in MLflow is linked to
@@ -85,7 +89,7 @@ watches it or ships it.
 
 | Flow | What moves |
 |---|---|
-| **B** batch | the offline CSVs from MinIO through Spark's bronze, silver and gold, into Iceberg and PostgreSQL |
+| **B** batch | the offline CSVs from lakeFS's raw repository on MinIO through Spark's bronze, silver and gold, into Iceberg and PostgreSQL |
 | **S** streaming | live events through Kafka and Flink: clean transactions and features into Iceberg, late events to their own topic |
 | **O** orchestration | the engineer starts the DAGs; Airflow runs the Spark jobs and the replay producer |
 | **G** governance | schemas and lineage into DataHub |
@@ -214,6 +218,8 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 | Data storage | Iceberg on MinIO keeps every row, PostgreSQL a recent window; partitioning, compaction and z-order measured in Trino, and an index for each serving lookup | [04_data_storage.md](docs/edai-1/04_data_storage.md) |
 | Orchestration | Three Airflow DAGs linked by validated data assets, each one ingest then validate | [05_data_pipeline_orchestration.md](docs/edai-1/05_data_pipeline_orchestration.md) |
 | Governance | DataHub catalog, each pipeline's lineage, and its checks as assertions | [06_data_governance.md](docs/edai-1/06_data_governance.md) |
+| Raw zone versioning | lakeFS gives the raw CSVs commits and branches: each batch run writes to its own branch and merges into `main` only after its checks, so a stopped run leaves `main` whole | [07_lakefs.md](docs/edai-1/07_lakefs.md) |
+| Integration tests | Testcontainers starts a throwaway lakeFS, and the batch run's real branch, generate, check and merge steps run against it in about a minute | [08_testcontainers.md](docs/edai-1/08_testcontainers.md) |
 | **ML platform** | | |
 | Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/ml/16_feature_store.md)                                                                                                                                           |
 | Model training | XGBoost against a logistic baseline, split by date, and a Kubeflow pipeline | [17_ml_training.md](docs/ml/17_ml_training.md)<br>[18_ml_pipeline.md](docs/ml/18_ml_pipeline.md)                                                                                                |
@@ -263,7 +269,7 @@ uv sync --extra kafka --extra spark --extra storage
 ./infra/vault/unseal.sh
 vault login -method=userpass username=operator
 . infra/vault/env.sh
-docker compose up -d minio minio-bucket-init postgres postgres-schema-init kafka kafka-topic-init kafka-ui
+docker compose up -d minio minio-bucket-init lakefs postgres postgres-schema-init kafka kafka-topic-init kafka-ui
 
 # generate data, then build the layers
 PYTHONPATH=src python -m fraudstream.generators.offline_transactions
@@ -297,6 +303,7 @@ Flink job to watch it run. Stop the services with
 | Airflow | `http://localhost:18081` |
 | Flink UI | `http://localhost:8081` |
 | MinIO console | `http://localhost:19001` |
+| lakeFS | `http://localhost:18000` |
 | DataHub | `http://localhost:9002` |
 | Inference API | `https://inference.fraudstream.localhost` (gateway password) |
 | Drift detection API | `https://drift-detection.fraudstream.localhost` (gateway password) |
@@ -310,6 +317,7 @@ Every login is in Vault (`https://localhost:8200/ui`); `vault kv get -mount=secr
 
 ```bash
 PYTHONPATH=src python -m unittest discover -s tests/unit -p 'test_*.py'
+./cicd/test.sh integration    # against a real lakeFS in a throwaway container; needs Docker
 ```
 
 The API suites, mutation tests and load test are covered in
@@ -329,7 +337,7 @@ fraudstream/
 ├── data/                     # Local raw source/stream generator output and job JSON summaries
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
-│   ├── edai-1/               # Docker, generators, Spark and Flink jobs, storage, Airflow, DataHub
+│   ├── edai-1/               # Docker, generators, Spark and Flink jobs, storage, Airflow, DataHub, lakeFS, Testcontainers
 │   ├── ml/                   # Feature store, training, serving, CI/CD, gateway, IaC, observability, security
 │   ├── llm/                  # The LLM layer: serving, RAG, MCP, agents and their A/B tests
 │   └── ideas/                # Novel ideas, each shown to work on the running platform
@@ -372,7 +380,9 @@ fraudstream/
 │   ├── orchestration/        # Reusable Airflow validation functions
 │   ├── producers/            # Kafka replay producer
 │   └── reports/              # Data-quality report generator
-├── tests/unit/               # Unit tests
+├── tests/
+│   ├── unit/                 # Unit tests
+│   └── integration/          # Tests against real services in throwaway containers
 ├── docker-compose.yml        # Every local service; Vault's own file is included
 ├── Jenkinsfile               # The CI/CD pipeline
 ├── main.py

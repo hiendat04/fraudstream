@@ -1,7 +1,7 @@
 # Feature Store: Feast Over the Iceberg Lakehouse
 
 A [Feast](https://feast.dev) feature store sits on top of the existing Iceberg
-lakehouse (`docs/data_engineering/14_lakehouse_iceberg.md`): Gold's batch snapshots are served
+lakehouse (`docs/edai-1/04_data_storage.md`): Gold's batch snapshots are served
 through Feast's Spark offline store into Redis via an Airflow DAG, and Flink's
 5-minute streaming windows are pushed into both an offline landing table and
 Redis by a standalone deployment job. Nothing in Bronze, Silver, Gold, or the
@@ -42,8 +42,8 @@ feature views read from at training time.
 
 **Why batch sources add one day to `event_timestamp`:** Gold's daily snapshots
 are timestamped at the *start* of the day they aggregate, but a snapshot only
-becomes knowable once that day closes (`docs/data_engineering/06_feature_engineering.md`'s
-cutoff rule). Each batch source query adds `+ INTERVAL 1 DAY` so Feast's
+becomes knowable once that day closes (the offline features' cutoff rule,
+`docs/edai-1/03_processing_jobs.md`). Each batch source query adds `+ INTERVAL 1 DAY` so Feast's
 point-in-time join never hands a snapshot back to a transaction it wasn't
 allowed to see.
 
@@ -54,7 +54,7 @@ allowed to see.
 | `customer_rolling_features` | 31 days | 30 days | A snapshot older than its own window no longer describes "the last 30 days." +1 day absorbs the daily cadence. |
 | `customer_orders_90d_features` | 91 days | 90 days | Same rule; a near-lifetime order count just decays slower. |
 | `merchant_risk_features` | 31 days | 30 days | Same rule. Merchants get far more coverage from it than customers (see below). |
-| `customer_features_5m_stream` | 1 hour | 5 min | Set by Flink's 40-minute allowed-lateness (`docs/data_engineering/07_flink_streaming_pipeline.md`), not the window size: a late correction must still be joinable, so TTL > lateness budget, plus slack. |
+| `customer_features_5m_stream` | 1 hour | 5 min | Set by Flink's 40-minute allowed-lateness (`docs/edai-1/03_processing_jobs.md`), not the window size: a late correction must still be joinable, so TTL > lateness budget, plus slack. |
 | `merchant_features_5m_stream` | 1 hour | 5 min | Same producer, same lateness budget. |
 
 TTLs come from what each feature's name promises to mean, not a curve fit.
