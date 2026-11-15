@@ -91,13 +91,13 @@ watches it or ships it.
 |---|---|
 | **B** batch | the offline CSVs from lakeFS's raw repository on MinIO through Spark's bronze, silver and gold, into Iceberg and PostgreSQL |
 | **S** streaming | live events through Kafka and Flink: clean transactions and features into Iceberg, late events to their own topic |
-| **O** orchestration | the engineer starts the DAGs; Airflow runs the Spark jobs and the replay producer |
+| **O** orchestration | the engineer starts the DAGs and the replay producer; Airflow only starts work: the Spark jobs, Feast's materialize, the drift job and retraining. No data passes through it |
 | **G** governance | schemas and lineage into DataHub |
 | **I** inspection | an engineer's SQL on PostgreSQL and Trino |
 | **F** features | offline features from Iceberg, materialized into Redis; window features pushed online |
 | **T** training | point-in-time features to distributed training on Kubeflow, the model registered in MLflow |
 | **P** payment | one payment through the gateway, its online features, a score from the model, then the drift check |
-| **M** monitoring | the drift check and retraining on drift; metrics, logs and traces into Prometheus, Elasticsearch and Jaeger |
+| **M** monitoring | the drift job's PSI; metrics, logs and traces into Prometheus, Elasticsearch and Jaeger, all three read by Grafana |
 | **A** A/B testing | a new model version's share of traffic, set and promoted |
 | **D** delivery | a push, tested, built and deployed by Jenkins |
 | **K** cloud | Terraform and Ansible bring the serving path up on Google Cloud |
@@ -148,9 +148,9 @@ and they answer from the same features and the same model, through MCP tools.
 | **Q** question | the analyst's question to the coordinator, then through the A2A gateway to a specialist restored for this conversation |
 | **L** LLM | every agent's chat completions through the LLM gateway and llm-d to Qwen3 on llama.cpp |
 | **M** MCP tools | a specialist's tool calls through the MCP gateway to the servers, the APIs and the stores |
-| **R** RAG | the handbook, model cards and feature pages, chunked and embedded daily into Iceberg and pgvector |
+| **R** RAG | the handbook, model cards and feature pages, chunked and embedded into Iceberg and pgvector by a job Airflow starts daily |
 | **D** delivery | an agent's prompt and manifest, deployed only when its eval questions pass |
-| **O** observability | the gateways' metrics and traces, and the dashboards on them |
+| **O** observability | the gateways' metrics and traces, the Data APIs' logs, and the dashboards on them |
 | **V** security | every key from Vault, synced into its namespace |
 
 ### From a push to production
