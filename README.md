@@ -146,7 +146,7 @@ and they answer from the same features and the same model, through MCP tools.
 | Flow | What moves |
 |---|---|
 | **Q** question | the analyst's question to the coordinator, then through the A2A gateway to a specialist restored for this conversation |
-| **L** LLM | every agent's chat completions through the LLM gateway and llm-d to Qwen3 on llama.cpp |
+| **L** LLM | the coordinator's chat completions on every question, then each specialist's when the coordinator asks it, through the LLM gateway and llm-d to Qwen3 on llama.cpp |
 | **M** MCP tools | a specialist's tool calls through the MCP gateway to the servers, the APIs and the stores |
 | **R** RAG | the handbook, model cards and feature pages, chunked and embedded into Iceberg and pgvector by a job Airflow starts daily |
 | **D** delivery | an agent's prompt and manifest, deployed only when its eval questions pass |

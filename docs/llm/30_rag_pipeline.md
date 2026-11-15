@@ -12,7 +12,7 @@ still makes every fraud decision; the copilot only cites.
 ```mermaid
 flowchart LR
     GIT["<b>Handbook</b><br/>7 Markdown pages<br/>in Git"]
-    MLF[("<b>MLflow</b><br/>model versions")]
+    MLF[("<b>PostgreSQL</b><br/>MLflow's registry tables")]
     FR[("<b>Feast registry</b><br/>feature views")]
     MINIO[("<b>MinIO</b><br/>rag/handbook")]
 
@@ -24,7 +24,7 @@ flowchart LR
     end
 
     MINIO -- "2 · pages" --> DAG
-    MLF -- "2 · model cards" --> DAG
+    MLF -- "2 · model cards,<br/>through MLflow's API" --> DAG
     FR -- "2 · feature pages" --> DAG
 
     ICE[("<b>Iceberg</b><br/>rag.chunks<br/>every version kept")]
@@ -51,7 +51,10 @@ One run, in the order of the numbers:
 
 1. **Copy.** CI copies the handbook from Git to MinIO, so Airflow reads one place.
 2. **Load.** Three sources are read: the handbook pages, one card per registered model
-   version (from MLflow), one page per feature view (from Feast).
+   version, one page per feature view (from Feast). A model card is built from MLflow's
+   registry: the versions, their aliases, and each version's run with its metrics and
+   settings. MLflow keeps all of that in its `mlflow` database in PostgreSQL, and the job
+   reads it through MLflow's REST API. The model files MLflow keeps in MinIO are not read.
 3. **Validate, chunk, embed.** An empty source, a bad id or a card number in the handbook
    stops the run before anything is written. Each document is cut by heading and embedded.
 4. **Merge into Iceberg.** Only chunks whose hash changed are written; chunks that no
@@ -71,7 +74,7 @@ task, and `publish_governance` runs even after a failure.
 | Source | Documents | Chunks | Comes from |
 |---|---|---|---|
 | Handbook | 7 | 31 | Markdown in `rag/handbook/`, written by hand |
-| Model cards | 5 | 25 | MLflow: threshold, quality, training data, settings, per version |
+| Model cards | 5 | 25 | MLflow's registry tables in PostgreSQL: threshold, quality, training data, settings, per version |
 | Feature pages | 5 | 15 | Feast: features, types, freshness, source, per feature view |
 
 The handbook pages: `review-policy` (when a payment is held, released or escalated),
@@ -109,6 +112,25 @@ Both compare the new chunks with what they hold now. Iceberg skips the merge whe
 nothing changed, because even an empty merge rewrites the table. Feast writes and
 searches pgvector, but cannot list or delete rows in version 0.66, so those two use SQL on the
 table Feast made.
+
+## What pgvector and Redis hold
+
+The copilot reads two online stores, both through Feast. The RAG pipeline writes only
+pgvector; Redis belongs to the fraud detection model.
+
+| | pgvector | Redis |
+|---|---|---|
+| Feast project | `fraudstream_rag`, schema `rag` in the `llm` database | `fraudstream`, the data platform's |
+| Written by | this pipeline, step 5 | Feast's materialize and the stream push job, not by RAG |
+| One entry per | chunk, keyed by `chunk_id` | customer or merchant |
+| Holds | 71 chunks: 31 from the handbook, 25 from model cards, 15 from feature pages | the fraud detection model's online features |
+| Each entry | `doc_id`, `source`, `title`, `heading`, `text`, `content_hash`, and the 768-number `embedding`, searched by cosine distance | `customer_rolling_features` (10 features), `customer_orders_90d_features` (1), `merchant_risk_features` (12), each with the time it was written |
+| Read by | the context API's `search` and `chunk by id` | the context API's `customer` and `merchant`, and the Inference API |
+| Kept | the current chunks only; history is in Iceberg | 91 days, then the key expires |
+
+Neither store holds questions, answers or conversations. Feast keeps pgvector as one row
+per chunk and field, which is why the pipeline can read each chunk's `content_hash` with
+plain SQL to decide what changed.
 
 ## Checks
 
@@ -224,6 +246,7 @@ previous step's files from the run folder.
 | Change plan | [`rag/src/fraudstream_rag/changes.py`](../../rag/src/fraudstream_rag/changes.py) |
 | Iceberg and pgvector writes | [`rag/src/fraudstream_rag/offline.py`](../../rag/src/fraudstream_rag/offline.py), [`online.py`](../../rag/src/fraudstream_rag/online.py) |
 | Feast project | [`rag/feature_repo/`](../../rag/feature_repo/) |
+| How the context API reads Redis and pgvector | [`api/src/fraudstream_api/context/stores.py`](../../api/src/fraudstream_api/context/stores.py) |
 | Search and golden questions | [`rag/src/fraudstream_rag/retrieval.py`](../../rag/src/fraudstream_rag/retrieval.py), [`rag/checks/golden_questions.yaml`](../../rag/checks/golden_questions.yaml) |
 | The steps | [`rag/src/fraudstream_rag/steps.py`](../../rag/src/fraudstream_rag/steps.py) |
 | DAG | [`airflow/dags/rag_index.py`](../../airflow/dags/rag_index.py) |
