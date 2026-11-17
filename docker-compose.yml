@@ -373,7 +373,7 @@ services:
     command:
       - --memory-limit=1024
       - --storage-snapshot-on-exit=true
-      - --storage-recover-on-startup=true
+      - --data-recovery-on-startup=true
       - --query-modules-directory=/usr/lib/memgraph/query_modules,/opt/fraudstream/graph
     ports:
       - "${MEMGRAPH_PORT:-7687}:7687"
@@ -386,6 +386,32 @@ services:
       timeout: 5s
       retries: 12
       start_period: 10s
+
+  memgraph-stream-init:
+    image: memgraph/memgraph:3.14.0
+    container_name: fraudstream-memgraph-stream-init
+    depends_on:
+      memgraph:
+        condition: service_healthy
+      kafka-topic-init:
+        condition: service_completed_successfully
+    entrypoint: ["/bin/sh", "/opt/fraudstream/init.sh"]
+    volumes:
+      - ./infra/memgraph/init.sh:/opt/fraudstream/init.sh:ro
+    restart: "no"
+
+  memgraph-lab:
+    # Browser UI for the graph: Cypher results drawn as nodes and edges.
+    image: memgraph/lab:3.14.1
+    container_name: fraudstream-memgraph-lab
+    ports:
+      - "${MEMGRAPH_LAB_PORT:-18088}:3000"
+    environment:
+      QUICK_CONNECT_MG_HOST: memgraph
+      QUICK_CONNECT_MG_PORT: "7687"
+    depends_on:
+      memgraph:
+        condition: service_healthy
 
   feast-stream-push:
     build:
