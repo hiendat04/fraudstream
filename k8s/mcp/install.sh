@@ -25,7 +25,11 @@ done
 # A key is made once per consumer in Vault and kept. External Secrets copies each
 # key, and the gateway's list of key hashes with the MCP servers each may use.
 echo "==> API keys"
-for consumer in context-agent risk-agent mcp-check; do ./infra/vault/new-key.sh "mcp/$consumer"; done
+# The keys are made once, from the laptop with your Vault token. Jenkins has no
+# token, so there it only syncs them below; a missing key fails that wait.
+if [ -n "${VAULT_TOKEN:-}" ] || [ -f ~/.vault-token ]; then
+  for consumer in context-agent risk-agent mcp-check; do ./infra/vault/new-key.sh "mcp/$consumer"; done
+fi
 kubectl apply -f k8s/mcp/secrets.yaml >/dev/null
 kubectl -n mcp wait externalsecret --all --for=condition=Ready --timeout=2m
 
