@@ -7,7 +7,7 @@ from typing import Any
 from fraudstream_ml.dataset import BATCH_FEATURE_VIEWS
 
 
-IDENTIFIER_COLUMNS = ("transaction_id", "customer_id", "merchant_id", "event_timestamp")
+IDENTIFIER_COLUMNS = ("transaction_id", "customer_id", "merchant_id", "device_id", "event_timestamp")
 LABEL_COLUMN = "is_fraud"
 CATEGORICAL_COLUMN = "merchant_category"
 
@@ -53,6 +53,7 @@ AVAILABILITY_FLAGS: dict[str, str] = {
     "customer_rolling_features": "customer_features_available",
     "customer_orders_90d_features": "customer_orders_90d_available",
     "merchant_risk_features": "merchant_features_available",
+    "device_ring_features": "device_features_available",
 }
 
 

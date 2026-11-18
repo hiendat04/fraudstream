@@ -28,6 +28,7 @@ def build(context_api: Api, inference_api: Api) -> MCPServer:
         amount: float,
         channel: Annotated[str, Field(description="as written in the alert, e.g. online")],
         city: str,
+        device_id: Annotated[str | None, Field(description="the device it was paid on; none for in-store")] = None,
     ) -> dict[str, Any]:
         """Score one payment with the production fraud detection model. Returns the fraud probability, the model version, its threshold, whether the payment is flagged, and which history was found."""
         with counted(NAME, "score_payment"):
@@ -41,6 +42,7 @@ def build(context_api: Api, inference_api: Api) -> MCPServer:
                     "amount": amount,
                     "channel": channel,
                     "city": city,
+                    "device_id": device_id,
                 },
             )
 

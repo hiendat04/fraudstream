@@ -98,6 +98,14 @@ class EntityDataframeSqlTest(unittest.TestCase):
         self.assertNotIn("transaction_labels", sql)
         self.assertNotIn("is_fraud", sql)
 
+    def test_the_entity_query_keeps_payments_without_a_device(self):
+        """In-store payments have no device; an inner join would drop them from training."""
+
+        sql = entity_dataframe_sql(START, END)
+
+        self.assertIn("LEFT JOIN iceberg.silver.stg_transactions s ON s.transaction_id = f.transaction_id", sql)
+        self.assertIn("s.device_id", sql)
+
     def test_without_labels_keeps_the_same_rows_and_window(self):
         sql = entity_dataframe_sql("2026-06-23", "2026-06-30", labels=False)
 
@@ -140,13 +148,14 @@ class CoverageReportTest(unittest.TestCase):
 
     def _frame(self) -> pd.DataFrame:
         # Four rows: the customer view joined on two of them, the merchant
-        # view on three, the 90-day view on one.
+        # view on three, the 90-day view on one, the device view on one.
         return pd.DataFrame(
             {
                 "txn_count_7d": [1, None, 3, None],
                 "amount_sum_7d": [10.0, None, 30.0, None],
                 "total_orders_90d": [5, None, None, None],
                 "merchant_txn_count_1d": [2, 4, 6, None],
+                "device_customer_count_30d": [None, None, None, 40],
             }
         )
 
@@ -156,6 +165,7 @@ class CoverageReportTest(unittest.TestCase):
         self.assertAlmostEqual(report["customer_rolling_features"], 0.5)
         self.assertAlmostEqual(report["customer_orders_90d_features"], 0.25)
         self.assertAlmostEqual(report["merchant_risk_features"], 0.75)
+        self.assertAlmostEqual(report["device_ring_features"], 0.25)
 
     def test_a_partly_null_row_still_counts_as_joined(self):
         """A joined row can carry a null feature; the view still produced data for it."""
@@ -166,6 +176,7 @@ class CoverageReportTest(unittest.TestCase):
                 "amount_sum_7d": [10.0],
                 "total_orders_90d": [None],
                 "merchant_txn_count_1d": [None],
+                "device_customer_count_30d": [None],
             }
         )
 

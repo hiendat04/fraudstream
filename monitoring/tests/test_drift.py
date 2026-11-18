@@ -7,7 +7,12 @@ import pytest
 from fraudstream_api.drift_detection.reference import build_reference
 from fraudstream_monitoring.drift import empty_window, resolve_window, summarize
 
-FLAGS = ("customer_features_available", "customer_orders_90d_available", "merchant_features_available")
+FLAGS = (
+    "customer_features_available",
+    "customer_orders_90d_available",
+    "merchant_features_available",
+    "device_features_available",
+)
 START, END = date(2026, 6, 23), date(2026, 6, 30)
 
 

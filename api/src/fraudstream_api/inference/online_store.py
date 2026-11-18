@@ -54,15 +54,16 @@ class FeastReader:
 
         self._ttls = {view: self._store.get_feature_view(view).ttl for view in BATCH_FEATURE_VIEWS}
         # The first read loads the registry and takes seconds. Every read after it is fast.
-        await self.read("warm-up", "warm-up")
+        await self.read("warm-up", "warm-up", None)
 
     def ttls(self) -> dict[str, timedelta]:
         return self._ttls
 
-    async def read(self, customer_id: str, merchant_id: str) -> OnlineFeatures:
+    async def read(self, customer_id: str, merchant_id: str, device_id: str | None) -> OnlineFeatures:
+        # Feast refuses a None key; an empty one matches no device.
+        row = {"customer_id": customer_id, "merchant_id": merchant_id, "device_id": device_id or ""}
         response = await self._store.get_online_features_async(
-            features=list(BATCH_FEATURE_REFS),
-            entity_rows=[{"customer_id": customer_id, "merchant_id": merchant_id}],
+            features=list(BATCH_FEATURE_REFS), entity_rows=[row]
         )
         answer = response.to_dict(include_event_timestamps=True)
         values = {

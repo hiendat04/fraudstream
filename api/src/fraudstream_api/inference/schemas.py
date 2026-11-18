@@ -11,13 +11,15 @@ CLOCK_SKEW = timedelta(minutes=5)
 
 
 class Transaction(BaseModel):
-    """One payment. The two IDs find its history; the rest describes the payment."""
+    """One payment. Its IDs find its history; the rest describes the payment."""
 
     model_config = ConfigDict(extra="forbid")
 
     transaction_id: str = Field(min_length=1, max_length=64)
     customer_id: str = Field(min_length=1, max_length=64)
     merchant_id: str = Field(min_length=1, max_length=64)
+    # In-store payments have no device.
+    device_id: str | None = Field(default=None, min_length=1, max_length=64)
     event_timestamp: AwareDatetime
     amount: float = Field(gt=0)
     channel: str

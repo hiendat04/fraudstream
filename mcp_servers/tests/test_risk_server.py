@@ -48,7 +48,16 @@ async def test_score_payment_sends_the_payment_to_the_inference_api():
         result = await client.call_tool("score_payment", PAYMENT)
     assert result.structured_content["flagged"] is True
     assert seen[0].url.path == "/v1/predict"
-    assert json.loads(seen[0].read()) == PAYMENT
+    assert json.loads(seen[0].read()) == {**PAYMENT, "device_id": None}
+
+
+async def test_score_payment_passes_the_device_on():
+    context, _ = recording()
+    inference, seen = recording(body={"fraud_probability": 0.71})
+    server = risk_server.build(Api("context API", "http://c", 5, context), Api("inference API", "http://i", 5, inference))
+    async with Client(server) as client:
+        await client.call_tool("score_payment", {**PAYMENT, "device_id": "dev_ring_0001"})
+    assert json.loads(seen[0].read())["device_id"] == "dev_ring_0001"
 
 
 async def test_a_payment_the_api_refuses_comes_back_with_what_was_wrong():

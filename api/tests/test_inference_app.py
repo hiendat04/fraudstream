@@ -39,6 +39,7 @@ TTLS = {
     "customer_rolling_features": timedelta(days=31),
     "customer_orders_90d_features": timedelta(days=91),
     "merchant_risk_features": timedelta(days=31),
+    "device_ring_features": timedelta(days=31),
 }
 
 PAID_AT = datetime(2026, 6, 30, 20, 0, tzinfo=UTC)
@@ -61,6 +62,7 @@ class FakeReader:
         self.ready = ready
         self.error = error
         self.reads = 0
+        self.asked = []
 
     async def start(self):
         pass
@@ -68,8 +70,9 @@ class FakeReader:
     def ttls(self):
         return TTLS
 
-    async def read(self, customer_id, merchant_id):
+    async def read(self, customer_id, merchant_id, device_id):
         self.reads += 1
+        self.asked.append(device_id)
         if self.error:
             raise self.error
         return self.answer
@@ -131,15 +134,36 @@ class InferenceAppTest(unittest.TestCase):
         self.assertEqual("2", body["model_version"])
         self.assertTrue(body["history_found"]["customer_features_available"])
 
-    def test_the_model_receives_exactly_the_51_training_inputs(self):
+    def test_the_model_receives_exactly_the_55_training_inputs(self):
         model = FakeModel()
         with TestClient(build(model=model)) as client:
             client.post("/v1/predict", json=PAYMENT)
 
         self.assertEqual(1, len(model.calls))
         sent = model.calls[0]
-        self.assertEqual(51, len(sent))
+        self.assertEqual(55, len(sent))
         self.assertEqual(list(training_inputs(WITH_HISTORY)), list(sent))
+
+    def test_a_payment_without_device_is_scored(self):
+        """In-store payments have no device; the ring features are then missing, not an error."""
+
+        reader, model = FakeReader(), FakeModel()
+        with TestClient(build(reader=reader, model=model)) as client:
+            answer = client.post("/v1/predict", json=PAYMENT)
+
+        self.assertEqual(200, answer.status_code)
+        self.assertEqual([None], reader.asked)
+        for name in ("device_customer_count_30d", "device_fraud_customer_count_30d", "device_ip_customer_count_30d"):
+            self.assertIsNone(model.calls[0][name])
+        self.assertFalse(model.calls[0]["device_features_available"])
+
+    def test_the_device_reaches_the_online_read(self):
+        reader = FakeReader()
+        with TestClient(build(reader=reader)) as client:
+            answer = client.post("/v1/predict", json={**PAYMENT, "device_id": "dev_ring_0001"})
+
+        self.assertEqual(200, answer.status_code)
+        self.assertEqual(["dev_ring_0001"], reader.asked)
 
     def test_an_unknown_customer_still_gets_a_score(self):
         nothing_stored = OnlineFeatures(
@@ -152,7 +176,7 @@ class InferenceAppTest(unittest.TestCase):
 
         self.assertEqual(200, answer.status_code)
         self.assertFalse(answer.json()["history_found"]["customer_features_available"])
-        self.assertEqual(51, len(model.calls[0]))
+        self.assertEqual(55, len(model.calls[0]))
 
     def test_stale_history_is_not_sent_to_the_model(self):
         model = FakeModel()

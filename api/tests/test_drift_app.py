@@ -102,16 +102,16 @@ class DriftAppTest(unittest.TestCase):
         self.assertEqual(422, answer.status_code)
         self.assertIn("txn_count_7d", json.dumps(answer.json()))
 
-    def test_an_observation_with_an_unknown_input_is_refused(self):
-        """Rows from a model with other inputs must not be scored against this reference."""
+    def test_an_input_the_reference_does_not_know_is_ignored(self):
+        """A newer model's extra inputs must not stop the older reference from watching its own."""
 
         extra = [{**rows(1)[0], "some_new_feature": 1.0}]
 
         with self.client() as client:
             answer = client.post("/v1/observations", json={"observations": extra})
 
-        self.assertEqual(422, answer.status_code)
-        self.assertIn("some_new_feature", json.dumps(answer.json()))
+        self.assertEqual(200, answer.status_code)
+        self.assertEqual({"accepted": 1}, answer.json())
 
     def test_too_few_observations_give_no_verdict(self):
         with self.client() as client:

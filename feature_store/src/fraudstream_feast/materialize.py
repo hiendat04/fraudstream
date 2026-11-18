@@ -31,6 +31,7 @@ DEFAULT_FEATURE_VIEWS = (
     "customer_rolling_features",
     "customer_orders_90d_features",
     "merchant_risk_features",
+    "device_ring_features",
     "customer_features_5m_stream",
     "merchant_features_5m_stream",
 )
@@ -129,6 +130,12 @@ def _spot_check_online_store(store: FeatureStore) -> dict[str, Any]:
         f"WHERE merchant_dim_id IS NOT NULL LIMIT {SPOT_CHECK_ENTITY_COUNT}",
         "merchant_id",
     )
+    device_ids = _sample_entity_ids(
+        spark,
+        "SELECT DISTINCT device_id FROM iceberg.gold.feat_device_ring "
+        f"WHERE device_id IS NOT NULL LIMIT {SPOT_CHECK_ENTITY_COUNT}",
+        "device_id",
+    )
 
     views = [
         _spot_check_view(store, "customer_rolling_features", "txn_count_7d", "customer_id", "customer", customer_ids),
@@ -137,6 +144,9 @@ def _spot_check_online_store(store: FeatureStore) -> dict[str, Any]:
         ),
         _spot_check_view(
             store, "merchant_risk_features", "merchant_txn_count_1d", "merchant_id", "merchant", merchant_ids
+        ),
+        _spot_check_view(
+            store, "device_ring_features", "device_customer_count_30d", "device_id", "device", device_ids
         ),
     ]
     return {

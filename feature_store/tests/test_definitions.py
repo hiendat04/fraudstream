@@ -19,6 +19,7 @@ ALL_FEATURE_VIEWS = (
     "customer_rolling_features",
     "customer_orders_90d_features",
     "merchant_risk_features",
+    "device_ring_features",
     "customer_features_5m_stream",
     "merchant_features_5m_stream",
 )
@@ -96,6 +97,22 @@ class DefinitionsTest(unittest.TestCase):
         for name in ("customer_rolling_features", "customer_orders_90d_features", "merchant_risk_features"):
             query = getattr(definitions, name).batch_source.query
             self.assertIn("INTERVAL 1 DAY", query, msg=name)
+
+    def test_device_ring_view_matches_its_table(self):
+        """The three ring counts per device, knowable the day after, kept as long as the 30-day window."""
+
+        view = definitions.device_ring_features
+        query = view.batch_source.query
+
+        self.assertEqual(definitions.device.join_key, "device_id")
+        self.assertEqual(view.entities, ["device"])
+        self.assertEqual(view.ttl, timedelta(days=31))
+        self.assertIn("FROM iceberg.gold.feat_device_ring", query)
+        self.assertIn("INTERVAL 1 DAY", query)
+        self.assertEqual(
+            {field.name for field in view.schema},
+            {"device_customer_count_30d", "device_fraud_customer_count_30d", "device_ip_customer_count_30d"},
+        )
 
     def test_stream_views_are_backed_by_appendable_iceberg_push_sources(self):
         """Feast's Spark offline store cannot write Iceberg, so these sources are read-only `table=` references to the Task 1 landing tables; the stream-push job writes them directly with Spark."""

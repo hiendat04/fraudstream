@@ -8,6 +8,7 @@ from typing import Any
 
 FACT_TABLE = "iceberg.gold.fact_transactions"
 LABEL_TABLE = "iceberg.gold.transaction_labels"
+SILVER_TABLE = "iceberg.silver.stg_transactions"
 
 BATCH_FEATURE_VIEWS: dict[str, tuple[str, ...]] = {
     "customer_rolling_features": (
@@ -36,6 +37,11 @@ BATCH_FEATURE_VIEWS: dict[str, tuple[str, ...]] = {
         "merchant_prior_fraud_rate_30d",
         "merchant_burst_ratio_1d_to_prior_30d",
         "merchant_vs_category_amount_ratio_30d",
+    ),
+    "device_ring_features": (
+        "device_customer_count_30d",
+        "device_fraud_customer_count_30d",
+        "device_ip_customer_count_30d",
     ),
 }
 
@@ -72,11 +78,13 @@ def entity_dataframe_sql(start: str | datetime, end: str | datetime, *, labels: 
             f.transaction_id,
             f.customer_id,
             f.merchant_dim_id AS merchant_id,
+            s.device_id,
             f.event_time AS event_timestamp,
             CAST(f.amount AS DOUBLE) AS amount,
             f.channel,
             f.city{label_column}
         FROM {FACT_TABLE} f
+        LEFT JOIN {SILVER_TABLE} s ON s.transaction_id = f.transaction_id
         {label_join}
         WHERE f.event_time >= TIMESTAMP '{start_literal}'
           AND f.event_time < TIMESTAMP '{end_literal}'
