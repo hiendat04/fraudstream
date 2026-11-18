@@ -53,7 +53,8 @@ spec:
             periodSeconds: 5
           resources:
             requests:
-              cpu: "2"
+              # No CPU limit, so it still takes every free core while it answers.
+              cpu: 500m
               memory: 4Gi
             limits:
               memory: 5Gi
