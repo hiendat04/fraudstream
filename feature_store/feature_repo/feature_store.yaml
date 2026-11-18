@@ -12,6 +12,9 @@ online_store:
   connection_string: ${REDIS_HOST}:${REDIS_PORT}
   key_ttl_seconds: 7862400
 
+materialization_config:
+  pull_latest_features: true
+
 offline_store:
   type: spark
   spark_conf:
