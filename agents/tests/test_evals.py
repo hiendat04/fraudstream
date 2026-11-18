@@ -69,7 +69,7 @@ GOOD = "- 17 payments in a day\n- 4 declines\n- threshold 0.37 [handbook/review-
 
 
 RING = GoldenQuestion("risk-agent", "q", frozenset({"score_payment", "device_neighbours", "search_handbook"}),
-                      payment=True, device="dev_ring_0001", handbook="")
+                      payment=True, device="dev_stream_ring_0001", handbook="")
 RING_GOOD = "- 240 customers share the device, 61 with fraud\n- threshold 0.37 [model-cards/m#a]\nModel decision: flagged"
 
 
@@ -79,11 +79,11 @@ def truth(request):
         return httpx.Response(200, json={"views": {"v": {"features": {"txn_count_24h": 17}}}})
     if path == "/v1/merchants/merch_00011503":
         return httpx.Response(200, json={"views": {"v": {"features": {"declines_24h": 4, "high_risk": True}}}})
-    if path == "/v1/devices/dev_ring_0001":
+    if path == "/v1/devices/dev_stream_ring_0001":
         return httpx.Response(200, json={"customer_count": 240, "fraud_customer_count": 61, "ip_customer_count": 255})
     if path == "/v1/predict":
         sent = json.loads(request.content)
-        assert sent in (PAYMENT, {**PAYMENT, "device_id": "dev_ring_0001"})
+        assert sent in (PAYMENT, {**PAYMENT, "device_id": "dev_stream_ring_0001"})
         return httpx.Response(200, json={"flagged": True, "threshold": 0.37, "fraud_probability": 0.81})
     if path == "/v1/chunks":
         chunk_id = request.url.params["chunk_id"]
@@ -196,7 +196,7 @@ async def test_a_ring_answer_that_quotes_the_device_counts_has_no_problems():
 async def test_the_device_counts_not_quoted():
     tools = ("score_payment", "device_neighbours", "search_handbook")
     text = RING_GOOD.replace("240 customers share the device, 61 with fraud", "many customers share the device")
-    assert await found(Answer("completed", text, list(tools)), golden=RING) == ["quotes none of dev_ring_0001's counts"]
+    assert await found(Answer("completed", text, list(tools)), golden=RING) == ["quotes none of dev_stream_ring_0001's counts"]
 
 
 @pytest.mark.anyio
@@ -211,13 +211,13 @@ async def test_the_ring_payment_is_scored_on_its_device():
         return truth(request)
 
     await found(Answer("completed", RING_GOOD, ["score_payment", "device_neighbours", "search_handbook"]), golden=RING, serve=serve)
-    assert sent == [{**PAYMENT, "device_id": "dev_ring_0001"}]
+    assert sent == [{**PAYMENT, "device_id": "dev_stream_ring_0001"}]
 
 
 def test_the_ring_question_needs_three_tools():
     (ring,) = [golden for golden in GOLDEN_QUESTIONS if golden.device]
     assert ring.agent == "risk-agent"
-    assert ring.device == "dev_ring_0001"
+    assert ring.device == "dev_stream_ring_0001"
     assert ring.device in ring.question
     assert ring.tools == {"score_payment", "device_neighbours", "search_handbook"}
 
