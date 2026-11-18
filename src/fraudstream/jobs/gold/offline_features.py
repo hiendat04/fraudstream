@@ -24,6 +24,7 @@ from fraudstream.jobs.gold.transactions import (
     OFFLINE_FEATURE_TABLE_NAMES,
     _build_feat_customer_rolling,
     _build_feat_customer_total_orders_90d,
+    _build_feat_device_ring,
     _build_feat_merchant_risk_rolling,
     _build_merchant_category_daily,
     _build_merchant_category_rolling,
@@ -62,6 +63,7 @@ APP_NAME = "FraudStreamOfflineFeatures"
 DEFAULT_GOLD_DIR = Path("data/gold")
 DEFAULT_WRITE_MODE = "overwrite"
 SUMMARY_FILE_NAME = "_offline_features_summary.json"
+DEVICE_RING_TABLE = "feat_device_ring"
 
 
 @dataclass(frozen=True)
@@ -202,6 +204,7 @@ def build_offline_features(config: OfflineFeatureConfig) -> OfflineFeatureResult
         spark.sparkContext.setJobDescription("Offline features: count source Gold transactions")
         source_fact_transaction_count = fact_transactions.count()
         table_results = _write_feature_tables(frames, config)
+        table_results.append(_write_device_ring_table(spark, fact_transactions, processed_at, config))
         result = OfflineFeatureResult(
             gold_dir=config.gold_dir,
             write_mode=config.write_mode,
@@ -305,6 +308,24 @@ def _write_feature_tables(
     if written_names != OFFLINE_FEATURE_TABLE_NAMES:
         raise RuntimeError("offline feature table write order does not match its contract")
     return results
+
+
+def _write_device_ring_table(
+    spark: Any, fact_transactions: Any, processed_at: datetime, config: OfflineFeatureConfig
+) -> OfflineFeatureTableResult:
+    """Write the device ring features to Iceberg only: Feast reads them from there."""
+
+    payments = (
+        spark.table(f"{config.iceberg.catalog_name}.silver.stg_transactions")
+        .select("transaction_id", "device_id", "ip_address")
+        .join(fact_transactions.select("transaction_id", "customer_id", "event_date", "is_fraud"), "transaction_id")
+    )
+    iceberg_table = config.gold_table_name(DEVICE_RING_TABLE)
+    spark.sparkContext.setJobDescription(f"Offline features: materialize and write {DEVICE_RING_TABLE} to MinIO")
+    write_iceberg_table(_build_feat_device_ring(payments, processed_at), iceberg_table, ("feature_date",), config.write_mode)
+    return OfflineFeatureTableResult(
+        table_name=DEVICE_RING_TABLE, iceberg_table=iceberg_table, row_count=spark.table(iceberg_table).count()
+    )
 
 
 def _write_summary(result: OfflineFeatureResult, output_dir: Path) -> None:
