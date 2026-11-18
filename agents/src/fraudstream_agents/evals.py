@@ -60,9 +60,9 @@ GOLDEN_QUESTIONS = (
                    frozenset({"search_handbook"}), handbook="handbook/review-policy"),
     GoldenQuestion("risk-agent",
                    f"Payment txn_000000128913: customer cust_00090571, merchant merch_00011503, {_PAYMENT_TEXT}, "
-                   "on device dev_ring_0001. What does the model say, who else pays on that device, and what should I do?",
+                   "on device dev_stream_ring_0001. What does the model say, who else pays on that device, and what should I do?",
                    frozenset({"score_payment", "device_neighbours", "search_handbook"}),
-                   payment=True, device="dev_ring_0001", handbook=""),
+                   payment=True, device="dev_stream_ring_0001", handbook=""),
     GoldenQuestion("coordinator-agent", "Who has to agree before a payment above 5,000 USD is blocked?",
                    frozenset({"kagent__NS__risk_agent"}), handbook="handbook/review-policy"),
     GoldenQuestion("coordinator-agent",

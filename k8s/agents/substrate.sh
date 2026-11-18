@@ -6,7 +6,8 @@
 # place of the chart's default login. Valkey on the 0.0.9 chart remembers pod
 # IPs, so after its pods move (a Docker restart) the cluster stays down: each
 # node is made to announce its current IP, the nodes are told where the others
-# are now, and the API server and controller reconnect. kagent's chart makes the
+# are now, the API server and controller reconnect, and the sandbox workers
+# register again on their new IPs. kagent's chart makes the
 # worker pool. Safe to run again, and run it again after a Docker restart.
 #   ./k8s/agents/substrate.sh
 set -euo pipefail
@@ -50,3 +51,11 @@ kubectl -n ate-system rollout restart deploy/ate-api-server-deployment deploy/at
 # Ready only once it reaches Valkey, so this is the check that the cluster is back.
 kubectl -n ate-system rollout status deploy/ate-api-server-deployment --timeout=5m
 kubectl -n ate-system wait deploy --all --for=condition=Available --timeout=5m
+
+echo "==> the sandbox workers, registered on their current IPs"
+# A Docker restart restarts pods in place: same name, new IP. The workers then
+# never register again, and every agent session is routed to an old address.
+if kubectl -n kagent get deploy kagent-default-deployment >/dev/null 2>&1; then
+  kubectl -n kagent rollout restart deploy/kagent-default-deployment >/dev/null
+  kubectl -n kagent rollout status deploy/kagent-default-deployment --timeout=5m
+fi
