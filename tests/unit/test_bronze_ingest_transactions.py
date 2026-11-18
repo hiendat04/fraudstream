@@ -166,6 +166,7 @@ class BronzeTransactionIngestionTest(TestCase):
                 ingest_transactions_to_bronze(_with(config, write_mode="append"))
 
 
+@skipUnless(importlib.util.find_spec("pyspark"), "PySpark is not installed")
 class EvolveTableSchemaTest(TestCase):
     """Columns are only ever added; a column whose type changed stops the run."""
 
