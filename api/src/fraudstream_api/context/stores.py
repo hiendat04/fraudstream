@@ -109,11 +109,13 @@ class ContextStores:
         self._graph = AsyncGraphDatabase.driver(settings.memgraph_uri, auth=("", ""), connection_timeout=1)
 
     async def start(self) -> None:
-        """Load both registries and the embedding model before the first real request."""
+        """Load both registries, the embedding model and the vector search before the first real request."""
 
         await self.customer("warm-up")
         await self.chunk("warm-up")
         await asyncio.to_thread(embed, ["warm-up"])
+        # The first vector search after a start takes about 10 s; callers give up after 5.
+        await self.search("warm-up", 1)
 
     async def customer(self, customer_id: str) -> dict[str, dict]:
         return await self._entity("customer_id", customer_id, CUSTOMER_VIEWS)
