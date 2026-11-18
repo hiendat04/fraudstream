@@ -25,6 +25,7 @@ TTLS = {
     "customer_rolling_features": timedelta(days=31),
     "customer_orders_90d_features": timedelta(days=91),
     "merchant_risk_features": timedelta(days=31),
+    "device_ring_features": timedelta(days=31),
 }
 
 
@@ -138,16 +139,16 @@ def test_start_reads_every_ttl_and_warms_up(reader, feature_store):
     store.get_online_features_async.assert_awaited_once()
 
 
-def test_a_read_asks_for_every_feature_of_one_customer_and_merchant(reader, feature_store):
-    asyncio.run(reader.read("cust_1", "merch_2"))
+def test_a_read_asks_for_every_feature_of_one_customer_merchant_and_device(reader, feature_store):
+    asyncio.run(reader.read("cust_1", "merch_2", "dev_3"))
 
     call = feature_store.return_value.get_online_features_async.call_args.kwargs
     assert call["features"] == list(BATCH_FEATURE_REFS)
-    assert call["entity_rows"] == [{"customer_id": "cust_1", "merchant_id": "merch_2"}]
+    assert call["entity_rows"] == [{"customer_id": "cust_1", "merchant_id": "merch_2", "device_id": "dev_3"}]
 
 
 def test_a_read_returns_every_feature_and_each_views_time(reader):
-    features = asyncio.run(reader.read("cust_1", "merch_2"))
+    features = asyncio.run(reader.read("cust_1", "merch_2", "dev_3"))
 
     assert list(features.values) == FEATURE_NAMES
     assert features.values["txn_count_7d"] == 0.0
@@ -157,7 +158,7 @@ def test_a_read_returns_every_feature_and_each_views_time(reader):
 def test_zero_means_nothing_is_stored(reader, feature_store):
     feature_store.return_value.get_online_features_async.return_value.answer = feast_answer(0)
 
-    features = asyncio.run(reader.read("cust_1", "merch_2"))
+    features = asyncio.run(reader.read("cust_1", "merch_2", "dev_3"))
 
     assert features.event_times == {view: None for view in BATCH_FEATURE_VIEWS}
 
@@ -191,3 +192,19 @@ def test_close_never_tears_the_store_down(reader, feature_store):
 
     store.close.assert_awaited_once()
     store.teardown.assert_not_called()
+
+
+def test_the_online_read_asks_for_the_device(reader, feature_store):
+    asyncio.run(reader.read("c", "m", "dev_ring_0001"))
+
+    rows = feature_store.return_value.get_online_features_async.call_args.kwargs["entity_rows"]
+    assert rows[0]["device_id"] == "dev_ring_0001"
+
+
+def test_a_payment_without_device_asks_for_a_key_that_matches_nothing(reader, feature_store):
+    """Feast refuses a None key; an empty one finds no device, so the ring features come back missing."""
+
+    asyncio.run(reader.read("c", "m", None))
+
+    rows = feature_store.return_value.get_online_features_async.call_args.kwargs["entity_rows"]
+    assert rows[0]["device_id"] == ""

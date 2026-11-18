@@ -105,6 +105,7 @@ class GoldTransactionsTest(TestCase):
             }
             self.assertIn("feat_customer_total_orders_90d", feature_table_names)
             self.assertIn("feat_merchant_risk_rolling", feature_table_names)
+            self.assertIn("feat_device_ring", feature_table_names)
 
     def test_builds_merchant_burst_fraud_rate_and_category_features(self) -> None:
         """Merchant features should use calendar windows and omit the skewed unknown key."""

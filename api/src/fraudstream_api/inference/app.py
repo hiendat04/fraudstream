@@ -76,7 +76,9 @@ def create_app(
     @app.post("/v1/predict", response_model=Prediction)
     async def predict(transaction: Transaction, background: BackgroundTasks) -> Prediction:
         try:
-            online = await app.state.reader.read(transaction.customer_id, transaction.merchant_id)
+            online = await app.state.reader.read(
+                transaction.customer_id, transaction.merchant_id, transaction.device_id
+            )
         except RedisError as error:
             ONLINE_STORE_FAILURES.inc()
             raise HTTPException(503, "the online store cannot be reached") from error

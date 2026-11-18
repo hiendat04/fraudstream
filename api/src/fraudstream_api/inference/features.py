@@ -1,4 +1,4 @@
-"""The model's 51 inputs for one payment, built with the training code itself."""
+"""The model's inputs for one payment, built with the training code itself."""
 
 from dataclasses import dataclass
 from datetime import datetime, timedelta
@@ -15,7 +15,7 @@ from fraudstream_api.inference.schemas import Transaction
 
 @dataclass(frozen=True)
 class OnlineFeatures:
-    """What the online store holds for one customer and one merchant."""
+    """What the online store holds for one customer, merchant and device."""
 
     values: dict[str, Any]
     event_times: dict[str, datetime | None]
@@ -44,7 +44,7 @@ def usable_features(
 def model_inputs(
     transaction: Transaction, features: dict[str, Any]
 ) -> dict[str, float | bool | None]:
-    """Return the model's 51 named inputs, prepared exactly as in training."""
+    """Return the model's named inputs, prepared exactly as in training."""
 
     row = {
         "transaction_id": transaction.transaction_id,
@@ -62,7 +62,7 @@ def model_inputs(
 
 
 def history_found(inputs: dict[str, float | bool | None]) -> dict[str, bool]:
-    """Say which of the three feature views had usable history."""
+    """Say which of the feature views had usable history."""
 
     return {flag: bool(inputs[flag]) for flag in AVAILABILITY_FLAGS.values()}
 

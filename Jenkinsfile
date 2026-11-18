@@ -72,7 +72,7 @@ pipeline {
     }
 
     stage('Context API') {
-      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/apis/secrets.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
+      when { expression { deploying('api/src ml/src/fraudstream_ml rag/src/fraudstream_rag src/fraudstream/graph k8s/Dockerfile.context k8s/apis/context-api.yaml k8s/apis/secrets.yaml k8s/charts k8s/gateway cicd/gateway.sh cicd/check_gateway.sh') } }
       steps {
         sh '''
           docker build -f k8s/Dockerfile.context -t "fraudstream-context:$TAG" .

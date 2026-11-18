@@ -6,6 +6,7 @@ needed. RepoConfig stays real, so a setting Feast would refuse still fails.
 
 import asyncio
 from datetime import UTC, datetime
+from types import SimpleNamespace
 from unittest.mock import AsyncMock, MagicMock
 
 import fakeredis
@@ -17,9 +18,12 @@ from fraudstream_ml.dataset import BATCH_FEATURE_VIEWS
 
 from fraudstream_api.context import stores
 from fraudstream_api.context.settings import Settings
+from fraudstream.graph.ring import RING_FEATURES, device_neighbours_query
 from fraudstream_api.context.stores import (
     CUSTOMER_VIEWS,
     MERCHANT_VIEWS,
+    NEWEST_PAYMENT,
+    WINDOW_SECONDS,
     ContextStores,
     views_answer,
 )
@@ -88,8 +92,52 @@ def pgvector(monkeypatch) -> AsyncMock:
     return connect
 
 
+NEWEST = 1_782_172_761  # 2026-06-22T23:59:21Z
+COUNTS = {"device_id": "dev_ring_0001", "customer_count": 240, "fraud_customer_count": 61, "ip_customer_count": 255}
+NEIGHBOURS = [{"customer_id": "cust_00090571", "payments": 4, "fraud": True}]
+
+
+class FakeGraph:
+    """Stands in for the neo4j async driver, its session and its results. Records every query."""
+
+    def __init__(self, newest=NEWEST):
+        self.newest = newest
+        self.runs = []
+        self.closed = False
+        self.opened_with = None
+
+    def session(self):
+        return self
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *exc):
+        return False
+
+    async def run(self, query, **params):
+        self.runs.append((query, params))
+        rows = {NEWEST_PAYMENT: [{"newest": self.newest}], RING_FEATURES: [COUNTS]}.get(query, NEIGHBOURS)
+        return SimpleNamespace(data=AsyncMock(return_value=rows))
+
+    async def close(self):
+        self.closed = True
+
+
 @pytest.fixture
-def context(settings, feast, redis_server, pgvector) -> ContextStores:
+def graph(monkeypatch) -> FakeGraph:
+    fake = FakeGraph()
+
+    def driver(uri, **options):
+        fake.opened_with = (uri, options)
+        return fake
+
+    monkeypatch.setattr(stores.AsyncGraphDatabase, "driver", driver)
+    return fake
+
+
+@pytest.fixture
+def context(settings, feast, redis_server, pgvector, graph) -> ContextStores:
     return ContextStores(settings)
 
 
@@ -240,7 +288,56 @@ def test_not_ready_when_redis_is_down(context, redis_server):
     assert asyncio.run(context.is_ready()) is False
 
 
-def test_close_closes_both_stores(context, feast):
+def test_close_closes_both_stores_and_the_graph(context, feast, graph):
     asyncio.run(context.close())
     feast["fraudstream"].close.assert_awaited_once()
     feast["fraudstream_rag"].close.assert_awaited_once()
+    assert graph.closed
+
+
+def test_the_graph_is_memgraph_from_the_settings_with_a_short_connect_timeout(context, graph):
+    uri, options = graph.opened_with
+    assert uri == "bolt://memgraph:7687"
+    assert options["connection_timeout"] <= 2
+
+
+def test_a_device_answer_has_its_counts_and_customers(context, graph):
+    found = asyncio.run(context.device_neighbours("dev_ring_0001"))
+    assert found == {
+        **COUNTS,
+        "window_end": datetime(2026, 6, 22, 23, 59, 21, tzinfo=UTC),
+        "customers": NEIGHBOURS,
+    }
+
+
+def test_the_window_ends_at_the_newest_payment(context, graph):
+    """The data is historical: thirty days back from now would find nothing."""
+
+    asyncio.run(context.device_neighbours("dev_ring_0001"))
+    window = {"start": NEWEST + 1 - WINDOW_SECONDS, "end": NEWEST + 1}
+    assert graph.runs == [
+        (NEWEST_PAYMENT, {"device_id": "dev_ring_0001"}),
+        (RING_FEATURES, {"device_ids": ["dev_ring_0001"], **window}),
+        (device_neighbours_query, {"device_id": "dev_ring_0001", **window}),
+    ]
+
+
+def test_a_device_with_no_payment_is_none(context, graph):
+    graph.newest = None
+    assert asyncio.run(context.device_neighbours("dev_nobody")) is None
+    assert len(graph.runs) == 1
+
+
+def test_a_graph_that_hangs_gives_up(context, graph, monkeypatch):
+    async def hang(query, **params):
+        await asyncio.sleep(10)
+
+    monkeypatch.setattr(stores, "GRAPH_TIMEOUT", 0.01)
+    graph.run = hang
+    with pytest.raises(TimeoutError):
+        asyncio.run(context.device_neighbours("dev_ring_0001"))
+
+
+def test_readiness_does_not_ask_the_graph(context, graph):
+    assert asyncio.run(context.is_ready()) is True
+    assert graph.runs == []

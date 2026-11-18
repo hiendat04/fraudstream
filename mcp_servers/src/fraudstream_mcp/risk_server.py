@@ -1,6 +1,7 @@
-"""fraud-risk: score a payment with the fraud detection model, and search the handbook."""
+"""fraud-risk: score a payment with the fraud detection model, see who shares its device, and search the handbook."""
 
 from typing import Annotated, Any
+from urllib.parse import quote
 
 from mcp.server.mcpserver import MCPServer
 from pydantic import Field
@@ -14,7 +15,8 @@ def build(context_api: Api, inference_api: Api) -> MCPServer:
     server = MCPServer(
         NAME,
         instructions=(
-            "Score payments with the production fraud detection model and search the fraud handbook. "
+            "Score payments with the production fraud detection model, see who shares a payment's device, "
+            "and search the fraud handbook. "
             "The model's probability and threshold decide; never estimate a probability yourself."
         ),
     )
@@ -28,6 +30,7 @@ def build(context_api: Api, inference_api: Api) -> MCPServer:
         amount: float,
         channel: Annotated[str, Field(description="as written in the alert, e.g. online")],
         city: str,
+        device_id: Annotated[str | None, Field(description="the device it was paid on; none for in-store")] = None,
     ) -> dict[str, Any]:
         """Score one payment with the production fraud detection model. Returns the fraud probability, the model version, its threshold, whether the payment is flagged, and which history was found."""
         with counted(NAME, "score_payment"):
@@ -41,8 +44,18 @@ def build(context_api: Api, inference_api: Api) -> MCPServer:
                     "amount": amount,
                     "channel": channel,
                     "city": city,
+                    "device_id": device_id,
                 },
             )
+
+    @server.tool()
+    async def device_neighbours(
+        device_id: Annotated[str, Field(description="e.g. dev_ring_0001")],
+    ) -> dict[str, Any]:
+        """Who paid on one device in the 30 days up to its newest payment: how many customers, how many of them had a fraud payment on it, the largest customer crowd on any IP it used, and up to 10 of the customers, fraud first."""
+        with counted(NAME, "device_neighbours"):
+            # Encoded, so an id with '/' or '?' can only ever be a wrong id.
+            return await context_api.get(f"/v1/devices/{quote(device_id, safe='')}")
 
     @server.tool()
     async def search_handbook(

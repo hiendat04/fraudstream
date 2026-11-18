@@ -144,15 +144,15 @@ def fake_run(monkeypatch, argv, outcomes):
 @pytest.mark.anyio
 async def test_a_judged_run_pushes_once_per_agent_asked(monkeypatch):
     pushed = fake_run(monkeypatch, ["--agent", "risk-agent", "--agent", "risk-agent-b", "--pushgateway", "http://p"],
-                      [True, True, True, False])
+                      [True, True, True, True, True, False])
     assert await check_agent.main() == 1
-    assert pushed == [("http://p", "risk-agent", 2, 2), ("http://p", "risk-agent-b", 1, 2)]
+    assert pushed == [("http://p", "risk-agent", 3, 3), ("http://p", "risk-agent-b", 2, 3)]
 
 
 @pytest.mark.anyio
 async def test_a_burst_or_a_run_without_a_pushgateway_pushes_nothing(monkeypatch):
     pushed = fake_run(monkeypatch, ["--agent", "risk-agent", "--load", "2", "--pushgateway", "http://p"], [True, True])
     assert await check_agent.main() == 0
-    pushed_too = fake_run(monkeypatch, ["--agent", "risk-agent"], [True, True])
+    pushed_too = fake_run(monkeypatch, ["--agent", "risk-agent"], [True, True, True])
     assert await check_agent.main() == 0
     assert pushed == pushed_too == []

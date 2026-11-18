@@ -11,6 +11,7 @@ from feast.types import Bool, Float64, Int64, String
 CUSTOMER_ROLLING_TTL = timedelta(days=31)
 CUSTOMER_ORDERS_90D_TTL = timedelta(days=91)
 MERCHANT_RISK_TTL = timedelta(days=31)
+DEVICE_RING_TTL = timedelta(days=31)
 STREAM_FEATURE_TTL = timedelta(hours=1)
 
 
@@ -26,6 +27,13 @@ merchant = Entity(
     join_keys=["merchant_id"],
     value_type=ValueType.STRING,
     description="A generated merchant; `merchant_dim_id` in Gold, `merchant_id` in the stream.",
+)
+
+device = Entity(
+    name="device",
+    join_keys=["device_id"],
+    value_type=ValueType.STRING,
+    description="The device a payment was made on; in-store payments have none.",
 )
 
 
@@ -94,6 +102,23 @@ merchant_risk_source = SparkSource(
     description="Merchant burst, historical risk, and category-relative snapshots.",
 )
 
+device_ring_source = SparkSource(
+    name="device_ring_source",
+    query="""
+        SELECT
+            device_id,
+            event_timestamp + INTERVAL 1 DAY AS event_timestamp,
+            created,
+            device_customer_count_30d,
+            device_fraud_customer_count_30d,
+            device_ip_customer_count_30d
+        FROM iceberg.gold.feat_device_ring
+    """,
+    timestamp_field="event_timestamp",
+    created_timestamp_column="created",
+    description="How many customers, and fraud customers, shared each device and its IPs over 30 days.",
+)
+
 
 customer_rolling_features = FeatureView(
     name="customer_rolling_features",
@@ -147,6 +172,20 @@ merchant_risk_features = FeatureView(
     source=merchant_risk_source,
     online=True,
     tags={"layer": "gold", "grain": "merchant-day", "widest_window_days": "30"},
+)
+
+device_ring_features = FeatureView(
+    name="device_ring_features",
+    entities=[device],
+    ttl=DEVICE_RING_TTL,
+    schema=[
+        Field(name="device_customer_count_30d", dtype=Int64),
+        Field(name="device_fraud_customer_count_30d", dtype=Int64),
+        Field(name="device_ip_customer_count_30d", dtype=Int64),
+    ],
+    source=device_ring_source,
+    online=True,
+    tags={"layer": "gold", "grain": "device-day", "widest_window_days": "30"},
 )
 
 

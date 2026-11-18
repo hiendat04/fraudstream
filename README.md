@@ -1,6 +1,6 @@
 # FraudStream
 
-**An end-to-end fraud detection platform that runs on a laptop.** Messy batch and
+**An end-to-end fraud detection platform that is deployed on cloud (GCS).** Messy batch and
 streaming transactions go in. A tested, autoscaled, CI/CD-deployed fraud detection model comes
 out, with data quality, lineage and event-time correctness kept intact along the way.
 

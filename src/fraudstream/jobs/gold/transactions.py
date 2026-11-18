@@ -68,6 +68,7 @@ DEFAULT_WRITE_MODE = "overwrite"
 SUMMARY_FILE_NAME = "_gold_transactions_summary.json"
 UNKNOWN_MERCHANT_DIM_ID = "UNKNOWN"
 DEFAULT_COUNTRY_CODE = "US"
+DEVICE_RING_WINDOW_DAYS = 30
 
 CORE_GOLD_TABLE_NAMES = (
     "dim_date",
@@ -359,6 +360,15 @@ GOLD_TABLE_COLUMNS: dict[str, tuple[str, ...]] = {
         "declined_txn_count_7d",
         "fraud_txn_count_30d",
         "_gold_processed_at",
+    ),
+    "feat_device_ring": (
+        "device_id",
+        "event_timestamp",
+        "created",
+        "feature_date",
+        "device_customer_count_30d",
+        "device_fraud_customer_count_30d",
+        "device_ip_customer_count_30d",
     ),
     "feat_customer_total_orders_90d": (
         "customer_key",
@@ -1292,6 +1302,100 @@ def _build_feat_customer_total_orders_90d(fact_customer_daily: Any, processed_at
         .withColumn("feature_window_end_ts", spark_functions.to_timestamp("feature_date"))
         .withColumn("_gold_processed_at", spark_functions.lit(processed_at).cast("timestamp"))
         .select(*GOLD_TABLE_COLUMNS["feat_customer_total_orders_90d"])
+    )
+
+
+def _build_feat_device_ring(payments: Any, processed_at: datetime) -> Any:
+    """One row per device per day it had a payment, with its counts over that day and the 29 before.
+
+    `payments` has device_id, ip_address, customer_id, event_date and is_fraud.
+    """
+
+    from pyspark.sql import functions as spark_functions
+
+    on_device = payments.where(spark_functions.col("device_id").isNotNull())
+    device_days = on_device.select("device_id", "event_date").distinct()
+    customers = _active_counts_30d(
+        on_device.select("device_id", "customer_id", "event_date"), device_days, "device_customer_count_30d"
+    )
+    fraud_customers = _active_counts_30d(
+        on_device.where(spark_functions.col("is_fraud")).select("device_id", "customer_id", "event_date"),
+        device_days,
+        "device_fraud_customer_count_30d",
+    )
+
+    from_ip = payments.where(spark_functions.col("ip_address").isNotNull())
+    ip_crowds = _active_counts_30d(
+        from_ip.select("ip_address", "customer_id", "event_date"),
+        from_ip.select("ip_address", "event_date").distinct(),
+        "ip_customer_count_30d",
+    )
+    device_ip_crowd = (
+        on_device.where(spark_functions.col("ip_address").isNotNull())
+        .select("device_id", "ip_address", "event_date").distinct()
+        .join(ip_crowds, ["ip_address", "event_date"])
+        .groupBy("device_id", "event_date")
+        .agg(spark_functions.max("ip_customer_count_30d").alias("device_ip_customer_count_30d"))
+    )
+
+    keys = ["device_id", "event_date"]
+    return (
+        device_days.join(customers, keys).join(fraud_customers, keys).join(device_ip_crowd, keys, "left")
+        .withColumn("event_timestamp", spark_functions.to_timestamp("event_date"))
+        .withColumn("created", spark_functions.lit(processed_at).cast("timestamp"))
+        .withColumnRenamed("event_date", "feature_date")
+        .withColumn("device_customer_count_30d", spark_functions.col("device_customer_count_30d").cast("long"))
+        .withColumn(
+            "device_fraud_customer_count_30d", spark_functions.col("device_fraud_customer_count_30d").cast("long")
+        )
+        .withColumn(
+            "device_ip_customer_count_30d",
+            spark_functions.coalesce("device_ip_customer_count_30d", spark_functions.lit(0)).cast("long"),
+        )
+        .select(*GOLD_TABLE_COLUMNS["feat_device_ring"])
+    )
+
+
+def _active_counts_30d(pairs: Any, days: Any, name: str) -> Any:
+    """Distinct members per key over a sliding 30-day window, on each of `days`.
+
+    `pairs` is (key, member, event_date), `days` is (key, event_date). Summing daily distinct
+    counts would count a member who comes back daily 30 times. Instead each member's days are
+    merged into runs; a run adds 1 on its first day and takes it away 30 days after its last,
+    and a running sum per key gives the count on each day.
+    """
+
+    from pyspark.sql import functions as spark_functions
+    from pyspark.sql import Window
+
+    key, member, _ = pairs.columns
+    pairs = pairs.distinct()
+    member_days = Window.partitionBy(key, member).orderBy("event_date")
+    gap = spark_functions.datediff("event_date", spark_functions.lag("event_date").over(member_days))
+    runs = (
+        pairs.withColumn(
+            "_new_run", spark_functions.when(gap.isNull() | (gap > DEVICE_RING_WINDOW_DAYS), 1).otherwise(0)
+        )
+        .withColumn("_run", spark_functions.sum("_new_run").over(member_days))
+        .groupBy(key, member, "_run")
+        .agg(spark_functions.min("event_date").alias("_first"), spark_functions.max("event_date").alias("_last"))
+    )
+    changes = runs.select(
+        key, spark_functions.col("_first").alias("event_date"), spark_functions.lit(1).alias("_change")
+    ).unionByName(
+        runs.select(
+            key,
+            spark_functions.date_add("_last", DEVICE_RING_WINDOW_DAYS).alias("event_date"),
+            spark_functions.lit(-1).alias("_change"),
+        )
+    )
+    so_far = Window.partitionBy(key).orderBy("event_date").rangeBetween(Window.unboundedPreceding, Window.currentRow)
+    return (
+        changes.withColumn("_day", spark_functions.lit(False))
+        .unionByName(days.withColumn("_change", spark_functions.lit(0)).withColumn("_day", spark_functions.lit(True)))
+        .withColumn(name, spark_functions.sum("_change").over(so_far))
+        .where("_day")
+        .select(key, "event_date", name)
     )
 
 

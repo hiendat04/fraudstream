@@ -3,6 +3,7 @@
 import psycopg
 import pytest
 from fastapi.testclient import TestClient
+from neo4j.exceptions import ServiceUnavailable
 from redis.exceptions import ConnectionError as RedisConnectionError
 
 from fraudstream_api.context import app as context_app
@@ -20,14 +21,23 @@ HELD = {
     "customer_orders_90d_features": {"as_of": None, "features": {}},
 }
 NOTHING = {"merchant_risk_features": {"as_of": None, "features": {}}}
+DEVICE = {
+    "device_id": "dev_ring_0001",
+    "window_end": "2026-06-22T23:59:21Z",
+    "customer_count": 240,
+    "fraud_customer_count": 61,
+    "ip_customer_count": 255,
+    "customers": [{"customer_id": "cust_00090571", "payments": 4, "fraud": True}],
+}
 
 
 class FakeStores:
     """Stands in for both Feast stores. Records what it was asked."""
 
-    def __init__(self, *, views=None, chunk=CHUNK, ready=True, error=None):
+    def __init__(self, *, views=None, chunk=CHUNK, device=DEVICE, ready=True, error=None):
         self.views = views if views is not None else HELD
         self.found_chunk = chunk
+        self.device = device
         self.ready = ready
         self.error = error
         self.asked = []
@@ -49,6 +59,9 @@ class FakeStores:
 
     async def chunk(self, chunk_id):
         return await self._answer(("chunk", chunk_id), self.found_chunk)
+
+    async def device_neighbours(self, device_id):
+        return await self._answer(("device", device_id), self.device)
 
     async def search(self, question, top_k):
         return await self._answer(("search", question, top_k), [{**CHUNK, "distance": 0.12}][:top_k])
@@ -131,6 +144,34 @@ def test_search_returns_hits_and_asks_for_five_by_default(context_client, fake_s
 
 def test_search_refuses_fields_it_does_not_know(context_client):
     assert context_client.post("/v1/search", json={"question": "x", "k": 3}).status_code == 422
+
+
+def test_a_known_device_returns_its_neighbours(context_client, fake_stores):
+    response = context_client.get("/v1/devices/dev_ring_0001")
+    assert response.status_code == 200
+    body = response.json()
+    assert (body["customer_count"], body["fraud_customer_count"], body["ip_customer_count"]) == (240, 61, 255)
+    assert body["customers"] == [{"customer_id": "cust_00090571", "payments": 4, "fraud": True}]
+    assert fake_stores.asked == [("device", "dev_ring_0001")]
+
+
+def test_an_unknown_device_is_404(context_settings):
+    with client_for(context_settings, FakeStores(device=None)) as client:
+        response = client.get("/v1/devices/dev_nobody")
+    assert response.status_code == 404
+    assert "dev_nobody" in response.json()["detail"]
+
+
+@pytest.mark.parametrize("error", [ServiceUnavailable("memgraph is down"), TimeoutError()], ids=["down", "slow"])
+def test_memgraph_down_is_503_and_ready_stays_ok(context_settings, error):
+    """The graph only serves this route; the rest of the API keeps working without it."""
+
+    with client_for(context_settings, FakeStores(error=error)) as client:
+        response = client.get("/v1/devices/dev_ring_0001")
+        ready = client.get("/readyz")
+    assert response.status_code == 503
+    assert response.json()["detail"] == "the graph cannot be reached"
+    assert ready.status_code == 200
 
 
 def test_liveness_checks_nothing_else(context_settings):

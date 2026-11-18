@@ -84,10 +84,10 @@ def test_the_connection_is_closed_even_when_the_query_fails(trino):
     trino.return_value.close.assert_called_once()
 
 
-def test_it_returns_the_51_prepared_inputs_as_floats(trino):
+def test_it_returns_the_55_prepared_inputs_as_floats(trino):
     frame, names = prepared_rows(SNAPSHOT, "2026-06-15", "2026-07-01")
 
-    assert len(names) == 51
+    assert len(names) == 55
     assert list(frame.columns) == names
     assert len(frame) == 2
     assert all(str(dtype) == "float64" for dtype in frame.dtypes)
@@ -116,5 +116,5 @@ def test_build_reference_writes_the_file_and_reports_it(trino, tmp_path, monkeyp
     assert written["model_version"] == "2"
     assert written["data_snapshot_id"] == SNAPSHOT
     assert written["rows"] == 2
-    assert len(written["features"]) == 51
-    assert capsys.readouterr().out == f"2 rows, 51 features -> {out}\n"
+    assert len(written["features"]) == 55
+    assert capsys.readouterr().out == f"2 rows, 55 features -> {out}\n"

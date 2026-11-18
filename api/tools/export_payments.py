@@ -13,6 +13,7 @@ import random
 from pathlib import Path
 
 FACT_TABLE = "iceberg.gold.fact_transactions"
+SILVER_TABLE = "iceberg.silver.stg_transactions"
 OUT = Path(__file__).with_name("payments.jsonl")
 
 
@@ -35,10 +36,11 @@ def main() -> None:
 
     args = arguments()
     query = (
-        "SELECT transaction_id, customer_id, merchant_dim_id, event_time, "
-        "CAST(amount AS DOUBLE), channel, city "
-        f"FROM {FACT_TABLE} "
-        f"WHERE event_time >= (SELECT max(event_time) FROM {FACT_TABLE}) "
+        "SELECT f.transaction_id, f.customer_id, f.merchant_dim_id, f.event_time, "
+        "CAST(f.amount AS DOUBLE), f.channel, f.city, s.device_id "
+        f"FROM {FACT_TABLE} f "
+        f"LEFT JOIN {SILVER_TABLE} s ON s.transaction_id = f.transaction_id "
+        f"WHERE f.event_time >= (SELECT max(event_time) FROM {FACT_TABLE}) "
         f"- INTERVAL '{int(args.days)}' DAY"
     )
     connection = trino.dbapi.connect(
@@ -56,7 +58,7 @@ def main() -> None:
     picked = random.Random(args.seed).sample(rows, min(args.count, len(rows)))
     picked.sort(key=lambda row: row[3])
     with OUT.open("w") as out:
-        for transaction_id, customer_id, merchant_id, event_time, amount, channel, city in picked:
+        for transaction_id, customer_id, merchant_id, event_time, amount, channel, city, device_id in picked:
             payment = {
                 "transaction_id": transaction_id,
                 "customer_id": customer_id,
@@ -65,6 +67,7 @@ def main() -> None:
                 "amount": round(amount, 2),
                 "channel": channel,
                 "city": city,
+                "device_id": device_id,
             }
             out.write(json.dumps(payment) + "\n")
     print(f"{len(picked):,} of {len(rows):,} payments from the newest {args.days} days -> {OUT}")

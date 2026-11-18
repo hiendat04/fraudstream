@@ -36,6 +36,9 @@ def _frame() -> pd.DataFrame:
             "merchant_txn_count_1d": [7.0, 8.0, np.nan],
             "merchant_fraud_rate_1d": [0.1, 0.2, np.nan],
             "merchant_category": ["grocery", "travel", None],
+            "device_customer_count_30d": [40.0, np.nan, np.nan],
+            "device_fraud_customer_count_30d": [12.0, np.nan, np.nan],
+            "device_ip_customer_count_30d": [55.0, np.nan, np.nan],
         }
     )
 
@@ -55,6 +58,18 @@ class AvailabilityFlagTest(unittest.TestCase):
         self.assertEqual(list(prepared["customer_features_available"]), [True, False, True])
         self.assertEqual(list(prepared["merchant_features_available"]), [True, True, False])
         self.assertEqual(list(prepared["customer_orders_90d_available"]), [True, False, True])
+
+    def test_device_view_sets_its_flag(self):
+        """A payment with no device, or a device with no recent snapshot, has no ring features."""
+
+        frame = _frame()
+        frame.loc[1, "device_ip_customer_count_30d"] = 3.0
+
+        prepared, feature_names = prepare_features(frame)
+
+        self.assertEqual(list(prepared["device_features_available"]), [True, True, False])
+        self.assertIn("device_features_available", feature_names)
+        self.assertIn("device_customer_count_30d", feature_names)
 
     def test_nulls_are_preserved_not_imputed(self):
         """XGBoost learns a default split direction per node, so NaN must survive."""

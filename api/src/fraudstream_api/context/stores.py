@@ -1,14 +1,17 @@
-"""Reads the fraud features from Redis and the document chunks from pgvector, through Feast."""
+"""Reads the fraud features from Redis and the document chunks from pgvector, through Feast,
+and who shares a device from the payment graph in Memgraph."""
 
 import asyncio
 from datetime import UTC, datetime
 
 import psycopg
 from feast import FeatureStore, RepoConfig
+from neo4j import AsyncGraphDatabase
 from psycopg.conninfo import make_conninfo
 from redis import asyncio as aioredis
 from redis.exceptions import RedisError
 
+from fraudstream.graph.ring import RING_FEATURES, device_neighbours_query
 from fraudstream_ml.dataset import BATCH_FEATURE_VIEWS
 from fraudstream_rag.embedding import embed
 from fraudstream_rag.online import FEATURE_VIEW, JOIN_KEY
@@ -19,6 +22,9 @@ from fraudstream_api.context.settings import Settings
 CUSTOMER_VIEWS = ("customer_rolling_features", "customer_orders_90d_features")
 MERCHANT_VIEWS = ("merchant_risk_features",)
 READY_TIMEOUT = 1.0
+GRAPH_TIMEOUT = 2.0
+WINDOW_SECONDS = 30 * 86_400
+NEWEST_PAYMENT = "MATCH (:Device {id: $device_id})<-[:ON]-(p:Payment) RETURN max(p.at) AS newest"
 
 
 def views_answer(answer: dict[str, list], views: tuple[str, ...]) -> dict[str, dict]:
@@ -98,6 +104,9 @@ class ContextStores:
             password=settings.pgvector_password.get_secret_value(),
             connect_timeout=1,
         )
+        # Opens no connection until the first device is asked for, so a stopped
+        # Memgraph never stops this API from starting.
+        self._graph = AsyncGraphDatabase.driver(settings.memgraph_uri, auth=("", ""), connection_timeout=1)
 
     async def start(self) -> None:
         """Load both registries and the embedding model before the first real request."""
@@ -129,6 +138,23 @@ class ContextStores:
             return None
         return {"chunk_id": chunk_id, **{name: answer[name][0] for name in RETURNED}}
 
+    async def device_neighbours(self, device_id: str) -> dict | None:
+        """The device's counts and customers, or None when it has no payment in the graph."""
+
+        return await asyncio.wait_for(self._device_neighbours(device_id), timeout=GRAPH_TIMEOUT)
+
+    async def _device_neighbours(self, device_id: str) -> dict | None:
+        async with self._graph.session() as session:
+            newest = (await (await session.run(NEWEST_PAYMENT, device_id=device_id)).data())[0]["newest"]
+            if newest is None:
+                return None
+            # The data is historical, so the window ends at the device's newest payment, not now.
+            end = newest + 1
+            window = {"start": end - WINDOW_SECONDS, "end": end}
+            (counts,) = await (await session.run(RING_FEATURES, device_ids=[device_id], **window)).data()
+            customers = await (await session.run(device_neighbours_query, device_id=device_id, **window)).data()
+        return {**counts, "window_end": datetime.fromtimestamp(newest, UTC), "customers": customers}
+
     async def search(self, question: str, top_k: int) -> list[dict]:
         # Embedding is CPU work and Feast's vector search has no async form.
         return await asyncio.to_thread(search, self._chunks, question, top_k)
@@ -149,3 +175,4 @@ class ContextStores:
         await self._features.close()
         await self._chunks.close()
         await self._redis.aclose()
+        await self._graph.close()

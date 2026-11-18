@@ -1,5 +1,6 @@
-# The context API. Carries Feast for online reads, and the pinned embedding model
-# so questions are embedded exactly as the RAG pipeline embeds documents.
+# The context API. Carries Feast for online reads, the pinned embedding model
+# so questions are embedded exactly as the RAG pipeline embeds documents, and
+# the Memgraph driver for who shares a device.
 #
 # Build from the repository root:
 #   docker build -f k8s/Dockerfile.context -t fraudstream-context:v1 .
@@ -14,6 +15,7 @@ RUN pip install --no-cache-dir \
         "onnxruntime==1.31.0" \
         "tokenizers==0.23.3" \
         "pyyaml==6.0.3" \
+        "neo4j==5.28.8" \
         "prometheus-client==0.24.1" \
         "opentelemetry-api==1.45.0" \
         "opentelemetry-sdk==1.45.0" \
@@ -29,10 +31,11 @@ RUN python /tmp/embedding.py "$FRAUDSTREAM_EMBEDDING_DIR" --check && rm /tmp/emb
 
 COPY ml/src/fraudstream_ml /app/ml/src/fraudstream_ml
 COPY rag/src/fraudstream_rag /app/rag/src/fraudstream_rag
+COPY src/fraudstream/graph /app/src/fraudstream/graph
 COPY api/src /app/api/src
 COPY api/logging.json /app/logging.json
 
-ENV PYTHONPATH=/app/api/src:/app/ml/src:/app/rag/src
+ENV PYTHONPATH=/app/api/src:/app/ml/src:/app/rag/src:/app/src
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
 ENV HOME=/tmp

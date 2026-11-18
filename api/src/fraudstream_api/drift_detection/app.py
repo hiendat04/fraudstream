@@ -84,18 +84,12 @@ def create_app(settings: Settings | None = None, *, redis: Redis | None = None) 
     @app.post("/v1/observations")
     async def observe(body: Observations) -> dict[str, int]:
         for position, row in enumerate(body.observations):
+            # Extra inputs are ignored, as the model server ignores them: a newer
+            # model's inputs must not stop this reference watching its own.
             missing = expected - row.keys()
-            unknown = row.keys() - expected
-            if missing or unknown:
+            if missing:
                 REJECTED.inc()
-                raise HTTPException(
-                    422,
-                    {
-                        "observation": position,
-                        "missing": sorted(missing),
-                        "unknown": sorted(unknown),
-                    },
-                )
+                raise HTTPException(422, {"observation": position, "missing": sorted(missing)})
         accepted = await window.add(body.observations)
         ACCEPTED.inc(accepted)
         return {"accepted": accepted}

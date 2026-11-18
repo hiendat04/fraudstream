@@ -19,6 +19,8 @@ class Settings(BaseSettings):
     pgvector_db: str = "llm"
     pgvector_user: str
     pgvector_password: SecretStr
+    # The live payment graph. Memgraph runs without a login inside the Compose network.
+    memgraph_uri: str = "bolt://memgraph:7687"
     app_version: str = "dev"
     # Unset means no metrics endpoint: tests and one-off runs need none.
     metrics_port: int | None = None

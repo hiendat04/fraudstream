@@ -1,4 +1,4 @@
-"""Tests for the TTL rule and the model's 51 inputs."""
+"""Tests for the TTL rule and the model's inputs."""
 
 import unittest
 from datetime import UTC, datetime, timedelta
@@ -18,7 +18,8 @@ from fraudstream_api.inference.features import (
 from fraudstream_api.inference.schemas import Transaction
 
 # Two real rows from the data model version 2 trained on
-# (iceberg.ml.training_data at snapshot 3023861480409485916).
+# (iceberg.ml.training_data at snapshot 3023861480409485916). That data had no
+# ring features, so they are None.
 WITH_HISTORY = {
     "transaction_id": "txn_000000000113", "customer_id": "cust_00103290",
     "merchant_id": "merch_00023570", "event_timestamp": "2026-06-29 16:46:40",
@@ -34,6 +35,8 @@ WITH_HISTORY = {
     "merchant_fraud_rate_1d": 0.0, "merchant_prior_fraud_rate_30d": 0.0,
     "merchant_burst_ratio_1d_to_prior_30d": 1.0,
     "merchant_vs_category_amount_ratio_30d": 2.9244008513000836,
+    "device_customer_count_30d": None, "device_fraud_customer_count_30d": None,
+    "device_ip_customer_count_30d": None,
 }
 
 NO_CUSTOMER_HISTORY = {
@@ -51,12 +54,15 @@ NO_CUSTOMER_HISTORY = {
     "merchant_fraud_rate_1d": 0.0, "merchant_prior_fraud_rate_30d": 0.0,
     "merchant_burst_ratio_1d_to_prior_30d": 1.0,
     "merchant_vs_category_amount_ratio_30d": 1.4996609786416546,
+    "device_customer_count_30d": None, "device_fraud_customer_count_30d": None,
+    "device_ip_customer_count_30d": None,
 }
 
 TTLS = {
     "customer_rolling_features": timedelta(days=31),
     "customer_orders_90d_features": timedelta(days=91),
     "merchant_risk_features": timedelta(days=31),
+    "device_ring_features": timedelta(days=31),
 }
 
 PAYMENT_FIELDS = ("transaction_id", "customer_id", "merchant_id", "amount", "channel", "city")
@@ -103,7 +109,7 @@ class ModelInputsTest(unittest.TestCase):
                 served = model_inputs(transaction, features)
                 trained = training_inputs(row)
 
-                self.assertEqual(51, len(served))
+                self.assertEqual(55, len(served))
                 self.assertEqual(list(trained), list(served))
                 self.assertEqual(trained, served)
 
@@ -151,12 +157,12 @@ class ModelInputsTest(unittest.TestCase):
 
         inputs = model_inputs(transaction, features)
 
-        self.assertEqual(51, len(inputs))
+        self.assertEqual(55, len(inputs))
         self.assertFalse(inputs["customer_features_available"])
         self.assertFalse(inputs["customer_orders_90d_available"])
         self.assertTrue(inputs["merchant_features_available"])
 
-    def test_history_found_names_the_three_views(self):
+    def test_history_found_names_every_view(self):
         transaction = transaction_from(NO_CUSTOMER_HISTORY)
         inputs = model_inputs(
             transaction, usable_features(online_from(NO_CUSTOMER_HISTORY), transaction.event_timestamp, TTLS)
@@ -167,6 +173,7 @@ class ModelInputsTest(unittest.TestCase):
                 "customer_features_available": False,
                 "customer_orders_90d_available": False,
                 "merchant_features_available": True,
+                "device_features_available": False,
             },
             history_found(inputs),
         )

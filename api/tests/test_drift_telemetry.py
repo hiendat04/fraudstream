@@ -23,7 +23,7 @@ def test_accepted_rows_are_counted(drift_client):
 def test_a_refused_batch_is_counted_and_adds_no_rows(drift_client):
     accepted = sample("drift_observations_accepted_total")
     refused = sample("drift_batches_rejected_total")
-    bad = [{**rows(1)[0], "unexpected": 1.0}]
+    bad = [{name: value for name, value in rows(1)[0].items() if name != "amount"}]
     assert drift_client.post("/v1/observations", json={"observations": bad}).status_code == 422
     assert sample("drift_batches_rejected_total") == refused + 1
     assert sample("drift_observations_accepted_total") == accepted
