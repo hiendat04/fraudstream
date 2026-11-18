@@ -1,8 +1,8 @@
 """The golden questions: what an analyst asks each agent, the tool calls it must make and what its answer must hold.
 
-The truth is read when the check runs: a customer's or merchant's stored values and
-the handbook's chunks from the context API, and the model's answer for the payment
-from the inference API.
+The truth is read when the check runs: a customer's or merchant's stored values, a
+device's counts and the handbook's chunks from the context API, and the model's answer
+for the payment from the inference API.
 """
 
 import re
@@ -31,7 +31,8 @@ class GoldenQuestion:
 
     handbook is the prefix a cited chunk must start with, "" for any chunk and None
     when no citation is wanted; payment means the answer must report the model's
-    decision on PAYMENT.
+    decision on PAYMENT, paid on device when one is given, whose counts the answer
+    must then quote.
     """
 
     agent: str
@@ -40,6 +41,7 @@ class GoldenQuestion:
     customer: str | None = None
     merchant: str | None = None
     payment: bool = False
+    device: str | None = None
     handbook: str | None = None
 
 
@@ -56,6 +58,11 @@ GOLDEN_QUESTIONS = (
                    frozenset({"score_payment", "search_handbook"}), payment=True, handbook=""),
     GoldenQuestion("risk-agent", "Who has to agree before a payment above 5,000 USD is blocked?",
                    frozenset({"search_handbook"}), handbook="handbook/review-policy"),
+    GoldenQuestion("risk-agent",
+                   f"Payment txn_000000128913: customer cust_00090571, merchant merch_00011503, {_PAYMENT_TEXT}, "
+                   "on device dev_ring_0001. What does the model say, who else pays on that device, and what should I do?",
+                   frozenset({"score_payment", "device_neighbours", "search_handbook"}),
+                   payment=True, device="dev_ring_0001", handbook=""),
     GoldenQuestion("coordinator-agent", "Who has to agree before a payment above 5,000 USD is blocked?",
                    frozenset({"kagent__NS__risk_agent"}), handbook="handbook/review-policy"),
     GoldenQuestion("coordinator-agent",
@@ -127,8 +134,15 @@ async def problems(client: httpx.AsyncClient, golden_question: GoldenQuestion, a
             truth.raise_for_status()
             if not grounded(answer.text, stored_values(truth.json())):
                 found.append(f"quotes none of {entity_id}'s stored values")
+    if golden_question.device:
+        truth = await client.get(f"{context_api}/v1/devices/{golden_question.device}")
+        truth.raise_for_status()
+        counts = [truth.json()[name] for name in ("customer_count", "fraud_customer_count", "ip_customer_count")]
+        if not grounded(answer.text, counts):
+            found.append(f"quotes none of {golden_question.device}'s counts")
     if golden_question.payment:
-        truth = await client.post(f"{inference_api}/v1/predict", json=PAYMENT)
+        payment = {**PAYMENT, "device_id": golden_question.device} if golden_question.device else PAYMENT
+        truth = await client.post(f"{inference_api}/v1/predict", json=payment)
         truth.raise_for_status()
         if not score_reported(answer.text, truth.json()):
             found.append(f"does not report the model's decision and threshold for {PAYMENT['transaction_id']}")

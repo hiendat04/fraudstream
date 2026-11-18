@@ -37,6 +37,7 @@ spec:
           name: fraud-risk-tools
           toolNames:
             - score_payment
+            - device_neighbours
             - search_handbook
     a2aConfig:
       skills:

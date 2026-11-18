@@ -27,7 +27,7 @@ def ready_api():
     ("server", "tools"),
     [
         ("context", {"get_customer_features", "get_merchant_features", "get_chunk"}),
-        ("risk", {"score_payment", "search_handbook"}),
+        ("risk", {"score_payment", "device_neighbours", "search_handbook"}),
     ],
 )
 def test_the_service_name_as_host_and_no_session_id_are_answered(server, tools):

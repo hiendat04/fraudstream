@@ -11,6 +11,7 @@ env:
   PGVECTOR_HOST: pgvector
   PGVECTOR_PORT: "5432"
   PGVECTOR_DB: llm
+  MEMGRAPH_URI: bolt://memgraph:7687
 resources:
   requests:
     cpu: 500m

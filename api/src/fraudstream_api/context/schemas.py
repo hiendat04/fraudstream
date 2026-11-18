@@ -23,6 +23,23 @@ class EntityFeatures(BaseModel):
     views: dict[str, View]
 
 
+class CustomerOnDevice(BaseModel):
+    customer_id: str
+    payments: int
+    fraud: bool
+
+
+class DeviceNeighbours(BaseModel):
+    """Who paid on one device in the 30 days up to its newest payment: the counts, and at most 10 customers, fraud first."""
+
+    device_id: str
+    window_end: datetime
+    customer_count: int
+    fraud_customer_count: int
+    ip_customer_count: int
+    customers: list[CustomerOnDevice]
+
+
 class Chunk(BaseModel):
     chunk_id: str
     doc_id: str

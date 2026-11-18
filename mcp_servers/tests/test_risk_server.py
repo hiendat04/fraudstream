@@ -37,7 +37,7 @@ async def test_it_offers_the_risk_tools_only():
     server = risk_server.build(Api("context API", "http://c", 5, transport), Api("inference API", "http://i", 5, transport))
     async with Client(server) as client:
         names = {tool.name for tool in (await client.list_tools()).tools}
-    assert names == {"score_payment", "search_handbook"}
+    assert names == {"score_payment", "device_neighbours", "search_handbook"}
 
 
 async def test_score_payment_sends_the_payment_to_the_inference_api():
@@ -58,6 +58,20 @@ async def test_score_payment_passes_the_device_on():
     async with Client(server) as client:
         await client.call_tool("score_payment", {**PAYMENT, "device_id": "dev_ring_0001"})
     assert json.loads(seen[0].read())["device_id"] == "dev_ring_0001"
+
+
+async def test_device_neighbours_tool_calls_the_context_api():
+    context, seen = recording(body={"device_id": "dev_ring_0001", "customer_count": 240})
+    inference, _ = recording()
+    server = risk_server.build(Api("context API", "http://c", 5, context), Api("inference API", "http://i", 5, inference))
+    async with Client(server) as client:
+        result = await client.call_tool("device_neighbours", {"device_id": "dev_ring_0001"})
+        await client.call_tool("device_neighbours", {"device_id": "../customers/cust_1"})
+    assert result.structured_content["customer_count"] == 240
+    assert seen[0].method == "GET"
+    assert seen[0].url.path == "/v1/devices/dev_ring_0001"
+    # Encoded, so an id with '/' can only ever be a wrong device id.
+    assert seen[1].url.raw_path == b"/v1/devices/..%2Fcustomers%2Fcust_1"
 
 
 async def test_a_payment_the_api_refuses_comes_back_with_what_was_wrong():

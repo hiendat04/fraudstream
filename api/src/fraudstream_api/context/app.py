@@ -5,12 +5,14 @@ from typing import Annotated
 
 from fastapi import FastAPI, HTTPException, Path, Query
 from fastapi.responses import JSONResponse
+from neo4j.exceptions import DriverError
 from psycopg import Error as PostgresError
 from redis.exceptions import RedisError
 
 from fraudstream_api.context.schemas import (
     ENTITY_ID_PATTERN,
     Chunk,
+    DeviceNeighbours,
     EntityFeatures,
     SearchAnswer,
     SearchRequest,
@@ -74,6 +76,16 @@ def create_app(settings: Settings | None = None, *, stores=None) -> FastAPI:
     @app.get("/v1/merchants/{merchant_id}", response_model=EntityFeatures)
     async def merchant(merchant_id: EntityId) -> EntityFeatures:
         return await entity(app.state.stores.merchant, "merchant", merchant_id)
+
+    @app.get("/v1/devices/{device_id}", response_model=DeviceNeighbours)
+    async def device(device_id: EntityId) -> DeviceNeighbours:
+        try:
+            found = await app.state.stores.device_neighbours(device_id)
+        except (DriverError, TimeoutError) as error:
+            raise HTTPException(503, "the graph cannot be reached") from error
+        if found is None:
+            raise HTTPException(404, f"the graph has no payment on device {device_id}")
+        return DeviceNeighbours(**found)
 
     @app.get("/v1/chunks", response_model=Chunk)
     async def chunk(chunk_id: ChunkId) -> Chunk:
