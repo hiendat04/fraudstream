@@ -24,7 +24,7 @@ from mcp import Client
 from mcp.client.streamable_http import streamable_http_client
 
 CONTEXT_TOOLS = {"get_customer_features", "get_merchant_features", "get_chunk"}
-RISK_TOOLS = {"score_payment", "search_handbook"}
+RISK_TOOLS = {"score_payment", "device_neighbours", "search_handbook"}
 INITIALIZE = {
     "jsonrpc": "2.0", "id": 1, "method": "initialize",
     "params": {"protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": {"name": "check", "version": "0"}},

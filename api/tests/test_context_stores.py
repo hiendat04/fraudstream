@@ -257,9 +257,10 @@ def test_search_is_the_pipelines_own_search_on_the_rag_store(context, feast, mon
     assert calls == [(feast["fraudstream_rag"], "card testing", 3)]
 
 
-def test_start_warms_both_stores_and_the_model(context, feast, monkeypatch):
-    embedded = []
+def test_start_warms_both_stores_the_model_and_the_search(context, feast, monkeypatch):
+    embedded, searched = [], []
     monkeypatch.setattr(stores, "embed", lambda texts: embedded.append(texts))
+    monkeypatch.setattr(stores, "search", lambda store, question, top_k: searched.append((question, top_k)) or [])
     feast["fraudstream"].get_online_features_async = AsyncMock(
         return_value=responding(feast_answer(CUSTOMER_VIEWS, 0))
     )
@@ -272,6 +273,7 @@ def test_start_warms_both_stores_and_the_model(context, feast, monkeypatch):
     assert feast["fraudstream"].get_online_features_async.called
     assert feast["fraudstream_rag"].get_online_features_async.called
     assert embedded == [["warm-up"]]
+    assert searched == [("warm-up", 1)]
 
 
 def test_ready_when_redis_and_pgvector_both_answer(context):

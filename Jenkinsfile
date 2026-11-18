@@ -20,6 +20,11 @@ pipeline {
       defaultValue: false,
       description: 'Deploy every service, even if its files did not change. Only acts on the deploy branch.'
     )
+    booleanParam(
+      name: 'SKIP_TESTS',
+      defaultValue: false,
+      description: 'Skip the test stage, to redeploy a fix to a deploy step. Never for a change to code under test.'
+    )
   }
 
   environment {
@@ -31,6 +36,7 @@ pipeline {
 
   stages {
     stage('Test') {
+      when { expression { !params.SKIP_TESTS } }
       parallel {
         stage('root')          { steps { sh './cicd/test.sh root' } }
         stage('ml')            { steps { sh './cicd/test.sh ml' } }

@@ -82,7 +82,7 @@ expect "no thinking in the reply" yes "$([[ $reply != *"<think>"* ]] && echo yes
 echo "==> each agent's tools"
 expect "fraud-context-tools" "get_chunk get_customer_features get_merchant_features" \
   "$(kubectl -n kagent get remotemcpserver fraud-context-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
-expect "fraud-risk-tools" "score_payment search_handbook" \
+expect "fraud-risk-tools" "device_neighbours score_payment search_handbook" \
   "$(kubectl -n kagent get remotemcpserver fraud-risk-tools -o jsonpath='{.status.discoveredTools[*].name}' | tr ' ' '\n' | sort | xargs)"
 
 echo "==> the A2A gateway"

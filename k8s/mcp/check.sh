@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Checks the MCP gateway end to end from this computer: keys, the tools each
+# Checks the MCP gateway end to end: keys, the tools each
 # consumer sees and may call, a real call to each server, the rate limit, and that
 # the gateway and the servers counted the calls in Prometheus.
 #   ./k8s/mcp/check.sh                 the checks
