@@ -39,8 +39,9 @@ def payment_row(raw: bytes) -> dict | None:
         return {
             "transaction_id": value["transaction_id"],
             "customer_id": value["customer_id"],
-            "device_id": value.get("device_id", None),
-            "ip_address": value.get("ip_address", None),
+            # A blank id is no id: kept, it would join every such payment into one fake ring.
+            "device_id": value.get("device_id") or None,
+            "ip_address": value.get("ip_address") or None,
             "at": int(at.timestamp()),
             "fraud": bool(value.get("is_fraud")),
         }
