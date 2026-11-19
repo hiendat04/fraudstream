@@ -5,15 +5,11 @@ from datetime import datetime
 TRAINING_TABLE = "iceberg.ml.training_data"
 
 
-def prepared_rows(
-    snapshot_id: str, start: str, end: str, *, host: str = "localhost", port: int = 18082
-):
-    """Return the model's inputs for every row in [start, end) of one data version."""
+def snapshot_rows(snapshot_id: str, start: str, end: str, *, host: str = "localhost", port: int = 18082):
+    """Every column of every row in [start, end) of one data version."""
 
     import pandas as pd
     import trino
-
-    from fraudstream_ml.features import prepare_features
 
     # Parsing first means only real dates and a real number reach the SQL text.
     first = datetime.fromisoformat(start).strftime("%Y-%m-%d %H:%M:%S")
@@ -35,5 +31,15 @@ def prepared_rows(
 
     frame = pd.DataFrame(rows, columns=columns)
     frame["event_timestamp"] = pd.to_datetime(frame["event_timestamp"], utc=True)
-    prepared, names = prepare_features(frame)
+    return frame
+
+
+def prepared_rows(
+    snapshot_id: str, start: str, end: str, *, host: str = "localhost", port: int = 18082
+):
+    """Return the model's inputs for every row in [start, end) of one data version."""
+
+    from fraudstream_ml.features import prepare_features
+
+    prepared, names = prepare_features(snapshot_rows(snapshot_id, start, end, host=host, port=port))
     return prepared[names].astype(float), names
