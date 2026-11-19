@@ -46,6 +46,7 @@ The ML side (features, training, serving, A/B tests) is drawn in the lower half 
 | 18 | [Observability](18_observability.md) | API, compute, LLM and agent telemetry |
 | 19 | [A/B testing](19_ab_testing.md) | model versions and LLM configs side by side on real traffic |
 | 20 | [Security](20_security.md) | every secret in Vault, one login per reader |
+| 21 | [Fraud rings in a graph](21_memgraph.md) | Memgraph reads Kafka; the risk agent asks who shares a device |
 
 ## Where things are
 

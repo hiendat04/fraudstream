@@ -247,10 +247,12 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 Two technologies the platform doesn't use yet, each aimed at a weakness measured on the
 running platform, in [36_novel_ideas.md](docs/ideas/36_novel_ideas.md):
 
-- **A graph database finds fraud rings.** Ten shared devices carry 28.6% of all fraud, and
-  a payment on one is 25 times as likely to be fraud. The model never sees a device, so
-  it catches only 15% of that fraud. Memgraph, reading from Kafka, turns shared devices
-  and IPs into ring features for the model and a tool the risk agent can cite.
+- **A graph database finds fraud rings**
+  ([21_memgraph.md](docs/edai-2/21_memgraph.md)). Ten shared devices carry 28.6% of all
+  fraud, and a payment on one is 25 times as likely to be fraud. The model never sees a
+  device, so it catches only 15% of that fraud. Memgraph, reading from Kafka, shows who
+  shares a device to the risk agent, and a daily Spark job turns shared devices and IPs
+  into ring features for the model.
 - **Argo CD and Argo Rollouts deploy from Git.** The cluster pulls its state from Git
   instead of Jenkins pushing it, and Argo Rollouts steps the model's canary with its own
   analysis, replacing 613 lines of the platform's own rollout code. The manifests are
