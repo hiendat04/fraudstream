@@ -10,7 +10,7 @@ from unittest.mock import MagicMock
 import pytest
 
 from fraudstream_api.drift_detection import build_reference
-from fraudstream_api.drift_detection.snapshot import prepared_rows
+from fraudstream_api.drift_detection.snapshot import prepared_rows, snapshot_rows
 
 from tests.test_inference_features import NO_CUSTOMER_HISTORY, WITH_HISTORY
 
@@ -118,3 +118,15 @@ def test_build_reference_writes_the_file_and_reports_it(trino, tmp_path, monkeyp
     assert written["rows"] == 2
     assert len(written["features"]) == 55
     assert capsys.readouterr().out == f"2 rows, 55 features -> {out}\n"
+
+
+def test_snapshot_rows_keeps_every_column(trino):
+    cursor = trino.return_value.cursor.return_value
+    cursor.description += [("device_id", "varchar"), ("is_fraud", "integer")]
+    cursor.fetchall.return_value = [row + ["dev_ring_0001", 1] for row in cursor.fetchall.return_value]
+
+    frame = snapshot_rows(SNAPSHOT, "2026-06-15", "2026-07-01", host="localhost", port=18082)
+
+    assert list(frame.columns) == [*WITH_HISTORY, "device_id", "is_fraud"]
+    assert frame.loc[0, ["device_id", "is_fraud"]].tolist() == ["dev_ring_0001", 1]
+    assert str(frame["event_timestamp"].dt.tz) == "UTC"

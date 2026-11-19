@@ -80,6 +80,33 @@ class FeastSparkConfTest(unittest.TestCase):
             self.assertIsInstance(value, str, msg=f"{key} is not a string")
 
 
+REPO_ROOT = next(parent for parent in Path(__file__).resolve().parents if (parent / "airflow" / "config").is_dir())
+
+
+class TunedSparkSettingsTest(unittest.TestCase):
+    def test_every_feast_spark_session_runs_the_processing_jobs_tuned_settings(self):
+        """Feast's sessions shuffle as much as the processing jobs, so they take the same tuning."""
+
+        import json
+
+        import yaml
+
+        variables = json.loads((REPO_ROOT / "airflow" / "config" / "variables.json").read_text())
+        tuned = json.loads(variables["fraudstream_spark_conf"])
+        sessions = {
+            name: yaml.safe_load((REPO_ROOT / name).read_text())["offline_store"]["spark_conf"]
+            for name in ("feature_store/feature_repo/feature_store.yaml", "rag/feature_repo/feature_store.yaml")
+        }
+        sessions["feast_spark_conf"] = feast_spark_conf(
+            warehouse=WarehouseConfig(uri="s3a://w", endpoint="http://m", access_key="k", secret_key="s"),
+            iceberg=IcebergCatalogConfig(catalog_name="iceberg", catalog_type="jdbc", warehouse_uri="s3a://w"),
+            postgres=PostgresJdbcConfig(host="postgres", database="fraudstream"),
+        )
+        for name, conf in sessions.items():
+            with self.subTest(name):
+                self.assertEqual({key: conf.get(key) for key in tuned}, tuned)
+
+
 class ConfigsFromEnvTest(unittest.TestCase):
     """`PostgresJdbcConfig()` defaults to localhost -- only argparse reads the env.
 
