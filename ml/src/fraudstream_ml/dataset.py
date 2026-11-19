@@ -85,6 +85,8 @@ def entity_dataframe_sql(start: str | datetime, end: str | datetime, *, labels: 
             f.city{label_column}
         FROM {FACT_TABLE} f
         LEFT JOIN {SILVER_TABLE} s ON s.transaction_id = f.transaction_id
+            AND s.event_date >= DATE '{start_literal[:10]}'
+            AND s.event_date <= DATE '{end_literal[:10]}'
         {label_join}
         WHERE f.event_time >= TIMESTAMP '{start_literal}'
           AND f.event_time < TIMESTAMP '{end_literal}'

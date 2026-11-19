@@ -52,6 +52,8 @@ ENV REDIS_PORT=6379
 ENV MINIO_ENDPOINT=http://minio:9000
 ENV FRAUDSTREAM_WAREHOUSE_URI=s3a://fraudstream/warehouse
 ENV FEAST_SPARK_MASTER=local[4]
+# Spark's default 1g heap is far below the 4Gi the retrieve pod requests.
+ENV SPARK_DRIVER_MEMORY=3g
 
 # Usernames and passwords are deliberately absent: they arrive as environment
 # variables at run time so they are never baked into the image.

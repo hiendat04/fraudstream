@@ -78,6 +78,18 @@ class EntityDataframeSqlTest(unittest.TestCase):
         self.assertIn("2026-03-01 00:00:00", sql)
         self.assertIn("2026-04-01 00:00:00", sql)
 
+    def test_reads_silver_only_for_the_window_days(self):
+        """The device lookup reads only the window's silver partitions, never the whole table."""
+
+        sql = entity_dataframe_sql("2026-03-01 08:00:00", "2026-04-01")
+
+        self.assertIn(
+            "ON s.transaction_id = f.transaction_id\n"
+            "            AND s.event_date >= DATE '2026-03-01'\n"
+            "            AND s.event_date <= DATE '2026-04-01'",
+            sql,
+        )
+
     def test_rejects_an_end_that_is_not_after_the_start(self):
         """An inverted window returns zero rows, which is far harder to debug than an error."""
 

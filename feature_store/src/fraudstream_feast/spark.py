@@ -110,7 +110,10 @@ def feast_spark_conf(
         "spark.hadoop.fs.s3a.path.style.access": "true",
         "spark.hadoop.fs.s3a.impl": "org.apache.hadoop.fs.s3a.S3AFileSystem",
         "spark.hadoop.fs.s3a.connection.ssl.enabled": "false",
-        "spark.sql.shuffle.partitions": "8",
+        "spark.sql.shuffle.partitions": "800",
+        "spark.sql.adaptive.enabled": "true",
+        "spark.sql.adaptive.skewJoin.enabled": "true",
+        "spark.sql.adaptive.advisoryPartitionSizeInBytes": "128m",
         "spark.sql.session.timeZone": "UTC",
     }
     if iceberg.catalog_type == "hadoop":
