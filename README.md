@@ -205,7 +205,7 @@ flowchart TB
 
 The purple stages deploy the LLM platform. Jenkins reads every credential from Vault at
 the moment a step uses it. The cloud session is started by hand, when a demo is due:
-Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_code.md)).
+Terraform, then Ansible, then the GKE deploy ([17](docs/edai-2/17_infrastructure_as_code.md)).
 
 ## What's inside
 
@@ -220,32 +220,34 @@ Terraform, then Ansible, then the GKE deploy ([25](docs/ml/25_infrastructure_as_
 | Governance | DataHub catalog, each pipeline's lineage, and its checks as assertions | [06_data_governance.md](docs/edai-1/06_data_governance.md) |
 | Raw zone versioning | lakeFS gives the raw CSVs commits and branches: each batch run writes to its own branch and merges into `main` only after its checks, so a stopped run leaves `main` whole | [07_lakefs.md](docs/edai-1/07_lakefs.md) |
 | Integration tests | Testcontainers starts a throwaway lakeFS, and the batch run's real branch, generate, check and merge steps run against it in about a minute | [08_testcontainers.md](docs/edai-1/08_testcontainers.md) |
-| **ML platform** | | |
-| Feature store | Feast with Redis online store and incremental materialization | [16_feature_store.md](docs/ml/16_feature_store.md)                                                                                                                                           |
-| Model training | XGBoost against a logistic baseline, split by date, and a Kubeflow pipeline | [17_ml_training.md](docs/ml/17_ml_training.md)<br>[18_ml_pipeline.md](docs/ml/18_ml_pipeline.md)                                                                                                |
-| Versioning | MLflow registry tied to Iceberg data snapshots | [19_versioning.md](docs/ml/19_versioning.md)                                                                                                                                                 |
-| Kubernetes platform | Ingress with HTTPS, KEDA, Knative, and KServe | [20_local_k8s_platform.md](docs/ml/20_local_k8s_platform.md)                                                                                                                                 |
-| Web APIs | Inference and drift detection, with Helm rollout and rollback | [21_web_apis.md](docs/ml/21_web_apis.md)                                                                                                                                                     |
-| Testing | Coverage, mutation, property-based and load testing | [22_validation_and_verification.md](docs/ml/22_validation_and_verification.md)                                                                                                               |
-| CI/CD | Jenkins pipeline with a before and after of a real deploy, and the agents deployed through their eval questions | [23_ci_cd.md](docs/ml/23_ci_cd.md)                                                                                                                                                           |
-| Gateway | NGINX with a domain, HTTPS, basic auth and a rate limit in front of every web API | [24_gateway.md](docs/ml/24_gateway.md)                                                                                                                                                       |
-| Infrastructure as code | Terraform stacks for GKE, a VM, a registry and state; Ansible roles that configure and seed the VM; one command to start and end a cloud session | [25_infrastructure_as_code.md](docs/ml/25_infrastructure_as_code.md)                                                                                                                         |
-| Observability | Request, model and compute metrics in Prometheus and Grafana, logs in Elasticsearch and Kibana, traces in Jaeger, and a daily drift pipeline that retrains on drift | [26_observability.md](docs/ml/26_observability.md) |
-| A/B testing | A new model runs as a KServe canary next to the served one, compared on real traffic without labels, and stepped up, promoted or rolled back by commits, by hand or by a Jenkins job | [27_ab_testing.md](docs/ml/27_ab_testing.md) |
-| Secrets | One HashiCorp Vault holds every password, key and token. Each reader logs in as itself and reads only its own: External Secrets for each namespace, Jenkins, Airflow, Ansible and the GKE deploy | [28_security.md](docs/ml/28_security.md) |
-| **LLM layer** | | |
-| LLM inference platform | Qwen3 on llama.cpp behind llm-d and agentgateway: keys, limits, PII masking, telemetry, benchmark | [29_llm_inference_platform.md](docs/llm/29_llm_inference_platform.md) |
-| RAG data pipeline | The handbook, model cards and feature dictionary, chunked and embedded daily into Iceberg and Feast's pgvector store, checked and governed | [30_rag_pipeline.md](docs/llm/30_rag_pipeline.md) |
-| Context API and MCP servers | Features, chunks and search by id; two MCP servers behind agentgateway with a key and tool policy per agent | [31_context_api_and_mcp.md](docs/llm/31_context_api_and_mcp.md) |
-| Agents | kagent with one global model config, the context agent with its prompt from MLflow, KEDA on calls in flight, agentregistry, both UIs behind NGINX | [32_agent_platform_and_context_agent.md](docs/llm/32_agent_platform_and_context_agent.md) |
-| Risk agent and coordinator | The risk agent scores a payment and cites the handbook; the coordinator delegates through agentgateway as the A2A gateway with a key, allow-list and rate limit; six eval questions | [33_risk_agent_and_coordinator.md](docs/llm/33_risk_agent_and_coordinator.md) |
-| Agent fleet | The context and risk agents sandboxed in gVisor on Agent Substrate: every conversation restored in about 2 s from a golden snapshot, many conversations on three shared workers | [34_agent_fleet.md](docs/llm/34_agent_fleet.md) |
-| A/B tests for LLMs and agents | A new LLM version and a cheaper model for the risk agent take a weighted share of traffic at the LLM and A2A gateways, side by side on one dashboard, judged on failures, latency and golden questions | [35_ab_testing.md](docs/llm/35_ab_testing.md) |
+| **ML and LLM platform** | | |
+| LLM inference platform | Qwen3 on llama.cpp behind llm-d and agentgateway: one in-cluster endpoint with a key, a model allowlist, a rate limit and PII masking on every request | [01_llm_inference_platform.md](docs/edai-2/01_llm_inference_platform.md) |
+| Global model config | One kagent `ModelConfig` points every agent at the LLM gateway, so swapping the model for all agents is one change | [02_global_model_config.md](docs/edai-2/02_global_model_config.md) |
+| Agent registry | agentregistry lists every agent and MCP server, its image, code and tools; published by CI, and it can list but never deploy | [03_agent_registry.md](docs/edai-2/03_agent_registry.md) |
+| RAG pipeline | The handbook, model cards and feature pages, chunked and embedded daily by Airflow into Iceberg and Feast's pgvector store, checked and governed | [04_rag_pipeline.md](docs/edai-2/04_rag_pipeline.md) |
+| Feature store pipelines | Feast with Redis online: Gold's daily snapshots materialized incrementally, and Flink's window features pushed by a stream job | [05_feature_store_pipelines.md](docs/edai-2/05_feature_store_pipelines.md) |
+| Training pipeline | Kubeflow pipeline: Feast features, a split by date, distributed XGBoost on Kubeflow Trainer, and an MLflow version tied to the Iceberg snapshot it trained on | [06_training_pipeline.md](docs/edai-2/06_training_pipeline.md) |
+| ML inference service | The fraud detection model on KServe with the model inside its image, so a pod starts without MLflow or MinIO | [07_ml_inference_service.md](docs/edai-2/07_ml_inference_service.md) |
+| Context API and agent | A FastAPI context API over the online stores, its MCP server, and the context agent with its prompt from MLflow | [08_context_api_and_agent.md](docs/edai-2/08_context_api_and_agent.md) |
+| Risk agent | Scores a payment with the fraud detection model and cites what the handbook says to do | [09_risk_agent.md](docs/edai-2/09_risk_agent.md) |
+| MCP gateway | One entry to both MCP servers: a key and tool policy per agent, rate limits, and every call counted and traced | [10_mcp_gateway.md](docs/edai-2/10_mcp_gateway.md) |
+| A2A gateway | Every agent-to-agent call checked for who calls whom and how often | [11_a2a_gateway.md](docs/edai-2/11_a2a_gateway.md) |
+| Coordinator agent | The analysts' one entry point; asks the two specialists, scaled by KEDA on calls in flight | [12_coordinator_agent.md](docs/edai-2/12_coordinator_agent.md) |
+| Agent fleet | Every conversation in its own gVisor sandbox on Agent Substrate, restored in about 2 s from a snapshot on three shared workers | [13_agent_fleet.md](docs/edai-2/13_agent_fleet.md) |
+| Validation and verification | Coverage, equivalence and boundary cases, mutation testing, property tests, and a load test against an SLA fixed in advance | [14_validation_and_verification.md](docs/edai-2/14_validation_and_verification.md) |
+| CI/CD | Jenkins tests every branch and deploys each changed part of the deploy branch, credentials from Vault, agents only after their eval questions pass | [15_ci_cd.md](docs/edai-2/15_ci_cd.md) |
+| External routing | NGINX in front of every UI and API: its own domain, HTTPS from a local CA, basic auth and a rate limit | [16_external_routing.md](docs/edai-2/16_external_routing.md) |
+| Infrastructure as code | Terraform for the network, registry, GKE and a VM; Ansible configures and seeds the VM; one command starts and ends a cloud session | [17_infrastructure_as_code.md](docs/edai-2/17_infrastructure_as_code.md) |
+| Observability | Metrics in Prometheus, logs in Elasticsearch, traces in Jaeger, all in Grafana; LLM tokens and PII catches per caller; a daily drift pipeline that retrains on drift | [18_observability.md](docs/edai-2/18_observability.md) |
+| A/B testing | A new model version, LLM version or cheaper agent model takes a weighted share of real traffic and is judged by rules fixed before the test | [19_ab_testing.md](docs/edai-2/19_ab_testing.md) |
+| Security | Every password, key and token in one HashiCorp Vault; each reader logs in as itself and reads only its own, every read audited | [20_security.md](docs/edai-2/20_security.md) |
+| Fraud rings in a graph | Memgraph reads payments from Kafka so the risk agent can ask who shares a device; a daily Spark job turns shared devices into model inputs | [21_memgraph.md](docs/edai-2/21_memgraph.md) |
+| Estimated performance | NannyML estimates the model's recall, precision and ROC AUC every day without labels; it caught v4 missing almost all fraud on data 300 times larger | [22_nannyml.md](docs/edai-2/22_nannyml.md) |
 
 ## Novel ideas
 
-Two technologies the platform doesn't use yet, each aimed at a weakness measured on the
-running platform, in [36_novel_ideas.md](docs/ideas/36_novel_ideas.md):
+Two technologies the platform didn't have, each aimed at a weakness measured on the
+running platform:
 
 - **A graph database finds fraud rings**
   ([21_memgraph.md](docs/edai-2/21_memgraph.md)). Ten shared devices carry 28.6% of all
@@ -253,10 +255,11 @@ running platform, in [36_novel_ideas.md](docs/ideas/36_novel_ideas.md):
   device, so it catches only 15% of that fraud. Memgraph, reading from Kafka, shows who
   shares a device to the risk agent, and a daily Spark job turns shared devices and IPs
   into ring features for the model.
-- **Argo CD and Argo Rollouts deploy from Git.** The cluster pulls its state from Git
-  instead of Jenkins pushing it, and Argo Rollouts steps the model's canary with its own
-  analysis, replacing 613 lines of the platform's own rollout code. The manifests are
-  valid against Argo's schemas, and their four checks run on this platform's Prometheus.
+- **Performance estimated before the labels arrive**
+  ([22_nannyml.md](docs/edai-2/22_nannyml.md)). Fraud is confirmed weeks late, so real
+  recall is always weeks late. NannyML estimates it daily from the model's own scores.
+  On data that grew about 300 times, it showed version 4's recall falling from 28% to an
+  estimated 1%, while PSI flagged the same 25 count inputs.
 
 ## Quick start
 
@@ -293,8 +296,8 @@ docker compose --profile orchestration up --build -d \
 Everything else has its own run instructions in the docs above: Spark and Flink
 ([03](docs/edai-1/03_processing_jobs.md#run-it)), Trino
 ([04](docs/edai-1/04_data_storage.md#lakehouse)), DataHub
-([06](docs/edai-1/06_data_governance.md#setting-up-datahub)), Feast ([16](docs/ml/16_feature_store.md)) and
-the Kubernetes stack ([20](docs/ml/20_local_k8s_platform.md)). Add `--retain-ui 600` or `--retain-ui forever` to any Spark
+([06](docs/edai-1/06_data_governance.md#setting-up-datahub)), Feast ([05](docs/edai-2/05_feature_store_pipelines.md)) and
+the Kubernetes stack ([06](docs/edai-2/06_training_pipeline.md)). Add `--retain-ui 600` or `--retain-ui forever` to any Spark
 job to watch it run and keep its UI open after it finishes, for 10 minutes or until Ctrl+C, or `--flink-ui` to the
 Flink job to watch it run. Stop the services with
 `docker compose down`.
@@ -323,8 +326,8 @@ PYTHONPATH=src python -m unittest discover -s tests/unit -p 'test_*.py'
 ```
 
 The API suites, mutation tests and load test are covered in
-[doc 22](docs/ml/22_validation_and_verification.md), and CI runs all of them
-([doc 23](docs/ml/23_ci_cd.md)).
+[doc 14](docs/edai-2/14_validation_and_verification.md), and CI runs all of them
+([doc 15](docs/edai-2/15_ci_cd.md)).
 
 ## Repository layout
 
@@ -340,9 +343,7 @@ fraudstream/
 ├── datahub/                  # Isolated DataHub runtime, contracts, lineage, and assertions
 ├── docs/                     # Detailed implementation documentation
 │   ├── edai-1/               # Docker, generators, Spark and Flink jobs, storage, Airflow, DataHub, lakeFS, Testcontainers
-│   ├── ml/                   # Feature store, training, serving, CI/CD, gateway, IaC, observability, security
-│   ├── llm/                  # The LLM layer: serving, RAG, MCP, agents and their A/B tests
-│   └── ideas/                # Novel ideas, each shown to work on the running platform
+│   └── edai-2/               # The ML and LLM platform: features, training, serving, agents, CI/CD, security, Memgraph, NannyML
 ├── feature_store/            # Isolated Python 3.12 Feast runtime, feature repo, and push job
 ├── flink/                    # Isolated Python 3.12 PyFlink runtime and connector location
 ├── images/                   # Architecture and captured UI evidence
