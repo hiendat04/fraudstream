@@ -22,6 +22,10 @@ from fraudstream_monitoring.summary import DriftSummary
 MIN_ROWS = 1000
 SEVERITY = {"stable": 0, "warning": 1, "drift": 2}
 
+# A week is about 7 million payments, and Feast's point-in-time join over all of them
+# takes hours. 2% is about 140,000 payments, plenty for PSI and the performance estimate.
+SAMPLE_PERCENT = 2
+
 
 def resolve_window(newest: date, window_end: str | None, days: int) -> tuple[date, date]:
     """The days to check: `days` days up to window_end, which is not included.
@@ -34,6 +38,21 @@ def resolve_window(newest: date, window_end: str | None, days: int) -> tuple[dat
         raise ValueError(f"a window is at least one day, not {days}")
     end = date.fromisoformat(window_end) if window_end else newest + timedelta(days=1)
     return end - timedelta(days=days), end
+
+
+def newest_payment_date(repo_path: str) -> date:
+    """The day of the newest payment in the offline store, read through Feast's own Spark session."""
+
+    from feast import FeatureStore
+    from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
+        get_spark_session_or_start_new_with_repoconfig,
+    )
+
+    from fraudstream_ml.dataset import FACT_TABLE
+
+    store = FeatureStore(repo_path=repo_path)
+    spark = get_spark_session_or_start_new_with_repoconfig(store.config.offline_store)
+    return spark.sql(f"SELECT max(event_time) FROM {FACT_TABLE}").first()[0].date()
 
 
 def empty_window(reference: Reference):
@@ -94,27 +113,24 @@ def main() -> None:
     parser.add_argument("--reference", required=True, help="the served model's training reference")
     parser.add_argument("--window-days", type=int, default=7)
     parser.add_argument("--window-end", default="", help="YYYY-MM-DD, not included; empty means the day after the newest payment")
+    parser.add_argument("--sample-percent", type=int, default=SAMPLE_PERCENT, help="the share of the window's payments to check")
     parser.add_argument("--out", required=True)
     arguments = parser.parse_args()
 
     import pandas as pd
-    from feast import FeatureStore
     from feast.errors import EntitySQLEmptyResults
-    from feast.infra.offline_stores.contrib.spark_offline_store.spark import (
-        get_spark_session_or_start_new_with_repoconfig,
-    )
 
-    from fraudstream_ml.dataset import FACT_TABLE, load_training_frame
+    from fraudstream_ml.dataset import load_training_frame
     from fraudstream_ml.features import prepare_features
 
     reference = Reference.from_json(Path(arguments.reference).read_text())
-    store = FeatureStore(repo_path=arguments.repo_path)
-    spark = get_spark_session_or_start_new_with_repoconfig(store.config.offline_store)
-    newest = spark.sql(f"SELECT max(event_time) FROM {FACT_TABLE}").first()[0].date()
+    newest = newest_payment_date(arguments.repo_path)
     start, end = resolve_window(newest, arguments.window_end, arguments.window_days)
 
     try:
-        frame = load_training_frame(arguments.repo_path, start.isoformat(), end.isoformat(), labels=False)
+        frame = load_training_frame(
+            arguments.repo_path, start.isoformat(), end.isoformat(), labels=False, sample_percent=arguments.sample_percent
+        )
     except EntitySQLEmptyResults:
         inputs = empty_window(reference)
     else:

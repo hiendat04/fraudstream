@@ -73,6 +73,42 @@ data:
         {"id": 9, "type": "timeseries", "title": "Payments scored without history (live)", "gridPos": {"x": 12, "y": 20, "w": 12, "h": 8},
          "datasource": {"type": "prometheus", "uid": "prometheus"},
          "fieldConfig": {"defaults": {"unit": "percentunit", "min": 0, "max": 1}, "overrides": []},
-         "targets": [{"refId": "A", "expr": "sum by (flag) (rate(fraud_history_missing_total[15m])) / scalar(sum(rate(fraud_score_count[15m])))", "legendFormat": "{{flag}}"}]}
+         "targets": [{"refId": "A", "expr": "sum by (flag) (rate(fraud_history_missing_total[15m])) / scalar(sum(rate(fraud_score_count[15m])))", "legendFormat": "{{flag}}"}]},
+        {"id": 10, "type": "row", "title": "Estimated performance, before the labels arrive", "collapsed": false, "gridPos": {"x": 0, "y": 28, "w": 24, "h": 1}, "panels": []},
+        {"id": 11, "type": "stat", "title": "Estimate status", "gridPos": {"x": 0, "y": 29, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"mappings": [{"type": "value", "options": {
+           "-1": {"text": "Not enough data", "color": "text"},
+           "0": {"text": "Within usual range", "color": "green"},
+           "1": {"text": "Alert", "color": "red"}}}]}, "overrides": []},
+         "options": {"colorMode": "background", "reduceOptions": {"calcs": ["lastNotNull"]}},
+         "targets": [{"refId": "A", "expr": "fraud_estimated_performance_status{job=\"fraud_detection_performance\"}", "legendFormat": "v{{model_version}}", "instant": true}]},
+        {"id": 12, "type": "timeseries", "title": "Estimated recall", "gridPos": {"x": 6, "y": 29, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3}, "overrides": [
+           {"matcher": {"id": "byName", "options": "upper"}, "properties": [{"id": "custom.fillBelowTo", "value": "lower"}, {"id": "custom.lineWidth", "value": 0}, {"id": "custom.fillOpacity", "value": 20}]},
+           {"matcher": {"id": "byName", "options": "lower"}, "properties": [{"id": "custom.lineWidth", "value": 0}]}]},
+         "targets": [
+           {"refId": "A", "expr": "fraud_estimated_performance{job=\"fraud_detection_performance\",metric=\"recall\"}", "legendFormat": "estimate (v{{model_version}})"},
+           {"refId": "B", "expr": "fraud_estimated_performance_lower{job=\"fraud_detection_performance\",metric=\"recall\"}", "legendFormat": "lower"},
+           {"refId": "C", "expr": "fraud_estimated_performance_upper{job=\"fraud_detection_performance\",metric=\"recall\"}", "legendFormat": "upper"}]},
+        {"id": 13, "type": "timeseries", "title": "Estimated precision", "gridPos": {"x": 12, "y": 29, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3}, "overrides": [
+           {"matcher": {"id": "byName", "options": "upper"}, "properties": [{"id": "custom.fillBelowTo", "value": "lower"}, {"id": "custom.lineWidth", "value": 0}, {"id": "custom.fillOpacity", "value": 20}]},
+           {"matcher": {"id": "byName", "options": "lower"}, "properties": [{"id": "custom.lineWidth", "value": 0}]}]},
+         "targets": [
+           {"refId": "A", "expr": "fraud_estimated_performance{job=\"fraud_detection_performance\",metric=\"precision\"}", "legendFormat": "estimate (v{{model_version}})"},
+           {"refId": "B", "expr": "fraud_estimated_performance_lower{job=\"fraud_detection_performance\",metric=\"precision\"}", "legendFormat": "lower"},
+           {"refId": "C", "expr": "fraud_estimated_performance_upper{job=\"fraud_detection_performance\",metric=\"precision\"}", "legendFormat": "upper"}]},
+        {"id": 14, "type": "timeseries", "title": "Estimated ROC AUC", "gridPos": {"x": 18, "y": 29, "w": 6, "h": 8},
+         "datasource": {"type": "prometheus", "uid": "prometheus"},
+         "fieldConfig": {"defaults": {"unit": "percentunit", "decimals": 3}, "overrides": [
+           {"matcher": {"id": "byName", "options": "upper"}, "properties": [{"id": "custom.fillBelowTo", "value": "lower"}, {"id": "custom.lineWidth", "value": 0}, {"id": "custom.fillOpacity", "value": 20}]},
+           {"matcher": {"id": "byName", "options": "lower"}, "properties": [{"id": "custom.lineWidth", "value": 0}]}]},
+         "targets": [
+           {"refId": "A", "expr": "fraud_estimated_performance{job=\"fraud_detection_performance\",metric=\"roc_auc\"}", "legendFormat": "estimate (v{{model_version}})"},
+           {"refId": "B", "expr": "fraud_estimated_performance_lower{job=\"fraud_detection_performance\",metric=\"roc_auc\"}", "legendFormat": "lower"},
+           {"refId": "C", "expr": "fraud_estimated_performance_upper{job=\"fraud_detection_performance\",metric=\"roc_auc\"}", "legendFormat": "upper"}]}
       ]
     }

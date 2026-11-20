@@ -47,6 +47,7 @@ The ML side (features, training, serving, A/B tests) is drawn in the lower half 
 | 19 | [A/B testing](19_ab_testing.md) | model versions and LLM configs side by side on real traffic |
 | 20 | [Security](20_security.md) | every secret in Vault, one login per reader |
 | 21 | [Fraud rings in a graph](21_memgraph.md) | Memgraph reads Kafka; the risk agent asks who shares a device |
+| 22 | [Estimated performance](22_nannyml.md) | NannyML estimates recall before the labels arrive |
 
 ## Where things are
 
