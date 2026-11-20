@@ -90,6 +90,23 @@ class EntityDataframeSqlTest(unittest.TestCase):
             sql,
         )
 
+    def test_reads_every_payment_unless_asked_to_sample(self):
+        """Training reads the whole window; only the monitoring checks sample it."""
+
+        self.assertNotIn("pmod", entity_dataframe_sql(START, END))
+
+    def test_samples_payments_by_transaction_id(self):
+        """The same id always lands in or out, so a rerun reads the same payments."""
+
+        sql = entity_dataframe_sql(START, END, sample_percent=2)
+
+        self.assertIn("AND pmod(hash(f.transaction_id), 100) < 2", sql)
+
+    def test_rejects_a_sample_outside_one_to_a_hundred(self):
+        for percent in (0, 101):
+            with self.assertRaises(ValueError, msg=percent):
+                entity_dataframe_sql(START, END, sample_percent=percent)
+
     def test_rejects_an_end_that_is_not_after_the_start(self):
         """An inverted window returns zero rows, which is far harder to debug than an error."""
 

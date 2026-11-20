@@ -1,8 +1,9 @@
 FROM apache/airflow:3.3.0-python3.12
 
 USER root
+# libgomp1: LightGBM, which NannyML imports, needs the OpenMP runtime.
 RUN apt-get update \
-    && apt-get install --yes --no-install-recommends default-jre-headless \
+    && apt-get install --yes --no-install-recommends default-jre-headless libgomp1 \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
@@ -20,6 +21,14 @@ RUN pip install --no-cache-dir \
     "prometheus-client==0.24.1" \
     "onnxruntime==1.31.0" \
     "tokenizers==0.23.3"
+
+# The performance estimate scores payments with the fraud detection model, which needs
+# xgboost 3. NannyML's FLAML caps it below 3 for an estimator this project never runs,
+# so xgboost is upgraded in a second step; pip warns about the cap and carries on.
+ENV NML_DISABLE_USAGE_LOGGING=1
+RUN pip install --no-cache-dir "apache-airflow==3.3.0" "nannyml==0.13.1" "statsmodels==0.14.6" \
+    && pip install --no-cache-dir "apache-airflow==3.3.0" "xgboost==3.4.1" "mlflow-skinny==3.16.0" \
+    && pip freeze | grep -i '^nvidia-' | cut -d= -f1 | xargs -r pip uninstall --yes
 
 # DataHub's SDK pins its own dependencies, so it gets a virtualenv of its own.
 RUN python -m venv /home/airflow/datahub \

@@ -17,17 +17,22 @@ class ServedModel:
 
 
 def load_model(model_uri: str, tracking_uri: str) -> ServedModel:
-    """A models:/<name>/<version> model, with the threshold training logged on its run."""
+    """A models:/<name>/<version> or models:/<name>@<alias> model, with the threshold training logged on its run."""
 
     # This MLflow server fails every multipart download through its proxy.
     os.environ.setdefault("MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD", "false")
     import mlflow
 
-    name, version = model_uri.removeprefix("models:/").rsplit("/", 1)
     mlflow.set_tracking_uri(tracking_uri)
-    # The xgboost loader gives back the classifier, which reports how likely fraud is.
-    classifier = mlflow.xgboost.load_model(model_uri)
     client = mlflow.MlflowClient(tracking_uri)
+    path = model_uri.removeprefix("models:/")
+    if "@" in path:
+        name, alias = path.split("@", 1)
+        version = str(client.get_model_version_by_alias(name, alias).version)
+    else:
+        name, version = path.rsplit("/", 1)
+    # The xgboost loader gives back the classifier, which reports how likely fraud is.
+    classifier = mlflow.xgboost.load_model(f"models:/{name}/{version}")
     run = client.get_run(client.get_model_version(name, version).run_id)
     return ServedModel(
         version=version,

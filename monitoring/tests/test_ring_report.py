@@ -79,3 +79,22 @@ def test_load_model_takes_the_threshold_from_the_versions_run(monkeypatch):
     assert (model.version, model.feature_names, model.threshold) == ("5", ["a", "b"], 0.62)
     assert loaded == ["models:/fraud-detection/5"]
     assert model.predict_proba(pd.DataFrame({"a": [1], "b": [2]})).tolist() == [0.7]
+
+
+def test_load_model_resolves_an_alias_to_its_version(monkeypatch):
+    classifier = types.SimpleNamespace(get_booster=lambda: types.SimpleNamespace(feature_names=["a"]))
+    client = types.SimpleNamespace(
+        get_model_version_by_alias=lambda name, alias: types.SimpleNamespace(version=4),
+        get_model_version=lambda name, version: types.SimpleNamespace(run_id="run"),
+        get_run=lambda run_id: types.SimpleNamespace(data=types.SimpleNamespace(metrics={"threshold": 0.63})),
+    )
+    loaded = []
+    mlflow = types.ModuleType("mlflow")
+    mlflow.MlflowClient = lambda tracking_uri: client
+    mlflow.set_tracking_uri = lambda uri: None
+    mlflow.xgboost = types.SimpleNamespace(load_model=lambda uri: loaded.append(uri) or classifier)
+    monkeypatch.setitem(sys.modules, "mlflow", mlflow)
+
+    model = load_model("models:/fraud-detection@production", "http://mlflow")
+
+    assert (model.version, loaded) == ("4", ["models:/fraud-detection/4"])

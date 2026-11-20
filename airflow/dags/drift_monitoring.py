@@ -2,7 +2,9 @@
 
 There is no ground truth to compare with: fraud is confirmed weeks later. So the
 check compares the newest week of the offline feature store with the rows the
-served model was trained on, input by input, using the drift API's PSI.
+served model was trained on, input by input, using the drift API's PSI. Beside it,
+the same week's scores give an estimate of the model's recall, precision and ROC
+AUC, published for Grafana; the estimate never starts a retrain.
 """
 
 from __future__ import annotations
@@ -20,6 +22,7 @@ SUMMARY = (
     "{{ var.value.fraudstream_drift_summary_dir }}/"
     "{{ dag_run.run_id | replace(':', '') | replace('+', '') }}.json"
 )
+PERFORMANCE_SUMMARY = SUMMARY.removesuffix(".json") + "-performance.json"
 
 
 with DAG(
@@ -74,4 +77,29 @@ with DAG(
         ),
     )
 
+    estimate_performance = BashOperator(
+        task_id="estimate_performance",
+        pool=SPARK_POOL,
+        bash_command=monitoring_command(
+            "fraudstream_monitoring.performance",
+            f"""
+            estimate
+            --repo-path "{{{{ var.value.fraudstream_feast_repo_path }}}}"
+            --reference-dir "{{{{ var.value.fraudstream_performance_reference_dir }}}}"
+            --window-days "{{{{ params.window_days }}}}"
+            --window-end "{{{{ params.window_end or '' }}}}"
+            --tracking-uri "$MLFLOW_TRACKING_URI"
+            --out "{PERFORMANCE_SUMMARY}"
+            """,
+        ),
+    )
+
+    publish_performance = BashOperator(
+        task_id="publish_performance",
+        bash_command=monitoring_command(
+            "fraudstream_monitoring.performance", f'publish --summary "{PERFORMANCE_SUMMARY}"'
+        ),
+    )
+
     check_drift >> publish_metrics >> decide >> trigger_retrain
+    estimate_performance >> publish_performance

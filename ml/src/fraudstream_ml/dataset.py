@@ -59,12 +59,19 @@ def _timestamp_literal(value: str | datetime) -> str:
     return parsed.strftime("%Y-%m-%d %H:%M:%S")
 
 
-def entity_dataframe_sql(start: str | datetime, end: str | datetime, *, labels: bool = True) -> str:
+def entity_dataframe_sql(
+    start: str | datetime, end: str | datetime, *, labels: bool = True, sample_percent: int = 100
+) -> str:
     """Return the entity-dataframe SQL for every transaction in the window.
 
     Training joins each transaction to its label. The drift check passes
-    labels=False: nobody knows yet which recent payments were fraud.
+    labels=False: nobody knows yet which recent payments were fraud. Below 100,
+    sample_percent keeps that share of payments, picked by transaction id, so a
+    rerun of the same window reads the same payments.
     """
+
+    if not 1 <= sample_percent <= 100:
+        raise ValueError(f"sample_percent is between 1 and 100, not {sample_percent}")
 
     start_literal = _timestamp_literal(start)
     end_literal = _timestamp_literal(end)
@@ -73,6 +80,7 @@ def entity_dataframe_sql(start: str | datetime, end: str | datetime, *, labels: 
 
     label_column = ",\n            l.is_fraud" if labels else ""
     label_join = f"JOIN {LABEL_TABLE} l ON l.transaction_id = f.transaction_id" if labels else ""
+    sample = f"\n          AND pmod(hash(f.transaction_id), 100) < {int(sample_percent)}" if sample_percent < 100 else ""
     return f"""
         SELECT
             f.transaction_id,
@@ -89,7 +97,7 @@ def entity_dataframe_sql(start: str | datetime, end: str | datetime, *, labels: 
             AND s.event_date <= DATE '{end_literal[:10]}'
         {label_join}
         WHERE f.event_time >= TIMESTAMP '{start_literal}'
-          AND f.event_time < TIMESTAMP '{end_literal}'
+          AND f.event_time < TIMESTAMP '{end_literal}'{sample}
     """
 
 
@@ -100,6 +108,7 @@ def load_training_frame(
     *,
     feature_refs: tuple[str, ...] = BATCH_FEATURE_REFS,
     labels: bool = True,
+    sample_percent: int = 100,
 ) -> Any:
     """Retrieve point-in-time-correct features for every transaction in the window."""
 
@@ -107,7 +116,7 @@ def load_training_frame(
 
     store = FeatureStore(repo_path=repo_path)
     retrieval = store.get_historical_features(
-        entity_df=entity_dataframe_sql(start, end, labels=labels),
+        entity_df=entity_dataframe_sql(start, end, labels=labels, sample_percent=sample_percent),
         features=list(feature_refs),
     )
     return retrieval.to_df()
