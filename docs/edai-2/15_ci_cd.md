@@ -32,7 +32,7 @@ flowchart TB
 ```
 
 The stages for the APIs, the model server, the training pipeline and the Airflow DAGs run
-in the same pipeline, before these; they are in [`docs/ml/23_ci_cd.md`](../ml/23_ci_cd.md).
+in the same pipeline, before these; they are in [`Jenkinsfile`](../../Jenkinsfile).
 
 ## How the pipeline decides
 
@@ -172,5 +172,5 @@ was copied but not restarted, as the stage says.
 | Syncing the Airflow and push job code | [`cicd/sync_airflow.sh`](../../cicd/sync_airflow.sh) |
 | The agent deploy and its prompt gate | [`cicd/deploy_agent.sh`](../../cicd/deploy_agent.sh), [`agents/src/fraudstream_agents/prompts.py`](../../agents/src/fraudstream_agents/prompts.py) |
 | The prompts | [`agents/prompts/`](../../agents/prompts/) |
-| The other stages | [`docs/ml/23_ci_cd.md`](../ml/23_ci_cd.md) |
+| The other stages | [`Jenkinsfile`](../../Jenkinsfile) |
 | Screenshots | [`images/ci_cd/`](../../images/ci_cd/), [`images/rag/`](../../images/rag/) |

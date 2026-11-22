@@ -176,7 +176,7 @@ moved ([`dags/drift_monitoring.py:61`](../../airflow/dags/drift_monitoring.py#L6
 
 ![Model drift dashboard](../../images/observability/16-grafana-model-drift.png)
 
-The drift pipeline in full is in [`docs/ml/26_observability.md`](../ml/26_observability.md).
+The drift pipeline is [`airflow/dags/drift_monitoring.py`](../../airflow/dags/drift_monitoring.py); its performance estimate is in [22_nannyml.md](22_nannyml.md).
 
 ## Where things are
 

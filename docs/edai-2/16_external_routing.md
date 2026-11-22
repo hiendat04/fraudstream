@@ -54,7 +54,7 @@ Secrets; the plain password is in Vault only ([20_security.md](20_security.md)).
 | The web API that pulls data: **context API** | `context.fraudstream.localhost` | 60 a second, burst 60 | [`apis/context-api.yaml:24`](../../k8s/apis/context-api.yaml#L24), [`fraudstream-api/templates/ingress.yaml:1`](../../k8s/charts/fraudstream-api/templates/ingress.yaml#L1) |
 
 The inference and drift detection APIs, the Pushgateway and the Kubeflow Pipelines UI sit
-behind the same gateway ([`docs/ml/24_gateway.md`](../ml/24_gateway.md)).
+behind the same gateway: their routes are in [`k8s/charts/fraudstream-api/templates/ingress.yaml`](../../k8s/charts/fraudstream-api/templates/ingress.yaml), [`k8s/observability/ingress.yaml`](../../k8s/observability/ingress.yaml) and [`k8s/gateway/pipelines.yaml`](../../k8s/gateway/pipelines.yaml).
 
 **The registry is reachable only from NGINX.** The open-source registry lets any caller
 write, so a NetworkPolicy lets only the ingress controller's namespace reach its server
@@ -126,5 +126,5 @@ off was caught (`no password: got '200', wanted '401'`) and rolled back:
 | The web APIs' route | [`k8s/charts/fraudstream-api/templates/ingress.yaml`](../../k8s/charts/fraudstream-api/templates/ingress.yaml), [`k8s/apis/context-api.yaml`](../../k8s/apis/context-api.yaml) |
 | The password from Vault | [`k8s/observability/secrets.yaml`](../../k8s/observability/secrets.yaml), [`k8s/agents/secrets.yaml`](../../k8s/agents/secrets.yaml) |
 | Checks | [`cicd/check_gateway.sh`](../../cicd/check_gateway.sh), [`cicd/check_ui.sh`](../../cicd/check_ui.sh) |
-| The gateway in more detail | [`docs/ml/24_gateway.md`](../ml/24_gateway.md) |
+| The API, Pushgateway and Pipelines routes | [`k8s/charts/fraudstream-api/templates/ingress.yaml`](../../k8s/charts/fraudstream-api/templates/ingress.yaml), [`k8s/observability/ingress.yaml`](../../k8s/observability/ingress.yaml), [`k8s/gateway/pipelines.yaml`](../../k8s/gateway/pipelines.yaml) |
 | Screenshots | [`images/gateway/`](../../images/gateway/), [`images/agents/`](../../images/agents/) |

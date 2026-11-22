@@ -128,7 +128,7 @@ the old one, with nothing redeployed.
 - **The GKE deploy makes its two Secrets by hand** from what it read in Vault, since GKE can't
   reach the laptop's Vault.
 
-The whole setup, with start-up and checks, is in [`docs/ml/28_security.md`](../ml/28_security.md).
+The whole setup, with start-up and checks, is in [`infra/vault/`](../../infra/vault/).
 
 ## Where things are
 

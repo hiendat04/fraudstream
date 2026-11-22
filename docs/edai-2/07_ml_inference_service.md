@@ -125,5 +125,5 @@ Jenkins applies the manifest on every change to the serving code or the manifest
 | Build, load, apply and set `production` | [`cicd/apply_model.sh`](../../cicd/apply_model.sh) |
 | The predictor and the fetch from MLflow | [`serving/src/fraudstream_serving/`](../../serving/src/fraudstream_serving/) |
 | The caller | [`api/src/fraudstream_api/inference/`](../../api/src/fraudstream_api/inference/) |
-| KServe, Knative and Kourier on kind | [`docs/ml/20_local_k8s_platform.md`](../ml/20_local_k8s_platform.md) |
+| KServe, Knative and Kourier on kind | [`k8s/bootstrap.sh`](../../k8s/bootstrap.sh), [`k8s/platform/`](../../k8s/platform/) |
 | Tests | [`serving/tests/`](../../serving/tests/) |

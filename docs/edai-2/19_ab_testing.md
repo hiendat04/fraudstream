@@ -10,8 +10,9 @@ on one dashboard, and is judged by rules fixed before the test. Two splits do th
   as the current one?
 
 Both compare Qwen3-4B, the current model, with Qwen3-1.7B, less than half its size. The
-fraud detection model's own canary on KServe works the same way and is in
-[`docs/ml/27_ab_testing.md`](../ml/27_ab_testing.md).
+fraud detection model's own canary on KServe works the same way: its policy is in
+[`k8s/models/`](../../k8s/models/), and the job that steps it is
+[`monitoring/src/fraudstream_monitoring/rollout.py`](../../monitoring/src/fraudstream_monitoring/rollout.py).
 
 ```mermaid
 flowchart LR
@@ -139,5 +140,5 @@ commit, and apply.
 | The agent split | [`k8s/agents/a2a-gateway.yaml`](../../k8s/agents/a2a-gateway.yaml), [`k8s/agents/risk-agent-b.sh`](../../k8s/agents/risk-agent-b.sh), [`k8s/agents/small-model-config.yaml`](../../k8s/agents/small-model-config.yaml) |
 | The rules and the report | [`agents/src/fraudstream_agents/ab_testing.py`](../../agents/src/fraudstream_agents/ab_testing.py), [`agents/tools/ab_testing_report.py`](../../agents/tools/ab_testing_report.py), [`k8s/agents/ab-testing-report.sh`](../../k8s/agents/ab-testing-report.sh) |
 | The dashboard | [`k8s/observability/dashboards/ab-tests.yaml`](../../k8s/observability/dashboards/ab-tests.yaml) |
-| The fraud detection model's canary | [`docs/ml/27_ab_testing.md`](../ml/27_ab_testing.md) |
+| The fraud detection model's canary | [`k8s/models/`](../../k8s/models/), [`monitoring/src/fraudstream_monitoring/rollout.py`](../../monitoring/src/fraudstream_monitoring/rollout.py) |
 | Screenshots | [`images/llm_ab_testing/`](../../images/llm_ab_testing/) |

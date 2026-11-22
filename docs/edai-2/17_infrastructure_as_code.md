@@ -95,8 +95,8 @@ The stores are closed to the internet and open to the cluster:
 
 ![Closed from the internet, open from the cluster](../../images/iac/11-stores-closed-to-internet.png)
 
-The whole cloud session, with costs and every check, is in
-[`docs/ml/25_infrastructure_as_code.md`](../ml/25_infrastructure_as_code.md).
+The whole cloud session, with every check, is one script:
+[`infra/session.sh`](../../infra/session.sh).
 
 ## Where things are
 

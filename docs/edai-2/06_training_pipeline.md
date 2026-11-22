@@ -174,6 +174,6 @@ cd pipelines && PYTHONPATH=src uv run python -m fraudstream_pipelines.submit --n
 | Data snapshots | [`ml/src/fraudstream_ml/versioning.py`](../../ml/src/fraudstream_ml/versioning.py) |
 | `production` set on deploy | [`cicd/apply_model.sh`](../../cicd/apply_model.sh) |
 | Step image, TrainJob permissions | [`k8s/Dockerfile.ml`](../../k8s/Dockerfile.ml), [`k8s/rbac/trainjob-access.yaml`](../../k8s/rbac/trainjob-access.yaml) |
-| Model training in detail | [`docs/ml/17_ml_training.md`](../ml/17_ml_training.md) |
+| Model training in detail | [`ml/src/fraudstream_ml/train.py`](../../ml/src/fraudstream_ml/train.py), [`ml/notebooks/`](../../ml/notebooks/) |
 | Tests | [`pipelines/tests/`](../../pipelines/tests/), [`ml/tests/`](../../ml/tests/) |
 | Screenshots | [`images/kubeflow/`](../../images/kubeflow/), [`images/mlflow/`](../../images/mlflow/) |
