@@ -13,7 +13,7 @@ import hashlib
 import json
 import math
 import sys
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
@@ -23,17 +23,6 @@ from fraudstream.jobs.flink.watermark_calibration import (
     DEFAULT_PROFILE_PATH,
     load_watermark_latency_profile,
 )
-from fraudstream.jobs.warehouse import (
-    IcebergCatalogConfig,
-    PostgresJdbcConfig,
-    WarehouseConfig,
-    add_iceberg_arguments,
-    add_postgres_arguments,
-    add_warehouse_arguments,
-    iceberg_config_from_args,
-    postgres_config_from_args,
-    warehouse_config_from_args,
-)
 
 
 APP_NAME = "FraudStreamStreamingFeatures"
@@ -42,7 +31,6 @@ DEFAULT_BOOTSTRAP_SERVERS = "localhost:9093"
 DEFAULT_SOURCE_TOPIC = "financial_transactions"
 DEFAULT_GROUP_ID = "fraudstream-flink-features-v1"
 DEFAULT_CONNECTOR_JAR = Path("flink/lib/flink-sql-connector-kafka-5.0.0-2.1.jar")
-DEFAULT_ICEBERG_JARS_DIR = Path("flink/lib/iceberg")
 DEFAULT_CHECKPOINT_DIR = Path("data/flink/checkpoints/streaming_features")
 
 DEFAULT_CLEAN_TOPIC = "financial_transactions_clean"
@@ -68,11 +56,6 @@ class StreamingFeatureConfig:
     source_topic: str = DEFAULT_SOURCE_TOPIC
     group_id: str = DEFAULT_GROUP_ID
     connector_jar: Path = DEFAULT_CONNECTOR_JAR
-    iceberg_jars_dir: Path = DEFAULT_ICEBERG_JARS_DIR
-    iceberg_sink: bool = True
-    warehouse: WarehouseConfig = field(default_factory=WarehouseConfig)
-    iceberg: IcebergCatalogConfig = field(default_factory=IcebergCatalogConfig)
-    postgres: PostgresJdbcConfig = field(default_factory=PostgresJdbcConfig)
     checkpoint_dir: Path = DEFAULT_CHECKPOINT_DIR
     clean_topic: str = DEFAULT_CLEAN_TOPIC
     invalid_topic: str = DEFAULT_INVALID_TOPIC
@@ -167,13 +150,6 @@ class StreamingFeatureConfig:
                 f"Kafka connector JAR does not exist: {self.connector_jar}. "
                 "Run the connector setup command from docs/data_engineering/07_flink_streaming_pipeline.md."
             )
-        if require_connector_jar and self.iceberg_sink and not any(self.iceberg_jars_dir.glob("*.jar")):
-            raise FileNotFoundError(
-                f"No Iceberg/Postgres/hadoop-aws JARs found in {self.iceberg_jars_dir}. "
-                "Run the Iceberg jar setup command from docs/data_engineering/07_flink_streaming_pipeline.md."
-            )
-        if self.iceberg_sink:
-            self.iceberg.validate()
 
     def resolve_watermark_delay(self) -> "StreamingFeatureConfig":
         """Load the measured source p95 when no programmatic value is present."""
@@ -224,13 +200,6 @@ class StreamingFeatureConfig:
             "source_topic": self.source_topic,
             "group_id": self.group_id,
             "connector_jar": str(self.connector_jar),
-            "iceberg_jars_dir": str(self.iceberg_jars_dir),
-            "iceberg_sink": self.iceberg_sink,
-            "iceberg_catalog": {
-                "catalog_name": self.iceberg.catalog_name,
-                "catalog_type": self.iceberg.catalog_type,
-                "warehouse_uri": self.iceberg.warehouse_uri,
-            },
             "checkpoint_dir": str(self.checkpoint_dir),
             "output_topics": {
                 "clean": self.clean_topic,
@@ -269,13 +238,6 @@ class StreamingFeatureConfig:
                 "merchant_txn_count": self.merchant_alert_txn_count,
             },
         }
-
-
-def flink_jar_paths(config: StreamingFeatureConfig) -> list[Path]:
-    """The jars Flink loads: the Kafka connector, plus the Iceberg ones when the Iceberg sink is on."""
-
-    iceberg_jars = sorted(config.iceberg_jars_dir.glob("*.jar")) if config.iceberg_sink else []
-    return [config.connector_jar, *iceberg_jars]
 
 
 @dataclass(frozen=True)
@@ -716,16 +678,6 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--source-topic", default=DEFAULT_SOURCE_TOPIC)
     parser.add_argument("--group-id", default=DEFAULT_GROUP_ID)
     parser.add_argument("--connector-jar", type=Path, default=DEFAULT_CONNECTOR_JAR)
-    parser.add_argument("--iceberg-jars-dir", type=Path, default=DEFAULT_ICEBERG_JARS_DIR)
-    parser.add_argument(
-        "--iceberg-sink",
-        action=argparse.BooleanOptionalAction,
-        default=True,
-        help="Also write features to Iceberg; --no-iceberg-sink writes to Kafka only.",
-    )
-    add_warehouse_arguments(parser)
-    add_iceberg_arguments(parser)
-    add_postgres_arguments(parser)
     parser.add_argument("--checkpoint-dir", type=Path, default=DEFAULT_CHECKPOINT_DIR)
     parser.add_argument("--parallelism", type=int, default=4)
     parser.add_argument(
@@ -774,11 +726,6 @@ def config_from_args(args: argparse.Namespace) -> StreamingFeatureConfig:
         source_topic=args.source_topic,
         group_id=args.group_id,
         connector_jar=args.connector_jar,
-        iceberg_jars_dir=args.iceberg_jars_dir,
-        iceberg_sink=args.iceberg_sink,
-        warehouse=warehouse_config_from_args(args),
-        iceberg=iceberg_config_from_args(args),
-        postgres=postgres_config_from_args(args),
         checkpoint_dir=args.checkpoint_dir,
         clean_topic=args.clean_topic,
         invalid_topic=args.invalid_topic,

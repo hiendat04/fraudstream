@@ -7,9 +7,9 @@ close values of the given columns share files, which lets a filter on those
 columns skip most files. Every rewrite keeps the old files for time travel until
 their snapshots expire, so expiry runs last and frees them.
 
-    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.maintenance.iceberg_tables --compact iceberg.streaming.customer_features_5m
+    docker compose exec -w /opt/airflow/project -e MINIO_ACCESS_KEY -e MINIO_SECRET_KEY -e POSTGRES_USER -e POSTGRES_PASSWORD airflow-scheduler python -m fraudstream.jobs.maintenance.iceberg_tables --compact iceberg.gold.feat_customer_rolling
     ... --zorder iceberg.silver.stg_transactions=customer_id,merchant_id
-    ... --expire iceberg.streaming.customer_features_5m
+    ... --expire iceberg.gold.feat_customer_rolling
 """
 
 from __future__ import annotations

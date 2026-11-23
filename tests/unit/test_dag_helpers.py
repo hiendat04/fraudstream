@@ -108,8 +108,8 @@ class MaintenanceDagTest(TestCase):
             with self.subTest(task=task_id):
                 command = tasks[task_id].bash_command
                 tables = re.findall(rf"--{action} (\S+)", command)
-                self.assertEqual(len([table for table in tables if table.startswith("iceberg.streaming.")]), 3)
-                self.assertEqual(len([table for table in tables if table.startswith("iceberg.gold.feat_")]), 3)
+                self.assertEqual(len(tables), 3)
+                self.assertTrue(all(table.startswith("iceberg.gold.feat_") for table in tables))
                 self.assertNotIn(f"--{other} ", command)
                 self.assertNotIn("--zorder", command)
 

@@ -90,7 +90,7 @@ watches it or ships it.
 | Flow | What moves |
 |---|---|
 | **B** batch | the offline CSVs from lakeFS's raw repository on MinIO through Spark's bronze, silver and gold, into Iceberg and PostgreSQL |
-| **S** streaming | live events through Kafka and Flink: clean transactions and features into Iceberg, late events to their own topic |
+| **S** streaming | live events through Kafka and Flink: clean transactions, 5-minute features and late events, each to its own topic |
 | **O** orchestration | the engineer starts the DAGs and the replay producer; Airflow only starts work: the Spark jobs, Feast's materialize, the drift job and retraining. No data passes through it |
 | **G** governance | schemas and lineage into DataHub |
 | **I** inspection | an engineer's SQL on PostgreSQL and Trino |

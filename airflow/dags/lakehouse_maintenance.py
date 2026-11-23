@@ -1,8 +1,7 @@
-"""Every night, merge the small files the streaming job and the feature builds leave, then drop old snapshots.
+"""Every night, merge the small files the feature builds leave, then drop old snapshots.
 
-Flink commits a few files to each streaming table every checkpoint, so they pile up
-fastest. Expiry runs second, because compaction leaves the old files in place for
-time travel until their snapshots expire.
+Expiry runs second, because compaction leaves the old files in place for time travel
+until their snapshots expire.
 """
 
 from __future__ import annotations
@@ -14,9 +13,6 @@ from airflow.sdk import DAG
 from fraudstream_airflow.dag_helpers import DEFAULT_ARGS, SPARK_POOL, spark_job_command
 
 TABLES = (
-    "iceberg.streaming.clean_transactions",
-    "iceberg.streaming.customer_features_5m",
-    "iceberg.streaming.merchant_features_5m",
     "iceberg.gold.feat_customer_rolling",
     "iceberg.gold.feat_customer_total_orders_90d",
     "iceberg.gold.feat_merchant_risk_rolling",

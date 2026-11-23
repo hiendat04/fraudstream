@@ -11,7 +11,7 @@ This part is the top half of the drawing:
 | Flow | What moves |
 |---|---|
 | **B** batch | the offline CSVs from lakeFS's raw repository through Spark's Bronze, Silver and Gold, into Iceberg and PostgreSQL |
-| **S** streaming | live events through Kafka and Flink: clean transactions and 5-minute features into Iceberg, late events to their own topic |
+| **S** streaming | live events through Kafka and Flink: clean transactions, 5-minute features and late events, each to its own topic |
 | **O** orchestration | Airflow starts the Spark jobs; no data passes through it |
 | **G** governance | schemas, lineage and checks into DataHub |
 | **I** inspection | an engineer's SQL on PostgreSQL and Trino |

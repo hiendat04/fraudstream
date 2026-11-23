@@ -21,7 +21,6 @@ flowchart LR
     subgraph stream["Streaming"]
         kafka[("Kafka<br/>financial_transactions")] --> flink["Flink: dedup,<br/>five-minute windows"]
         flink --> topics[("Kafka topics<br/>clean, duplicate, late,<br/>features, alerts")]
-        flink --> sice[("Iceberg<br/>iceberg.streaming.*")]
     end
     classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
     class bronze,silver,gold,flink key
@@ -364,8 +363,8 @@ runs in this order:
 6. write the features and alerts.
 
 Each event type has its own Kafka topic: clean, duplicate, invalid, late,
-customer and merchant features, and alerts. With the Iceberg sink on, the clean
-rows and features also go to `iceberg.streaming.*`.
+customer and merchant features, and alerts. Flink writes only to Kafka; the Feast
+stream push job takes the two feature topics into the feature store.
 
 ### How to read Flink UI
 
@@ -471,9 +470,12 @@ behind it (15:41:22), so late events have about 3.3 hours to arrive.
 When an event is late but still within the allowed lateness, Flink fires its
 window again. The second output carries `is_correction: true`
 ([`FeatureWindowFunction`, `runtime.py:173`](../../src/fraudstream/jobs/flink/runtime.py#L173)),
-and it has the same `feature_id` as the first output. Iceberg stores feature
-rows by `feature_id`, so the correction replaces the old row
-([`iceberg_sink.py:341`](../../src/fraudstream/jobs/flink/iceberg_sink.py#L341)).
+and the same window end as the first output, with a later `emitted_at`. The
+stream push job overwrites the window in Redis and appends it to Feast's offline
+table with `created` set to `emitted_at`
+([`stream_push.py:98`](../../feature_store/src/fraudstream_feast/stream_push.py#L98)), and Feast
+keeps the row with the newest `created`
+([`definitions.py:204`](../../feature_store/feature_repo/definitions.py#L204)).
 
 ![A correction: a window from 15:50 on 2026-07-01 re-sent with a late event added](../../images/jobs/online/measured/04_correction_message.png)
 
@@ -610,5 +612,4 @@ PYTHONPATH=src uv run --extra kafka python -m fraudstream.jobs.flink.topic_count
 | Flink settings and records | [`src/fraudstream/jobs/flink/transactions.py`](../../src/fraudstream/jobs/flink/transactions.py) |
 | Watermark measurement | [`src/fraudstream/jobs/flink/watermark_calibration.py`](../../src/fraudstream/jobs/flink/watermark_calibration.py), [`configs/flink/`](../../configs/flink/) |
 | Topic counter | [`src/fraudstream/jobs/flink/topic_counts.py`](../../src/fraudstream/jobs/flink/topic_counts.py) |
-| Flink Iceberg tables | [`src/fraudstream/jobs/flink/iceberg_sink.py`](../../src/fraudstream/jobs/flink/iceberg_sink.py) |
 | Screenshots | [`images/jobs/offline/`](../../images/jobs/offline/), [`images/jobs/online/`](../../images/jobs/online/) |

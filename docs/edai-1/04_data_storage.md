@@ -14,17 +14,16 @@ flowchart LR
     subgraph lake["Lakehouse: Iceberg on MinIO (every row)"]
         bronze[("bronze.raw_transactions<br/>663 M rows")] --> silver[("silver.stg_transactions<br/>650 M rows")]
         silver --> gold[("gold: dim_*, fact_*, feat_*")]
-        streaming[("streaming.*<br/>Flink upserts")]
     end
     subgraph wh["Warehouse: PostgreSQL (recent window)"]
         pg[("Bronze, Silver: newest 1 day<br/>Gold facts, features: newest 7 days<br/>dimensions: whole")]
     end
     bronze & silver & gold -->|"copy of the window"| pg
-    maint["Nightly maintenance<br/>compact, expire"] --> streaming & gold
+    maint["Nightly maintenance<br/>compact, expire"] --> gold
     trino["Trino"] --> lake
     api["Dashboards, API"] --> pg
     classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
-    class bronze,silver,gold,streaming,maint key
+    class bronze,silver,gold,maint key
 ```
 
 | Zone | Iceberg table(s) | Partitioned by | Set in | In PostgreSQL |
@@ -34,7 +33,6 @@ flowchart LR
 | Gold facts | `gold.fact_transactions`, `fact_*_daily` | `event_date` or `feature_date` | [`gold/transactions.py:1528`](../../src/fraudstream/jobs/gold/transactions.py#L1528) | newest 7 days |
 | Gold dimensions | `gold.dim_*` | none (small) | [`gold/transactions.py:1520`](../../src/fraudstream/jobs/gold/transactions.py#L1520) | whole |
 | Gold features | `gold.feat_*` | `feature_date` (except `feat_customer_total_orders_90d`) | [`gold/offline_features.py:265`](../../src/fraudstream/jobs/gold/offline_features.py#L265) | newest 7 days |
-| Streaming | `streaming.clean_transactions`, `customer_features_5m`, `merchant_features_5m` | none; upserted by key | [`flink/iceberg_sink.py:341`](../../src/fraudstream/jobs/flink/iceberg_sink.py#L341) | none |
 
 Each job writes the window to PostgreSQL itself
 ([`jobs/warehouse.py:299`](../../src/fraudstream/jobs/warehouse.py#L299)),
@@ -52,15 +50,15 @@ to skip, and all three run from one job
 
 ```bash
 python -m fraudstream.jobs.maintenance.iceberg_tables \
-  --compact iceberg.streaming.customer_features_5m \
+  --compact iceberg.gold.feat_customer_rolling \
   --zorder iceberg.silver.stg_transactions=customer_id,merchant_id \
-  --expire iceberg.streaming.customer_features_5m
+  --expire iceberg.gold.feat_customer_rolling
 ```
 
 Each action runs only on the tables named for it. The nightly Airflow DAG
 `fraudstream_lakehouse_maintenance`
 ([`dags/lakehouse_maintenance.py:42`](../../airflow/dags/lakehouse_maintenance.py#L42))
-compacts the three streaming tables and the three `feat_` tables at 02:00 UTC,
+compacts the three `feat_` tables at 02:00 UTC,
 then expires their old snapshots.
 
 <!-- Screenshot to add: the DAG's Graph view after one run, saved as images/airflow/lakehouse_maintenance_graph.png -->
@@ -293,7 +291,6 @@ A few tables don't, each for a reason:
 | Table | Why it keeps its name |
 |---|---|
 | `gold.transaction_labels` | The fraud labels come from their own source files, not from the payments, and only training reads them. The ML dataset code and Feast already use this name. |
-| `streaming.clean_transactions`, `customer_features_5m`, `merchant_features_5m` | Flink writes these, named for what the stream job emits. The `streaming` namespace already marks the zone. |
 | `feature_store.stream_customer_features_5m`, `stream_merchant_features_5m` | Feast's landing tables for streamed features, named by the feature store, which owns them. |
 | `metadata.*`, `ml.training_data`, `rag.*` | Run logs, training sets and document chunks: not layers of the data model. |
 

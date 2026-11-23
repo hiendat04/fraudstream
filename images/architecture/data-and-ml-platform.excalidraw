@@ -105,10 +105,6 @@
           "type": "arrow"
         },
         {
-          "id": "arrow-84",
-          "type": "arrow"
-        },
-        {
           "id": "9nnKzvqba_P5zc26qVnIj",
           "type": "arrow"
         },
@@ -292,7 +288,7 @@
       "x": 727,
       "y": 1203,
       "width": 286.07443487060334,
-      "height": 80,
+      "height": 60,
       "angle": 0,
       "strokeColor": "#475569",
       "backgroundColor": "transparent",
@@ -315,11 +311,11 @@
       "locked": false,
       "fontSize": 16,
       "fontFamily": 1,
-      "text": "raw/  (offline CSV)\nwarehouse/bronze/  ·  silver/\nwarehouse/gold/ (Iceberg)\nwarehouse/streaming/ (Iceberg)",
+      "text": "raw/  (offline CSV)\nwarehouse/bronze/  ·  silver/\nwarehouse/gold/ (Iceberg)",
       "textAlign": "center",
       "verticalAlign": "top",
       "containerId": null,
-      "originalText": "raw/  (offline CSV)\nwarehouse/bronze/  ·  silver/\nwarehouse/gold/ (Iceberg)\nwarehouse/streaming/ (Iceberg)",
+      "originalText": "raw/  (offline CSV)\nwarehouse/bronze/  ·  silver/\nwarehouse/gold/ (Iceberg)",
       "autoResize": false,
       "lineHeight": 1.25,
       "labelPosition": null,
@@ -1736,111 +1732,6 @@
       "baseFontSize": null
     },
     {
-      "id": "arrow-84",
-      "type": "arrow",
-      "x": 1035.2008703233862,
-      "y": 901.7074803028987,
-      "width": 0.19440503686996635,
-      "height": 147.67920867108853,
-      "angle": 0,
-      "strokeColor": "#ea580c",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 0,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": "a0084",
-      "roundness": {
-        "type": 2
-      },
-      "seed": 1293985619,
-      "version": 3160,
-      "versionNonce": 270429021,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1794703783384,
-      "link": null,
-      "locked": false,
-      "points": [
-        [
-          0,
-          0
-        ],
-        [
-          -0.19440503686996635,
-          147.67920867108853
-        ]
-      ],
-      "lastCommittedPoint": null,
-      "startBinding": {
-        "elementId": "377h4u0sAZZgIGzHSeHJi",
-        "mode": "orbit",
-        "fixedPoint": [
-          0.4945054945054945,
-          1
-        ]
-      },
-      "endBinding": {
-        "elementId": "rect-40",
-        "mode": "orbit",
-        "fixedPoint": [
-          0.9342105263157895,
-          0
-        ]
-      },
-      "startArrowhead": null,
-      "endArrowhead": "arrow",
-      "elbowed": false,
-      "created": null,
-      "customData": {
-        "flow": "#ea580c",
-        "step": 4
-      }
-    },
-    {
-      "id": "text-86",
-      "type": "text",
-      "x": 1045,
-      "y": 1012,
-      "width": 277.2,
-      "height": 17.5,
-      "angle": 0,
-      "strokeColor": "#ea580c",
-      "backgroundColor": "transparent",
-      "fillStyle": "solid",
-      "strokeWidth": 2,
-      "strokeStyle": "solid",
-      "roughness": 0,
-      "opacity": 100,
-      "groupIds": [],
-      "frameId": null,
-      "index": "a0086",
-      "roundness": null,
-      "seed": 8343,
-      "version": 581,
-      "versionNonce": 313869640,
-      "isDeleted": false,
-      "boundElements": [],
-      "updated": 1794000000000,
-      "link": null,
-      "locked": false,
-      "fontSize": 14,
-      "fontFamily": 1,
-      "text": "S4  clean_transactions + features",
-      "textAlign": "left",
-      "verticalAlign": "top",
-      "containerId": null,
-      "originalText": "S4  clean_transactions + features",
-      "autoResize": false,
-      "lineHeight": 1.25,
-      "labelPosition": null,
-      "created": null,
-      "baseFontSize": null
-    },
-    {
       "id": "text-92",
       "type": "text",
       "x": 1908.0290173366236,
@@ -3006,10 +2897,6 @@
         },
         {
           "id": "Bfb4PpW8LmrX5E6pVEN5N",
-          "type": "arrow"
-        },
-        {
-          "id": "arrow-84",
           "type": "arrow"
         }
       ],
