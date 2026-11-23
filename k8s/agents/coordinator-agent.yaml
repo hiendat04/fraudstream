@@ -1,5 +1,5 @@
 apiVersion: kagent.dev/v1alpha2
-kind: Agent
+kind: SandboxAgent
 metadata:
   name: coordinator-agent
   namespace: kagent
@@ -35,36 +35,15 @@ spec:
               type: Secret
               name: a2a-key-coordinator-agent
               key: authorization
-    deployment:
-      resources:
-        requests:
-          cpu: 10m
-          memory: 64Mi
-        limits:
-          cpu: "1"
-          memory: 512Mi
----
-apiVersion: keda.sh/v1alpha1
-kind: ScaledObject
-metadata:
-  name: coordinator-agent
-  namespace: kagent
-spec:
-  scaleTargetRef:
-    name: coordinator-agent
-  minReplicaCount: 2
-  maxReplicaCount: 3
-  fallback:
-    failureThreshold: 3
-    replicas: 2
-  advanced:
-    horizontalPodAutoscalerConfig:
-      behavior:
-        scaleDown:
-          stabilizationWindowSeconds: 120
-  triggers:
-    - type: prometheus
-      metadata:
-        serverAddress: http://kps-prometheus.observability.svc.cluster.local:9090
-        query: sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="coordinator_agent"}[5m])) or vector(0)
-        threshold: "1"
+    a2aConfig:
+      skills:
+        - id: fraud-review
+          name: Fraud review
+          description: What the platform stores about a customer or merchant, and what the fraud detection model and the handbook say about a payment, put together from the two specialists.
+          tags: [fraud, features, model, handbook]
+          examples:
+            - "Payment txn_000000128913: customer cust_00090571, merchant merch_00011503, 2026-06-22T23:59:21Z, 143.92 USD, online, New York. What do we know about the customer, and what should I do?"
+            - Who has to agree before a payment above 5,000 USD is blocked?
+  substrate:
+    workerPoolRef:
+      name: kagent-default

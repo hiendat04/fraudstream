@@ -5,8 +5,8 @@
 # sandboxed agents on a pool of gVisor workers; kagent, whose one global model config
 # reaches Qwen3-4B through the LLM gateway, the context and risk agents, sandboxed
 # on those workers, each with its own key to the MCP gateway, and the coordinator
-# over them, with its key to the A2A gateway; every agent with its prompt from
-# MLflow, KEDA scaling the coordinator on calls in flight, a fixed pool of three
+# over them, sandboxed too, with its key to the A2A gateway and reachable through
+# it; every agent with its prompt from MLflow, a fixed pool of three
 # workers (KEDA cannot scale a WorkerPool, whose scale has no pod selector), and
 # NetworkPolicies on the agents and the workers; then agentregistry, with the
 # agents and their MCP servers published to it; and both UIs behind NGINX with
@@ -68,12 +68,13 @@ kubectl apply -f k8s/agents/small-model-config.yaml >/dev/null
 ./k8s/agents/risk-agent-b.sh
 kubectl -n kagent wait sandboxagent/risk-agent-b --for=condition=Ready --timeout=10m
 # After the specialists are Ready: kagent refuses an Agent tool whose agent does not exist yet.
-kubectl apply -f k8s/agents/coordinator-agent.yaml >/dev/null
-kubectl -n kagent wait agent/coordinator-agent --for=condition=Ready --timeout=5m
+
+kubectl -n kagent delete scaledobject/coordinator-agent agent/coordinator-agent --ignore-not-found --wait >/dev/null
+./k8s/agents/apply.sh coordinator-agent < k8s/agents/coordinator-agent.yaml
+kubectl -n kagent wait sandboxagent/coordinator-agent --for=condition=Ready --timeout=10m
 
 echo "==> agent telemetry and the Agents dashboard"
 kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
-kubectl -n kagent wait scaledobject/coordinator-agent --for=condition=Ready --timeout=2m
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
 helm --kube-context kind-fraudstream upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \

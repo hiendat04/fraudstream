@@ -131,7 +131,7 @@ async def test_a_question_asked_again_keeps_its_session():
 @pytest.mark.parametrize(("agent", "url"), [
     pytest.param("context-agent", "http://c:8083/api/a2a-sandboxes/kagent/context-agent/", id="sandboxed-context-agent"),
     pytest.param("risk-agent", "http://c:8083/api/a2a-sandboxes/kagent/risk-agent/", id="sandboxed-risk-agent"),
-    pytest.param("coordinator-agent", "http://c:8083/api/a2a/kagent/coordinator-agent/", id="a-deployment-agent"),
+    pytest.param("coordinator-agent", "http://c:8083/api/a2a-sandboxes/kagent/coordinator-agent/", id="sandboxed-coordinator-agent"),
     pytest.param("context-agent-2", "http://c:8083/api/a2a/kagent/context-agent-2/", id="an-unknown-name-is-not-sandboxed"),
 ])
 def test_agent_url(agent, url):

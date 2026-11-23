@@ -2,9 +2,8 @@
 # Prints the agent fleet in one table: the workers ready and wanted, the actors
 # kagent's controller knows (each session, and each golden snapshot) by status,
 # how long each kind of start takes, and the workers' memory against a pod per
-# session. The starts: a pod (the newest coordinator pod, creation to Ready), a
-# golden snapshot (each agent's newest ActorTemplate, creation to Ready), a worker
-# (the newest worker pod), and a warm session (the node agent restoring an actor
+# session. The starts: a golden snapshot (each agent's newest ActorTemplate,
+# creation to Ready), a worker (the newest worker pod), and a warm session (the node agent restoring an actor
 # from its golden snapshot onto a running worker: how many and their average over
 # the last hour, and the atenet router's part, choosing the worker). Reads through the API
 # server, so no port-forwards. With --html, writes the table as a page instead.
@@ -81,8 +80,7 @@ jq -r '.data.actors | group_by([.atespace == "ate-golden", .status])[] |
   done
 
 section starts
-row "pod (newest coordinator pod)" "$(kubectl -n kagent get pods -l app.kubernetes.io/name=coordinator-agent -o json | started) s"
-for agent in context-agent risk-agent; do
+for agent in coordinator-agent context-agent risk-agent; do
   row "golden snapshot ($agent)" "$(kubectl -n kagent get actortemplates -l "kagent.dev/sandbox-agent=$agent" -o json | started) s"
 done
 row "worker (newest worker pod)" "$(kubectl -n kagent get pods -l ate.dev/worker-pool=kagent-default -o json | started) s"

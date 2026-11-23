@@ -132,6 +132,16 @@ spec:
       backendRefs:
         - name: sandbox-agents
           port: 8083
+    - matches:
+        - headers:
+            - name: x-kagent-host
+              value: kagent-controller.kagent
+          path:
+            type: PathPrefix
+            value: /api/a2a-sandboxes/kagent/coordinator-agent
+      backendRefs:
+        - name: sandbox-agents
+          port: 8083
 ---
 apiVersion: gateway.networking.k8s.io/v1
 kind: HTTPRoute

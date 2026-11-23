@@ -5,18 +5,19 @@
 # through the A2A gateway, which refuses a caller without a key or outside its
 # allow-list and hands out agent cards with its own address (the risk agent's own
 # card even while its calls are split with risk-agent-b, which must be on the risk
-# agent's prompt and small-model-config), that the coordinator
-# reaches both sandboxed specialists through it in fresh sessions, that every
+# agent's prompt and small-model-config), that the sandboxed coordinator is
+# reached through it with a key and reaches both specialists through it in fresh
+# sessions, that every
 # agent answers its eval questions with the right tool calls and the stores' and
 # the model's numbers (each agent's result pushed to the Pushgateway for the A/B
 # report), that the coordinator's questions are counted at the risk
 # agent and at the A2A gateway and make one trace through both, that the MCP
-# gateway counted each specialist's tool calls, that KEDA keeps two coordinator
-# replicas and every worker for the sandboxed agents is ready, that Jaeger counted the
+# gateway counted each specialist's tool calls, that every worker for the
+# sandboxed agents is ready, that Jaeger counted the
 # calls at each agent, and that the registry holds the agents and their MCP
 # servers.
 #   ./k8s/agents/check.sh            the checks
-#   ./k8s/agents/check.sh --load 3 --agent coordinator-agent   three questions at once, to watch KEDA add a replica
+#   ./k8s/agents/check.sh --load 3 --agent coordinator-agent   three questions at once, to watch the workers share them
 #   ./k8s/agents/check.sh --agent coordinator-agent            only that agent's eval questions
 #   ./k8s/agents/check.sh --agent risk-agent-b                 the risk agent's eval questions, asked of risk-agent-b
 set -euo pipefail
@@ -114,12 +115,18 @@ expect "risk-agent-b on the risk agent's prompt" "${prompt##*/}" \
   "$(kubectl -n kagent get sandboxagent risk-agent-b -o jsonpath='{.spec.declarative.deployment.env[?(@.name=="PROMPT_VERSION")].value}')"
 expect "risk-agent-b's model config" small-model-config \
   "$(kubectl -n kagent get sandboxagent risk-agent-b -o jsonpath='{.spec.declarative.modelConfig}')"
+expect "the coordinator, with a key that lists it" 200 "$(status coordinator-agent -H "Authorization: $a2a_key")"
+expect "the coordinator's card names it" coordinator_agent \
+  "$(python3 -c 'import json, sys; print(json.load(open(sys.argv[1]))["name"])' "$card")"
+expect "the coordinator's own key can't call it" 403 "$(status coordinator-agent -H "Authorization: $coordinator_key")"
 
 echo "==> the coordinator"
+expect "sandboxed on the workers" kagent-default \
+  "$(kubectl -n kagent get sandboxagent coordinator-agent -o jsonpath='{.spec.substrate.workerPoolRef.name}')"
 expect "the agents it calls" "context-agent risk-agent" \
-  "$(kubectl -n kagent get agent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].agent.name}')"
+  "$(kubectl -n kagent get sandboxagent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].agent.name}')"
 expect "a fresh session per call" "true true" \
-  "$(kubectl -n kagent get agent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].isolateSessions}')"
+  "$(kubectl -n kagent get sandboxagent coordinator-agent -o jsonpath='{.spec.declarative.tools[*].isolateSessions}')"
 expect "through the A2A gateway" "$gateway/api/a2a-sandboxes/kagent/context-agent $gateway/api/a2a-sandboxes/kagent/risk-agent" \
   "$(kubectl -n kagent get secret coordinator-agent -o jsonpath='{.data.config\.json}' | base64 -d |
     python3 -c 'import json, sys; print(*(agent["url"] for agent in json.load(sys.stdin)["remote_agents"]))')"
@@ -156,11 +163,7 @@ raise SystemExit(0 if ok else 1)
 PY
 
 echo "==> replicas"
-expect "coordinator-agent's scaler" True \
-  "$(kubectl -n kagent get scaledobject coordinator-agent -o jsonpath='{.status.conditions[?(@.type=="Ready")].status}')"
-expect "coordinator-agent at least two ready" yes \
-  "$([ "$(kubectl -n kagent get deploy coordinator-agent -o jsonpath='{.status.readyReplicas}')" -ge 2 ] && echo yes || echo no)"
-# The sandboxed agents' replicas are the workers that run their sessions, a fixed pool.
+# Every agent is sandboxed: its replicas are the workers that run its sessions, a fixed pool.
 expect "the workers ready" "$(kubectl -n kagent get workerpool kagent-default -o jsonpath='{.spec.replicas}')" \
   "$(kubectl -n kagent get deploy kagent-default-deployment -o jsonpath='{.status.readyReplicas}')"
 

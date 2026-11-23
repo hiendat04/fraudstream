@@ -2,7 +2,7 @@
 # Deploys one agent, gated by its eval questions. Registers the agent's prompt
 # from git in MLflow under the alias candidate, renders that version into the
 # agent's ConfigMap and applies the agent, waits until kagent runs both (the
-# coordinator's pods rolled, a sandboxed agent's golden snapshot rebuilt), and
+# agent's golden snapshot rebuilt on the new prompt), and
 # asks the agent's eval questions. When they pass, it points production at the
 # candidate and publishes to agentregistry. When anything from the deploy on
 # fails, it renders the production prompt back, applies the agent from
@@ -18,8 +18,8 @@ prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_U
 
 agent=${1:-}
 case "$agent" in
-  context-agent|risk-agent) specialist=yes kind=sandboxagent ;;
-  coordinator-agent) specialist= kind=agent ;;
+  context-agent|risk-agent) specialist=yes ;;
+  coordinator-agent) specialist= ;;
   *) echo "usage: $0 context-agent|risk-agent|coordinator-agent" >&2; exit 2 ;;
 esac
 
@@ -36,18 +36,14 @@ golden_ready() {
 }
 
 # Waits until kagent has reconciled the applied agent and its prompt, then for
-# the pods to roll or, for a sandboxed agent, the golden snapshot fresh sessions start from.
+# the golden snapshot fresh sessions start from.
 rolled() {
   local generation
-  generation=$(kubectl -n kagent get "$kind" "$agent" -o jsonpath='{.metadata.generation}') || return 1
-  kubectl -n kagent wait "$kind/$agent" --for=jsonpath='{.status.observedGeneration}'="$generation" --timeout=2m >/dev/null || return 1
-  kubectl -n kagent wait "$kind/$agent" --for=condition=Ready --timeout=10m >/dev/null || return 1
+  generation=$(kubectl -n kagent get sandboxagent "$agent" -o jsonpath='{.metadata.generation}') || return 1
+  kubectl -n kagent wait "sandboxagent/$agent" --for=jsonpath='{.status.observedGeneration}'="$generation" --timeout=2m >/dev/null || return 1
+  kubectl -n kagent wait "sandboxagent/$agent" --for=condition=Ready --timeout=10m >/dev/null || return 1
   for _ in $(seq 24); do config_written && break; sleep 5; done
   config_written || { echo "kagent did not write the new prompt into $agent's config" >&2; return 1; }
-  if [ -z "$specialist" ]; then
-    kubectl -n kagent rollout status "deploy/$agent" --timeout=5m
-    return
-  fi
   for _ in $(seq 120); do golden_ready "$generation" && return; sleep 5; done
   echo "no golden snapshot of $agent's generation $generation" >&2
   return 1
@@ -82,6 +78,11 @@ if [ -n "$specialist" ]; then
   echo "==> $agent's MCP key"
   # Synced from Vault by k8s/agents/secrets.yaml; the agent can't start without it.
   kubectl -n kagent wait externalsecret "mcp-key-$agent" --for=condition=Ready --timeout=2m >/dev/null
+fi
+
+if [ "$agent" = coordinator-agent ]; then
+  # shortcut: the coordinator was an Agent with pods; drop this once every cluster runs it sandboxed.
+  kubectl -n kagent delete scaledobject/coordinator-agent agent/coordinator-agent --ignore-not-found --wait >/dev/null
 fi
 
 echo "==> $agent's prompt, as the candidate"
