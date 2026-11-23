@@ -101,16 +101,16 @@ ConfigMap rendered from that version ([`agents/context-agent.yaml:28`](../../k8s
 
 Each agent stage runs [`cicd/deploy_agent.sh <agent>`](../../cicd/deploy_agent.sh):
 
-1. Register the prompt from git and point `candidate` at it ([`cicd/deploy_agent.sh:88`](../../cicd/deploy_agent.sh#L88)).
+1. Register the prompt from git and point `candidate` at it ([`cicd/deploy_agent.sh:89`](../../cicd/deploy_agent.sh#L89)).
 2. Render `@candidate` into the ConfigMap and apply the agent
-   ([`cicd/deploy_agent.sh:59`](../../cicd/deploy_agent.sh#L59)).
-3. Wait until kagent runs it: the coordinator's pods rolled, or a specialist's new golden
-   snapshot taken ([`cicd/deploy_agent.sh:40`](../../cicd/deploy_agent.sh#L40)).
-4. Ask the agent's eval questions ([`cicd/deploy_agent.sh:63`](../../cicd/deploy_agent.sh#L63)).
+   ([`cicd/deploy_agent.sh:55`](../../cicd/deploy_agent.sh#L55)).
+3. Wait until kagent runs it: the agent's new golden snapshot taken
+   ([`cicd/deploy_agent.sh:40`](../../cicd/deploy_agent.sh#L40)).
+4. Ask the agent's eval questions ([`cicd/deploy_agent.sh:59`](../../cicd/deploy_agent.sh#L59)).
 5. On a pass, `production` moves to the candidate and the agent is published to
    agentregistry ([`cicd/deploy_agent.sh:93`](../../cicd/deploy_agent.sh#L93)). On a fail,
    the production prompt and the last good Agent YAML go back, `candidate` is dropped, and
-   the build fails ([`cicd/deploy_agent.sh:66`](../../cicd/deploy_agent.sh#L66)).
+   the build fails ([`cicd/deploy_agent.sh:62`](../../cicd/deploy_agent.sh#L62)).
 
 **A broken prompt is rolled back.** The context agent's prompt was replaced with one that
 answers from memory, and its customer tool taken out. Its eval questions failed and the

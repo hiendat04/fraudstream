@@ -204,9 +204,7 @@ Restarting kagent's controller at 3 replicas leaves 3, so kagent never fights KE
 **Today the agent runs on the agent fleet** ([13_agent_fleet.md](13_agent_fleet.md)): every
 conversation is its own sandboxed actor on a pool of three shared workers, so the agent
 has no pods of its own to scale. KEDA can't scale that pool, since Substrate's WorkerPool
-has no pod selector. The same KEDA scaler still runs the coordinator
-([`agents/coordinator-agent.yaml:47`](../../k8s/agents/coordinator-agent.yaml#L47)), and its
-MCP server keeps 2–3 replicas.
+has no pod selector. Its MCP server keeps 2–3 replicas.
 
 ### Running in a sandbox
 
@@ -222,7 +220,7 @@ A probe pod with the workers' label timed out calling `fraud-context`, the infer
 and the MCP gateway directly, and reached the LLM and A2A gateways. kagent marks the
 sandboxed agents with Substrate's lock:
 
-![context-agent and risk-agent on Agent Substrate, the coordinator a plain agent](../../images/agent_fleet/01-kagent-sandbox-agents.png)
+![The coordinator, context, risk and risk-agent-b agents, each with Substrate's lock](../../images/agent_fleet/01-kagent-sandbox-agents.png)
 
 ### Published to the registry
 

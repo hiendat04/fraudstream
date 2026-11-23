@@ -5,16 +5,20 @@ specialists: the context agent, for what the platform stores about a customer or
 merchant ([08](08_context_api_and_agent.md)), and the risk agent, for what the fraud
 detection model says about a payment and what the handbook says to do
 ([09](09_risk_agent.md)). It has no MCP tools of its own; its two tools are the agents.
+Like them, it runs on the agent fleet: every conversation is its own gVisor sandbox
+([13](13_agent_fleet.md)).
 
 ```mermaid
 flowchart TB
     AN(["<b>fraud analyst</b>"]) -- "1 · HTTPS · login" --> UI["<b>kagent UI and controller</b><br/>behind NGINX"]
-    UI -- "1 · A2A" --> CO["<b>coordinator agent</b><br/>2–3 replicas · KEDA"]
+    UI -- "1 · A2A" --> CO["<b>coordinator agent</b><br/>SandboxAgent · gVisor"]
     CO -- "2 · coordinator key" --> GW["<b>A2A gateway</b><br/>key · allow-list · 60 a minute"]
     GW -- "2" --> CX["context agent"]
     GW -- "2" --> RK["risk agent"]
+    GW -. "A2A" .-> CO
+    CK["other callers<br/>with a key that lists it"] -- "A2A" --> GW
     CO -- "3 · chat completions" --> LG["LLM gateway<br/>Qwen3-4B"]
-    PR[("Prometheus<br/>agent_duration_seconds")] -- "calls in flight" --> KD["KEDA"] -- "scales" --> CO
+    WP["agent fleet<br/>three shared workers"] -. "an actor per conversation" .- CO
     AR["agentregistry"] -. "coordinatoragent" .- CO
 
     classDef key fill:#1d4ed8,stroke:#1e3a8a,stroke-width:2px,color:#ffffff
@@ -33,13 +37,13 @@ flowchart TB
 
 | Setting | Value | Why | Where |
 |---|---|---|---|
-| Kind | `Agent`, with pods of its own | KEDA scales pods; the sandboxed specialists have none | [`agents/coordinator-agent.yaml:2`](../../k8s/agents/coordinator-agent.yaml#L2) |
+| Kind | `SandboxAgent` on the worker pool `kagent-default` | every conversation its own gVisor actor, restored from a golden snapshot, like the specialists | [`agents/coordinator-agent.yaml:2`](../../k8s/agents/coordinator-agent.yaml#L2), [`agents/coordinator-agent.yaml:47`](../../k8s/agents/coordinator-agent.yaml#L47) |
 | Model | the global model config | | [`agents/coordinator-agent.yaml:10`](../../k8s/agents/coordinator-agent.yaml#L10) |
 | Prompt | from MLflow through a ConfigMap | | [`agents/coordinator-agent.yaml:11`](../../k8s/agents/coordinator-agent.yaml#L11) |
-| Tools | the context agent and the risk agent | | [`agents/coordinator-agent.yaml:16`](../../k8s/agents/coordinator-agent.yaml#L16) |
+| Tools | the context agent and the risk agent | | [`agents/coordinator-agent.yaml:15`](../../k8s/agents/coordinator-agent.yaml#L15) |
 | Key | `Authorization` from `a2a-key-coordinator-agent` on both tools | the gateway lets this key call both specialists | [`agents/coordinator-agent.yaml:21`](../../k8s/agents/coordinator-agent.yaml#L21) |
-| `isolateSessions` | `true` on both tools | by default every call from a pod reuses one specialist session; every analyst's question would pile into it, outgrow the model's 8,192 tokens and mix one chat's payment into the next | [`agents/coordinator-agent.yaml:20`](../../k8s/agents/coordinator-agent.yaml#L20) |
-| Resources | 10m CPU, 64 Mi, at most 512 Mi | it uses 7–15 MiB | [`agents/coordinator-agent.yaml:38`](../../k8s/agents/coordinator-agent.yaml#L38) |
+| `isolateSessions` | `true` on both tools | by default every call from the coordinator reuses one specialist session; every analyst's question would pile into it, outgrow the model's 8,192 tokens and mix one chat's payment into the next | [`agents/coordinator-agent.yaml:20`](../../k8s/agents/coordinator-agent.yaml#L20) |
+| Its card | the skill `fraud-review`, with two example questions | what a caller reads from its agent card before asking | [`agents/coordinator-agent.yaml:38`](../../k8s/agents/coordinator-agent.yaml#L38) |
 
 kagent shows the two tools to the model as `kagent__NS__context_agent` and
 `kagent__NS__risk_agent`, so the prompt ([`agents/prompts/coordinator-agent.md`](../../agents/prompts/coordinator-agent.md))
@@ -48,33 +52,34 @@ to keep the specialists' numbers, chunk ids and decision line, and never to judg
 payment itself.
 
 It is applied after both specialists are Ready, since kagent refuses an Agent tool whose
-agent doesn't exist yet ([`agents/install.sh:71`](../../k8s/agents/install.sh#L71)).
+agent doesn't exist yet ([`agents/install.sh:73`](../../k8s/agents/install.sh#L73)).
 
-## Multiple replicas, scaled by KEDA
+## On the agent fleet
 
-A KEDA `ScaledObject` keeps 2 to 3 replicas ([`agents/coordinator-agent.yaml:47`](../../k8s/agents/coordinator-agent.yaml#L47)):
+Each analyst's conversation with the coordinator is its own actor, restored in about two
+seconds from the coordinator's golden snapshot onto one of the three shared workers
+([13_agent_fleet.md](13_agent_fleet.md)). kagent shows it on Agent Substrate:
 
-| Setting | Value | Why | Where |
-|---|---|---|---|
-| Replicas | 2, up to 3 | two keep it up while a pod restarts | [`agents/coordinator-agent.yaml:55`](../../k8s/agents/coordinator-agent.yaml#L55) |
-| Trigger | `sum(rate(agent_duration_seconds_sum{gen_ai_agent_name="coordinator_agent"}[5m]))` from Prometheus | seconds of calling per second is the number of calls in flight. CPU says nothing: the agent waits on the model | [`agents/coordinator-agent.yaml:69`](../../k8s/agents/coordinator-agent.yaml#L69) |
-| Target | 1 call in flight per replica | | [`agents/coordinator-agent.yaml:70`](../../k8s/agents/coordinator-agent.yaml#L70) |
-| Window | 5 minutes, not 2 | its calls take minutes and are counted only when they end, so a 2-minute window reads 0 during a burst and then jumps | [`agents/coordinator-agent.yaml:69`](../../k8s/agents/coordinator-agent.yaml#L69) |
-| Fallback | 2 replicas after 3 failed reads | a Prometheus outage leaves it as it is | [`agents/coordinator-agent.yaml:57`](../../k8s/agents/coordinator-agent.yaml#L57) |
-| Scale down | after 2 minutes | questions come in bursts | [`agents/coordinator-agent.yaml:64`](../../k8s/agents/coordinator-agent.yaml#L64) |
+![The coordinator on Agent Substrate, beside the context, risk and risk-agent-b agents](../../images/agent_fleet/01-kagent-sandbox-agents.png)
 
-The metric is counted from the agents' own spans in Jaeger, since kagent has no request
-metrics ([18_observability.md](18_observability.md#agent-telemetry)).
+- **Two workers per question.** The coordinator's actor keeps its worker while it waits,
+  and the specialist it asks takes another.
+- **A new prompt is a new snapshot.** [`k8s/agents/apply.sh`](../../k8s/agents/apply.sh)
+  writes the prompt's MLflow version into the agent, so kagent makes a new template and
+  every new conversation starts on the new prompt.
+- **More workers add availability, not speed:** the model answers one request at a time,
+  and a coordinator question waits for two or three answers in turn.
 
-**Tested.** `./k8s/agents/check.sh --load 3 --agent coordinator-agent` sends three
-questions at once. More than one call is in flight per replica, and a third pod starts:
+## Behind the A2A gateway
 
-![A third coordinator pod starts when more than one question is in flight](../../images/multi_agents/10-coordinator-scale-pods.png)
-
-![The coordinator at 3 replicas](../../images/multi_agents/11-coordinator-scale-hpa.png)
-
-More replicas add availability, not speed: the model answers one request at a time, and a
-coordinator question waits for two or three answers in turn.
+The gateway routes the coordinator's sandbox path, `/api/a2a-sandboxes/kagent/coordinator-agent`,
+like the specialists' ([`agents/a2a-gateway.yaml:135`](../../k8s/agents/a2a-gateway.yaml#L135)).
+Only a key that lists it gets through: the check's key does; the coordinator's own key
+lists only the two specialists, so it can't call itself
+([`agents/secrets.yaml:94`](../../k8s/agents/secrets.yaml#L94)).
+[`k8s/agents/check.sh:118`](../../k8s/agents/check.sh#L118) proves both: 200 with the
+check's key and a card named `coordinator_agent`, 403 with the coordinator's own. See
+[11_a2a_gateway.md](11_a2a_gateway.md).
 
 ## In the kagent UI
 
@@ -121,16 +126,17 @@ The tool calls are read from the A2A task's history, where kagent records each o
 ```bash
 ./k8s/agents/install.sh                                     # everything, safe to run again
 ./k8s/agents/check.sh --agent coordinator-agent             # its eval questions
-./k8s/agents/check.sh --load 3 --agent coordinator-agent    # three at once, to watch KEDA
+./k8s/agents/check.sh --load 3 --agent coordinator-agent    # three at once, sharing the workers
 ```
 
 ## Where things are
 
 | What | Where |
 |---|---|
-| The coordinator and its scaler | [`k8s/agents/coordinator-agent.yaml`](../../k8s/agents/coordinator-agent.yaml) |
+| The coordinator | [`k8s/agents/coordinator-agent.yaml`](../../k8s/agents/coordinator-agent.yaml) |
+| Its gateway route and key | [`k8s/agents/a2a-gateway.yaml`](../../k8s/agents/a2a-gateway.yaml), [`k8s/agents/secrets.yaml`](../../k8s/agents/secrets.yaml) |
 | Its prompt | [`agents/prompts/coordinator-agent.md`](../../agents/prompts/coordinator-agent.md) |
 | Registry record | [`k8s/agents/registry.yaml`](../../k8s/agents/registry.yaml) |
 | Install, checks and CI deploy | [`k8s/agents/install.sh`](../../k8s/agents/install.sh), [`k8s/agents/check.sh`](../../k8s/agents/check.sh), [`cicd/deploy_agent.sh`](../../cicd/deploy_agent.sh) |
 | Eval questions | [`agents/src/fraudstream_agents/evals.py`](../../agents/src/fraudstream_agents/evals.py) |
-| Screenshots | [`images/multi_agents/`](../../images/multi_agents/) |
+| Screenshots | [`images/multi_agents/`](../../images/multi_agents/), [`images/agent_fleet/`](../../images/agent_fleet/) |

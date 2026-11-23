@@ -856,11 +856,11 @@
    "index": "aO",
    "fontSize": 13,
    "fontFamily": 1,
-   "text": "2\u20133 pods \u00b7 KEDA",
+   "text": "gVisor sandbox",
    "textAlign": "center",
    "verticalAlign": "top",
    "containerId": null,
-   "originalText": "2\u20133 pods \u00b7 KEDA",
+   "originalText": "gVisor sandbox",
    "autoResize": true,
    "lineHeight": 1.25
   },

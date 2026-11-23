@@ -140,7 +140,7 @@ days old, and the API refuses them.
 
 The ML layer decides; the LLM layer explains. The fraud detection model scores every
 payment, and nothing in the LLM layer can change that score. An analyst asks the
-coordinator why a payment was flagged. The coordinator asks two sandboxed specialists,
+coordinator why a payment was flagged. The sandboxed coordinator asks two sandboxed specialists,
 and they answer from the same features and the same model, through MCP tools.
 
 | Flow | What moves |
@@ -232,8 +232,8 @@ Terraform, then Ansible, then the GKE deploy ([17](docs/edai-2/17_infrastructure
 | Risk agent | Scores a payment with the fraud detection model and cites what the handbook says to do | [09_risk_agent.md](docs/edai-2/09_risk_agent.md) |
 | MCP gateway | One entry to both MCP servers: a key and tool policy per agent, rate limits, and every call counted and traced | [10_mcp_gateway.md](docs/edai-2/10_mcp_gateway.md) |
 | A2A gateway | Every agent-to-agent call checked for who calls whom and how often | [11_a2a_gateway.md](docs/edai-2/11_a2a_gateway.md) |
-| Coordinator agent | The analysts' one entry point; asks the two specialists, scaled by KEDA on calls in flight | [12_coordinator_agent.md](docs/edai-2/12_coordinator_agent.md) |
-| Agent fleet | Every conversation in its own gVisor sandbox on Agent Substrate, restored in about 2 s from a snapshot on three shared workers | [13_agent_fleet.md](docs/edai-2/13_agent_fleet.md) |
+| Coordinator agent | The analysts' one entry point; asks the two specialists, each conversation in its own sandbox, reachable through the A2A gateway | [12_coordinator_agent.md](docs/edai-2/12_coordinator_agent.md) |
+| Agent fleet | Every conversation with any of the three agents in its own gVisor sandbox on Agent Substrate, restored in about 2 s from a snapshot on three shared workers | [13_agent_fleet.md](docs/edai-2/13_agent_fleet.md) |
 | Validation and verification | Coverage, equivalence and boundary cases, mutation testing, property tests, and a load test against an SLA fixed in advance | [14_validation_and_verification.md](docs/edai-2/14_validation_and_verification.md) |
 | CI/CD | Jenkins tests every branch and deploys each changed part of the deploy branch, credentials from Vault, agents only after their eval questions pass | [15_ci_cd.md](docs/edai-2/15_ci_cd.md) |
 | External routing | NGINX in front of every UI and API: its own domain, HTTPS from a local CA, basic auth and a rate limit | [16_external_routing.md](docs/edai-2/16_external_routing.md) |

@@ -3,7 +3,7 @@
 A payment flagged by the fraud detection model is held for a fraud analyst, who must
 decide fast why it was flagged and what to do. On top of the data platform
 ([`docs/edai-1/`](../edai-1/)), this part trains and serves that model, and gives analysts
-a copilot: a coordinator agent that asks two sandboxed specialists, which answer from the
+a copilot: a sandboxed coordinator agent that asks two sandboxed specialists, which answer from the
 same features and model through MCP tools and cite the handbook through RAG. The model
 makes every decision; the agents only report and explain it.
 
@@ -37,7 +37,7 @@ The ML side (features, training, serving, A/B tests) is drawn in the lower half 
 | 09 | [Risk agent](09_risk_agent.md) | the model's score and the handbook's rules |
 | 10 | [MCP gateway](10_mcp_gateway.md) | one entry to the MCP servers, a key and tool policy per agent |
 | 11 | [A2A gateway](11_a2a_gateway.md) | keys, allow-list and rate limit between agents |
-| 12 | [Coordinator agent](12_coordinator_agent.md) | the analysts' entry point, scaled by KEDA |
+| 12 | [Coordinator agent](12_coordinator_agent.md) | the analysts' entry point, sandboxed and behind the A2A gateway |
 | 13 | [Agent fleet](13_agent_fleet.md) | every conversation in a gVisor sandbox, restored in 2 s |
 | 14 | [Validation and verification](14_validation_and_verification.md) | coverage, mutation, property tests, load test against an SLA |
 | 15 | [CI/CD](15_ci_cd.md) | Jenkins, with a prompt gate for agents |
