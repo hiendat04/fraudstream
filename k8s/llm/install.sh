@@ -7,7 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
-kubectl config use-context kind-fraudstream >/dev/null
+. k8s/cluster.sh
+kubectl config use-context "$CONTEXT" >/dev/null
 
 # CRDs go on separately from their charts: Helm installs CRDs once and never
 # updates them.

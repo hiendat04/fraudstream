@@ -5,7 +5,8 @@
 #   ./k8s/agents/risk-agent-b.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+. k8s/cluster.sh
 
-command kubectl --context kind-fraudstream create --dry-run=client -o json -f k8s/agents/risk-agent.yaml |
+command kubectl --context "$CONTEXT" create --dry-run=client -o json -f k8s/agents/risk-agent.yaml |
   jq 'select(.kind == "SandboxAgent") | .metadata.name = "risk-agent-b" | .spec.declarative.modelConfig = "small-model-config"' |
   ./k8s/agents/apply.sh risk-agent

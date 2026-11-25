@@ -57,7 +57,7 @@ pipeline {
       steps {
         sh '''
           docker build -f k8s/Dockerfile.inference -t "fraudstream-inference:$TAG" .
-          kind load docker-image "fraudstream-inference:$TAG" --name fraudstream
+          ./cicd/ship_image.sh "fraudstream-inference:$TAG"
           kubectl create namespace fraudstream-apis --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply -f k8s/apis/secrets.yaml
           kubectl -n fraudstream-apis wait externalsecret --all --for=condition=Ready --timeout=2m
@@ -66,11 +66,13 @@ pipeline {
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
+            . k8s/cluster.sh
             helm upgrade --install inference-api k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/inference-api.yaml \
+              --set image.repository="$(image fraudstream-inference)" --set ingress.host="inference.$DOMAIN" \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
-            ./cicd/wait_for_version.sh inference.fraudstream.localhost "$TAG"
-            ./cicd/check_gateway.sh inference.fraudstream.localhost \
+            ./cicd/wait_for_version.sh "inference.$DOMAIN" "$TAG"
+            ./cicd/check_gateway.sh "inference.$DOMAIN" \
               || { helm rollback inference-api -n fraudstream-apis --wait; exit 1; }
           '''
         }
@@ -82,7 +84,7 @@ pipeline {
       steps {
         sh '''
           docker build -f k8s/Dockerfile.context -t "fraudstream-context:$TAG" .
-          kind load docker-image "fraudstream-context:$TAG" --name fraudstream
+          ./cicd/ship_image.sh "fraudstream-context:$TAG"
           kubectl create namespace fraudstream-apis --dry-run=client -o yaml | kubectl apply -f -
           kubectl apply -f k8s/apis/secrets.yaml
           kubectl -n fraudstream-apis wait externalsecret --all --for=condition=Ready --timeout=2m
@@ -91,11 +93,13 @@ pipeline {
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
+            . k8s/cluster.sh
             helm upgrade --install context-api k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/context-api.yaml \
+              --set image.repository="$(image fraudstream-context)" --set ingress.host="context.$DOMAIN" \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 4m
-            ./cicd/wait_for_version.sh context.fraudstream.localhost "$TAG"
-            ./cicd/check_gateway.sh context.fraudstream.localhost \
+            ./cicd/wait_for_version.sh "context.$DOMAIN" "$TAG"
+            ./cicd/check_gateway.sh "context.$DOMAIN" \
               || { helm rollback context-api -n fraudstream-apis --wait; exit 1; }
           '''
         }
@@ -107,17 +111,19 @@ pipeline {
       steps {
         sh '''
           docker build -f k8s/Dockerfile.drift-detection -t "fraudstream-drift-detection:$TAG" .
-          kind load docker-image "fraudstream-drift-detection:$TAG" --name fraudstream
+          ./cicd/ship_image.sh "fraudstream-drift-detection:$TAG"
         '''
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
           sh '''
+            . k8s/cluster.sh
             helm upgrade --install drift-detection k8s/charts/fraudstream-api \
               -n fraudstream-apis -f k8s/apis/drift-detection.yaml \
+              --set image.repository="$(image fraudstream-drift-detection)" --set ingress.host="drift-detection.$DOMAIN" \
               --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
-            ./cicd/wait_for_version.sh drift-detection.fraudstream.localhost "$TAG"
-            ./cicd/check_gateway.sh drift-detection.fraudstream.localhost \
+            ./cicd/wait_for_version.sh "drift-detection.$DOMAIN" "$TAG"
+            ./cicd/check_gateway.sh "drift-detection.$DOMAIN" \
               || { helm rollback drift-detection -n fraudstream-apis --wait; exit 1; }
           '''
         }
@@ -171,13 +177,14 @@ pipeline {
       steps {
         sh '''
           docker build -f k8s/Dockerfile.ml -t "fraudstream-ml:$TAG" .
-          kind load docker-image "fraudstream-ml:$TAG" --name fraudstream
+          ./cicd/ship_image.sh "fraudstream-ml:$TAG"
           kubectl -n kubeflow port-forward svc/ml-pipeline 8888:8888 &
           forward=$!
           trap "kill $forward" EXIT
           for i in $(seq 20); do curl -s -o /dev/null http://localhost:8888/apis/v2beta1/healthz && break; sleep 1; done
+          . k8s/cluster.sh
           cd pipelines
-          PYTHONPATH=src TRAINING_IMAGE="fraudstream-ml:$TAG" uv run python -m fraudstream_pipelines.submit \
+          PYTHONPATH=src TRAINING_IMAGE="$(image fraudstream-ml):$TAG" uv run python -m fraudstream_pipelines.submit \
             --host http://localhost:8888 --upload-version "$TAG"
         '''
       }
@@ -310,7 +317,7 @@ pipeline {
         withCredentials([usernamePassword(credentialsId: 'gateway',
                                           usernameVariable: 'GATEWAY_USER',
                                           passwordVariable: 'GATEWAY_PASSWORD')]) {
-          sh './cicd/check_gateway.sh kagent.fraudstream.localhost /health'
+          sh '. k8s/cluster.sh && ./cicd/check_gateway.sh "kagent.$DOMAIN" /health'
         }
       }
     }

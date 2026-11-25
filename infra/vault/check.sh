@@ -15,7 +15,8 @@
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 failed=0
 expect() {
@@ -231,7 +232,7 @@ keys() {
   [ "$mode" = --rotate ] || return 0
 
   echo "==> keys, rotating a2a-check"
-  command kubectl --context kind-fraudstream -n kagent port-forward svc/a2a-gateway 18095:8080 >/dev/null &
+  command kubectl --context "$CONTEXT" -n kagent port-forward svc/a2a-gateway 18095:8080 >/dev/null &
   forward=$!
   sleep 2
   old=$(vault kv get -mount=secret -field=key a2a/a2a-check)

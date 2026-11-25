@@ -5,13 +5,14 @@
 #   ./k8s/llm/check-split.sh [requests]
 set -euo pipefail
 
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. "$(dirname "$0")/../cluster.sh"
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 requests=${1:-60}
 
 key=$(kubectl -n llm get secret llm-key-benchmark -o jsonpath='{.data.key}' | base64 -d)
 body=$(mktemp)
 
-command kubectl --context kind-fraudstream -n llm port-forward svc/llm-gateway 18097:8080 >/dev/null &
+command kubectl --context "$CONTEXT" -n llm port-forward svc/llm-gateway 18097:8080 >/dev/null &
 forward=$!
 trap 'kill $forward 2>/dev/null; wait $forward 2>/dev/null || true; rm -f "$body"' EXIT
 sleep 2

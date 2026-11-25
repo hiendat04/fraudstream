@@ -13,7 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://localhost:18085} uv run python -m fraudstream_agents.prompts "$@"); }
 
 agent=${1:-}

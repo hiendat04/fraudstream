@@ -13,7 +13,7 @@ kubectl -n kserve-models get inferenceservice fraud-detection -o json > "$work/i
 head -30 api/tools/payments.jsonl | while IFS= read -r payment; do
   gateway_curl -s --max-time 30 -u "$GATEWAY_USER:$GATEWAY_PASSWORD" \
     -H 'Content-Type: application/json' -d "$payment" \
-    https://inference.fraudstream.localhost/v1/predict || true
+    "https://inference.$DOMAIN/v1/predict" || true
   echo
 done > "$work/answers.jsonl"
 uv run --no-project python api/tools/model_split.py "$work/isvc.json" "$work/answers.jsonl"

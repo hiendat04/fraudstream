@@ -8,7 +8,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 echo "==> arctl ${AGENTREGISTRY_VERSION}"
 arctl=${XDG_CACHE_HOME:-$HOME/.cache}/fraudstream/arctl-$AGENTREGISTRY_VERSION
@@ -24,7 +25,7 @@ fi
 
 echo "==> the registry records"
 # The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
-command kubectl --context kind-fraudstream -n agentregistry port-forward svc/agentregistry 18121:12121 >/dev/null &
+command kubectl --context "$CONTEXT" -n agentregistry port-forward svc/agentregistry 18121:12121 >/dev/null &
 forward=$!
 trap 'kill $forward 2>/dev/null' EXIT
 for _ in $(seq 30); do curl -sf localhost:18121/health >/dev/null && break; sleep 1; done

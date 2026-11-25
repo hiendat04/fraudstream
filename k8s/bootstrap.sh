@@ -16,12 +16,13 @@ CLUSTER_NAME=fraudstream
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
+. "$HERE/cluster.sh"
 
 
 echo "==> Checking the tools are installed and runnable"
 # Running each one also catches a binary built for the wrong platform, which
 # sits on PATH looking perfectly fine until something tries to execute it.
-if ! kind version >/dev/null 2>&1; then
+if [ "$FRAUDSTREAM_CLUSTER" = kind ] && ! kind version >/dev/null 2>&1; then
   echo "Error: kind will not run. Check:  file \$(command -v kind)"
   exit 1
 fi
@@ -39,18 +40,19 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 
-echo "==> Creating the cluster"
-if ! kind get clusters | grep -qx "$CLUSTER_NAME"; then
-  kind create cluster --config "$HERE/kind-cluster.yaml"
+# On gke, Terraform made the cluster and the pods reach the VM through its Services.
+if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
+  echo "==> Creating the cluster"
+  if ! kind get clusters | grep -qx "$CLUSTER_NAME"; then
+    kind create cluster --config "$HERE/kind-cluster.yaml"
+  fi
+
+  echo "==> Connecting the cluster to the lakehouse network"
+  # kind puts its node on a Docker network of its own, so until it joins the
+  # compose network the pods cannot resolve postgres or minio at all
+  docker network connect "$COMPOSE_NETWORK" "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
 fi
-kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
-
-
-echo "==> Connecting the cluster to the lakehouse network"
-# kind puts its node on a Docker network of its own, so until it joins the
-# compose network the pods cannot resolve postgres or minio at all.
-# The error when it is already connected is not interesting, so ignore it.
-docker network connect "$COMPOSE_NETWORK" "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
+kubectl config use-context "$CONTEXT" >/dev/null
 
 
 echo "==> Installing Kubeflow Pipelines ${PIPELINE_VERSION}"
@@ -88,12 +90,14 @@ kubectl apply --server-side -k \
   "https://github.com/kubeflow/trainer.git/manifests/overlays/runtimes?ref=${TRAINER_VERSION}"
 
 
-echo "==> Switching off the two components with no build for this machine"
-# Kubeflow publishes these for Intel machines only, so on an Apple Silicon one
-# they can never start. Neither is needed here: proxy-agent exists to expose the
-# UI on Google Cloud, and pipelines record their metadata through metadata-grpc
-# rather than through metadata-writer.
-kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
+if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
+  echo "==> Switching off the two components with no build for this machine"
+  # Kubeflow publishes these for Intel machines only, so on an Apple Silicon one
+  # they can never start. Neither is needed here: proxy-agent exists to expose the
+  # UI on Google Cloud, and pipelines record their metadata through metadata-grpc
+  # rather than through metadata-writer. GKE's machines are Intel, so they stay on.
+  kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
+fi
 
 
 echo "==> Installing the NGINX Ingress Controller ${NGINX_INGRESS_CHART}"
@@ -131,19 +135,22 @@ echo "==> Connecting the cluster to Vault"
 kubectl apply -f "$HERE/platform/kubeflow-secrets.yaml"
 
 
-echo "==> Installing metrics-server ${METRICS_SERVER_CHART}"
-# kind uses self-signed kubelet certificates that Metrics Server cannot verify.
-# --kubelet-insecure-tls lets Metrics Server connect to the kubelet anyway.
-# We download the Helm chart directly from GitHub instead of using a Helm repo.
-# This avoids problems with other Helm repos configured on the machine.
-CHART_DIR="$(mktemp -d)"
-curl -sfL -o "$CHART_DIR/metrics-server.tgz" \
-  "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-${METRICS_SERVER_CHART}/metrics-server-${METRICS_SERVER_CHART}.tgz"
-helm upgrade --install metrics-server "$CHART_DIR/metrics-server.tgz" \
-  --namespace kube-system \
-  --values "$HERE/platform/metrics-server-values.yaml" \
-  --wait --timeout 5m
-rm -rf "$CHART_DIR"
+# GKE brings its own metrics-server.
+if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
+  echo "==> Installing metrics-server ${METRICS_SERVER_CHART}"
+  # kind uses self-signed kubelet certificates that Metrics Server cannot verify.
+  # --kubelet-insecure-tls lets Metrics Server connect to the kubelet anyway.
+  # I download the Helm chart directly from GitHub instead of using a Helm repo.
+  # This avoids problems with other Helm repos configured on the machine.
+  CHART_DIR="$(mktemp -d)"
+  curl -sfL -o "$CHART_DIR/metrics-server.tgz" \
+    "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-${METRICS_SERVER_CHART}/metrics-server-${METRICS_SERVER_CHART}.tgz"
+  helm upgrade --install metrics-server "$CHART_DIR/metrics-server.tgz" \
+    --namespace kube-system \
+    --values "$HERE/platform/metrics-server-values.yaml" \
+    --wait --timeout 5m
+  rm -rf "$CHART_DIR"
+fi
 
 
 echo "==> Installing KEDA ${KEDA_VERSION}"
@@ -232,7 +239,7 @@ kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy -
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
 kubectl -n nginx-ingress wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy --all
-kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
+[ "$FRAUDSTREAM_CLUSTER" = gke ] || kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n knative-serving wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n kourier-system wait --for=condition=Available --timeout=5m deploy --all

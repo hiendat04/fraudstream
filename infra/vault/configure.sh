@@ -11,7 +11,8 @@ cd "$(dirname "$0")/../.."
 : "${VAULT_ADDR:=https://localhost:8200}" "${VAULT_CACERT:=$PWD/infra/vault/tls/ca.crt}"
 VAULT_TOKEN=$(jq -r .root_token ~/.fraudstream/vault-init.json)
 export VAULT_ADDR VAULT_CACERT VAULT_TOKEN
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 # A JSON body from stdin and the token from a file descriptor, so a secret in the
 # body never shows in a command line.
@@ -47,9 +48,14 @@ kubernetes() {
   local ca reviewer namespace
   ca=$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.certificate-authority-data}' | base64 -d)
   reviewer=$(kubectl -n external-secrets get secret vault-token-reviewer -o jsonpath='{.data.token}' | base64 -d)
-  # Vault reaches the API server over the Compose network the kind node joined.
-  jq -n --arg ca "$ca" --arg jwt "$reviewer" \
-    '{kubernetes_host: "https://fraudstream-control-plane:6443", kubernetes_ca_cert: $ca, token_reviewer_jwt: $jwt}' \
+  # On kind, Vault reaches the API server over the Compose network the kind node joined;
+  # the kubeconfig's own address is the laptop's port. GKE's is reachable from the VM.
+  local host=https://fraudstream-control-plane:6443
+  if [ "$FRAUDSTREAM_CLUSTER" = gke ]; then
+    host=$(kubectl config view --raw --minify -o jsonpath='{.clusters[0].cluster.server}')
+  fi
+  jq -n --arg host "$host" --arg ca "$ca" --arg jwt "$reviewer" \
+    '{kubernetes_host: $host, kubernetes_ca_cert: $ca, token_reviewer_jwt: $jwt}' \
     | api auth/kubernetes/config
   for namespace in $(basename -s .hcl infra/vault/policies/k8s-*.hcl | sed 's/^k8s-//'); do
     vault write "auth/kubernetes/role/$namespace" bound_service_account_names=vault-secrets \

@@ -11,7 +11,8 @@
 #   ./k8s/agents/fleet.sh --html fleet.html
 set -euo pipefail
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. "$(dirname "$0")/../cluster.sh"
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 case "${1:-}" in
   "") out= ;;
@@ -59,7 +60,7 @@ td:last-child { text-align: right; font-variant-numeric: tabular-nums; font-weig
 .ok { color: var(--ok); } .warn { color: var(--warn); } .idle { color: var(--muted); }
 </style></head><body><main>
 <h1>Agent fleet</h1>
-<p>kind-fraudstream · $(date '+%Y-%m-%d %H:%M')</p>
+<p>$CONTEXT · $(date '+%Y-%m-%d %H:%M')</p>
 <table>
 EOF
 fi

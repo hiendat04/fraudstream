@@ -14,7 +14,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 kubectl create namespace ate-system --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
@@ -26,9 +27,9 @@ rustfs() { kubectl -n ate-system get secret substrate-rustfs -o jsonpath="{.data
 
 # No --wait: the API server can't be ready until Valkey is fixed below.
 echo "==> Agent Substrate ${SUBSTRATE_VERSION}"
-helm --kube-context kind-fraudstream upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
+helm --kube-context "$CONTEXT" upgrade --install substrate-crds oci://ghcr.io/kagent-dev/substrate/helm/substrate-crds \
   --version "$SUBSTRATE_VERSION" -n ate-system --wait >/dev/null
-helm --kube-context kind-fraudstream upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate \
+helm --kube-context "$CONTEXT" upgrade --install substrate oci://ghcr.io/kagent-dev/substrate/helm/substrate \
   --version "$SUBSTRATE_VERSION" -n ate-system --force-conflicts \
   --set rustfs.accessKey="$(rustfs accessKey)" --set rustfs.secretKey="$(rustfs secretKey)" >/dev/null
 

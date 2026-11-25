@@ -23,7 +23,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 failed=0
 expect() {
@@ -38,7 +39,7 @@ forwards=()
 card=$(mktemp)
 trap 'for pid in "${forwards[@]}"; do kill "$pid" 2>/dev/null; done; wait 2>/dev/null; rm -f "$card"' EXIT
 # The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
-forward() { command kubectl --context kind-fraudstream -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
+forward() { command kubectl --context "$CONTEXT" -n "$1" port-forward "svc/$2" "$3" >/dev/null & forwards+=($!); sleep 2; }
 prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
 promql() {
   kubectl get --raw "$prom?query=$(python3 -c 'import sys, urllib.parse; print(urllib.parse.quote(sys.argv[1]))' "$1")" |
@@ -181,12 +182,12 @@ done
 
 echo "==> the counters"
 python3 - "$prom" <<'PY' || failed=1
-import json, subprocess, sys, urllib.parse
+import json, os, subprocess, sys, urllib.parse
 
 
 def query(promql):
     url = sys.argv[1] + "?query=" + urllib.parse.quote(promql)
-    out = subprocess.run(["kubectl", "--context", "kind-fraudstream", "get", "--raw", url], capture_output=True, text=True, check=True)
+    out = subprocess.run(["kubectl", "--context", os.environ["CONTEXT"], "get", "--raw", url], capture_output=True, text=True, check=True)
     series = json.loads(out.stdout)["data"]["result"]
     for item in series:
         print(f"        {item['metric']} {item['value'][1]}")

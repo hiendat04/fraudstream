@@ -11,7 +11,8 @@ cd "$(dirname "$0")/../.."
 : "${VAULT_ADDR:=https://localhost:8200}" "${VAULT_CACERT:=$PWD/infra/vault/tls/ca.crt}"
 : "${VAULT_TOKEN:=$(cat ~/.vault-token)}"
 export VAULT_ADDR VAULT_CACERT VAULT_TOKEN
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 [ ! -f .env ] || { set -a; . ./.env; set +a; }
 random_key() { openssl rand -hex 24; }
 

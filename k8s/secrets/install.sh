@@ -7,10 +7,11 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 echo "==> External Secrets ${ESO_VERSION}"
-helm --kube-context kind-fraudstream upgrade --install external-secrets external-secrets \
+helm --kube-context "$CONTEXT" upgrade --install external-secrets external-secrets \
   --repo https://charts.external-secrets.io --version "$ESO_VERSION" \
   -n external-secrets --create-namespace -f k8s/secrets/values.yaml --wait --timeout 5m >/dev/null
 
