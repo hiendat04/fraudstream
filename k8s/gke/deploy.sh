@@ -19,7 +19,7 @@ export GATEWAY_USER GATEWAY_PASSWORD
 . k8s/gke/env.sh
 TAG=$(git rev-parse --short=7 HEAD)
 NS=fraudstream-apis
-: "${STORES_DNS:?the stores VM is not up: apply the stores-vm stack and run Ansible first}"
+: "${STORES_DNS:?the platform VM is not up: apply the platform-vm stack and run Ansible first}"
 
 gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet >/dev/null
 for name in inference drift-detection serving; do

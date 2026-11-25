@@ -40,3 +40,13 @@ variable "spot" {
   type    = bool
   default = false
 }
+
+variable "image_type" {
+  type    = string
+  default = "COS_CONTAINERD"
+}
+
+variable "disk_size_gb" {
+  type    = number
+  default = 30
+}

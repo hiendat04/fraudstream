@@ -7,7 +7,7 @@ terraform {
     }
   }
   backend "gcs" {
-    prefix = "dev/stores-vm"
+    prefix = "dev/platform-vm"
   }
 }
 

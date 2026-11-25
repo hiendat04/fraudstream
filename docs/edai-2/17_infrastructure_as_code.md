@@ -11,7 +11,7 @@ flowchart LR
     TF -- "2" --> NET["network<br/>VPC · subnet"]
     TF -- "2" --> REG["registry<br/>Artifact Registry"]
     TF -- "2" --> GKE["gke<br/>cluster · node pool · static IP"]
-    TF -- "2" --> VM["stores-vm<br/>VM · firewall · model bucket"]
+    TF -- "2" --> VM["platform-vm<br/>VM · firewall · model bucket"]
     TF -- "3 · outputs" --> INV["dynamic inventory"]
     INV --> AN["<b>Ansible</b><br/>common · docker · postgres<br/>redis · seed · mlflow"]
     AN -- "4 · configure and seed" --> VM
@@ -31,10 +31,10 @@ never touch the network, and a mistake in one stack stays in it.
 | Stack | Builds | Module | Kept |
 |---|---|---|---|
 | `bootstrap` | the APIs, the state bucket, a $30 monthly budget with alerts | [`dev/bootstrap/main.tf:13`](../../infra/terraform/envs/dev/bootstrap/main.tf#L13), [`dev/bootstrap/main.tf:39`](../../infra/terraform/envs/dev/bootstrap/main.tf#L39) | always |
-| `network` | VPC, subnet, IP ranges for pods and services | [`modules/network/main.tf:1`](../../infra/terraform/modules/network/main.tf#L1) | always |
+| `network` | VPC, subnet, IP ranges for pods and services, and the gateway's static IP, so its addresses stay the same | [`modules/network/main.tf:1`](../../infra/terraform/modules/network/main.tf#L1), [`dev/network/main.tf:11`](../../infra/terraform/envs/dev/network/main.tf#L11) | always |
 | `registry` | Artifact Registry, 5 images kept | [`modules/registry/main.tf:3`](../../infra/terraform/modules/registry/main.tf#L3) | always |
-| `gke` | the cluster, its node pool, and a static IP for the gateway | [`modules/gke/main.tf:16`](../../infra/terraform/modules/gke/main.tf#L16), [`modules/gke/main.tf:54`](../../infra/terraform/modules/gke/main.tf#L54), [`dev/gke/main.tf:20`](../../infra/terraform/envs/dev/gke/main.tf#L20) | one session |
-| `stores-vm` | the VM, its firewall rules, the model bucket | [`modules/vm/main.tf:13`](../../infra/terraform/modules/vm/main.tf#L13), [`modules/vm/main.tf:45`](../../infra/terraform/modules/vm/main.tf#L45), [`dev/stores-vm/main.tf:26`](../../infra/terraform/envs/dev/stores-vm/main.tf#L26) | one session |
+| `gke` | the cluster and its node pool | [`modules/gke/main.tf:16`](../../infra/terraform/modules/gke/main.tf#L16), [`modules/gke/main.tf:54`](../../infra/terraform/modules/gke/main.tf#L54) | one session |
+| `platform-vm` | the VM, its firewall rules, the model bucket | [`modules/vm/main.tf:13`](../../infra/terraform/modules/vm/main.tf#L13), [`modules/vm/main.tf:45`](../../infra/terraform/modules/vm/main.tf#L45), [`dev/platform-vm/main.tf:40`](../../infra/terraform/envs/dev/platform-vm/main.tf#L40) | one session |
 
 - **State in a GCS bucket**, one folder and one lock per stack
   ([`dev/gke/versions.tf:9`](../../infra/terraform/envs/dev/gke/versions.tf#L9)), so two runs
@@ -67,7 +67,7 @@ without the cloud passwords from Vault, waits for SSH, then applies six roles in
 | `seed` | the Feast registry, MLflow's database and artifacts, and Redis's features, restored from a dump | [`roles/seed/tasks/main.yml`](../../infra/ansible/roles/seed/tasks/main.yml) |
 | `mlflow` | the MLflow server | [`roles/mlflow/tasks/main.yml`](../../infra/ansible/roles/mlflow/tasks/main.yml) |
 
-The VM gets a new IP every session, so the inventory is read from the stores-vm stack's
+The VM gets a new IP every session, so the inventory is read from the platform-vm stack's
 outputs ([`inventory/terraform.py`](../../infra/ansible/inventory/terraform.py)). A second
 run changes nothing:
 
@@ -84,7 +84,7 @@ stacks and then looks for anything left that still costs money
 
 ```bash
 ./infra/session.sh up          # Terraform, Ansible, the GKE deploy
-./infra/session.sh down        # destroy gke and stores-vm, then check for leftovers
+./infra/session.sh down        # destroy gke and platform-vm, then check for leftovers
 ```
 
 A payment scored on GKE gets the same score as on the laptop, to the last decimal:

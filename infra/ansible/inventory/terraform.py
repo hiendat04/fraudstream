@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""Ansible inventory read from Terraform: the stores VM and its addresses.
+"""Ansible inventory read from Terraform: the platform VM and its addresses.
 
 The VM is created again every session with a new IP, so the inventory comes
-from the stores-vm stack's outputs rather than from a file.
+from the platform-vm stack's outputs rather than from a file.
 
 Ansible runs it; to see what it returns, from the repo root:
 
@@ -19,7 +19,7 @@ TF = Path(__file__).resolve().parents[2] / "terraform" / "tf.sh"
 
 def outputs() -> dict:
     raw = subprocess.run(
-        [str(TF), "stores-vm", "output", "-json"], check=True, capture_output=True, text=True
+        [str(TF), "platform-vm", "output", "-json"], check=True, capture_output=True, text=True
     ).stdout
     return {name: item["value"] for name, item in json.loads(raw).items()}
 

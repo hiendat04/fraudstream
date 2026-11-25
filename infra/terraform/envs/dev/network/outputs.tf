@@ -25,3 +25,7 @@ output "pods_cidr" {
 output "services_range_name" {
   value = module.network.services_range_name
 }
+
+output "gateway_ip" {
+  value = google_compute_address.gateway.address
+}
