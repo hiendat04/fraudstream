@@ -2,7 +2,10 @@
 # Print a Service and an EndpointSlice per VM store and namespace, so GKE pods
 # reach the platform VM by the names they use on kind (postgres, minio, vault...).
 # A Service without a selector sends its port to whatever the EndpointSlice says:
-# the VM's internal IP and the host port Compose publishes there.
+# the VM's internal IP and the host port Compose publishes there. Where the two ports
+# match, the Service is headless: DNS answers with the VM's IP, and pods get no
+# <NAME>_PORT=tcp://... variables, which would replace the images' own POSTGRES_PORT,
+# REDIS_PORT and MINIO_PORT. Only a changed port needs a cluster IP.
 #   k8s/gke/vm_services.sh VM_IP [NAMESPACE...] | kubectl apply -f -
 set -euo pipefail
 vm_ip=${1:?usage: $0 VM_IP [NAMESPACE...]}
@@ -29,11 +32,13 @@ EOF
 
 for namespace in "$@"; do
   while read -r name port host_port; do
+    cluster_ip=
+    [ "$port" != "$host_port" ] || cluster_ip='"clusterIP": "None", '
     cat <<EOF
 ---
 {"apiVersion": "v1", "kind": "Service",
  "metadata": {"name": "$name", "namespace": "$namespace"},
- "spec": {"ports": [{"port": $port, "protocol": "TCP"}]}}
+ "spec": {${cluster_ip}"ports": [{"port": $port, "protocol": "TCP"}]}}
 ---
 {"apiVersion": "discovery.k8s.io/v1", "kind": "EndpointSlice",
  "metadata": {"name": "$name", "namespace": "$namespace", "labels": {"kubernetes.io/service-name": "$name"}},

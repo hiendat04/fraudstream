@@ -70,6 +70,15 @@ class VmServicesTest(TestCase):
         self.assertEqual(endpoints["endpoints"][0]["addresses"], ["10.10.0.5"])
         self.assertEqual(endpoints["ports"][0]["port"], 15432)
 
+    def test_only_a_changed_port_gets_a_cluster_ip(self) -> None:
+        docs = docs_of("10.10.0.5", "kubeflow")
+        # A cluster IP gives every pod in the namespace MINIO_PORT=tcp://..., which breaks
+        # Kubeflow's UI and replaces the images' own POSTGRES_PORT and REDIS_PORT.
+        for name in ("postgres", "redis", "minio", "mlflow", "vault", "kafka", "memgraph"):
+            self.assertEqual(find(docs, "Service", name, "kubeflow")["spec"].get("clusterIP"), "None", name)
+        for name in ("pgvector", "trino", "lakefs"):
+            self.assertNotIn("clusterIP", find(docs, "Service", name, "kubeflow")["spec"], name)
+
     def test_kafka_advertised_address_is_mapped(self) -> None:
         docs = docs_of("10.10.0.5", "kubeflow")
         self.assertEqual(find(docs, "Service", "kafka", "kubeflow")["spec"]["ports"][0]["port"], 29092)

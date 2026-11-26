@@ -160,7 +160,7 @@ fi
 echo "==> Installing KEDA ${KEDA_VERSION}"
 # KEDA scales ordinary Deployments. Knative scales the services it runs on its
 # own, so KEDA must never be pointed at a Deployment that Knative created.
-kubectl apply --server-side \
+kubectl apply --server-side --force-conflicts \
   -f "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml"
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 

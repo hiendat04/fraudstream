@@ -30,7 +30,14 @@ services=$(k8s/gke/vm_services.sh "$VM_IP")
 for namespace in $(grep -v '^---$' <<<"$services" | jq -r .metadata.namespace | sort -u); do
   kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
-kubectl apply -f - <<<"$services" >/dev/null
+# --force replaces a Service whose cluster IP changed, which apply cannot do in place.
+kubectl apply --force -f - <<<"$services" >/dev/null
+
+echo "==> Volumes on standard disks"
+# The trial caps SSD at 300 GB a region, which the VM's and the nodes' boot disks fill.
+# GKE's default class, standard-rwo, is SSD too; standard is HDD, under another quota.
+kubectl patch storageclass standard-rwo -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' >/dev/null
+kubectl patch storageclass standard -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' >/dev/null
 
 ./k8s/bootstrap.sh
 ./k8s/gke/fit_requests.sh
