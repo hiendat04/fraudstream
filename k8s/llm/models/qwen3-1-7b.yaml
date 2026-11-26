@@ -15,7 +15,16 @@ spec:
       labels:
         app: qwen3-1-7b
         llm.fraudstream/server: llama-cpp
+        llm.fraudstream/volume: llm-models
     spec:
+      # llm-models attaches to one node at a time, so every pod using it runs on that node.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  llm.fraudstream/volume: llm-models
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: llama
           image: ghcr.io/ggml-org/llama.cpp:server-b11610
