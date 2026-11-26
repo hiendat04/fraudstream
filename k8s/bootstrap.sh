@@ -58,7 +58,10 @@ kubectl config use-context "$CONTEXT" >/dev/null
 echo "==> Installing Kubeflow Pipelines ${PIPELINE_VERSION}"
 kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=${PIPELINE_VERSION}"
 kubectl wait --for condition=established --timeout=60s crd/applications.app.k8s.io
+# The release's dev manifests name its own images :master, whatever that is on the day
+# of the pull. The release tags keep the images matched to the manifests.
 kubectl kustomize "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=${PIPELINE_VERSION}" \
+  | sed "s|\(ghcr.io/kubeflow/kfp-[a-z-]*\):master$|\1:${PIPELINE_VERSION}|" \
   | with_gke_requests "$HERE/gke/requests/kubeflow-pipelines.yaml" | kubectl apply -f -
 
 
