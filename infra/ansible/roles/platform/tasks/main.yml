@@ -25,7 +25,10 @@
         exec > platform-up.log 2>&1
         vault() { {{ vault_cli }} "$@"; }
         . infra/vault/env.sh
-        {{ platform_compose }} up -d --build --wait --wait-timeout 1200
+        {{ platform_compose }} up -d --build
+        # Not --wait on the whole stack: it counts a one-shot container that finished,
+        # like memgraph-stream-init, as failed. These are what the seed role needs.
+        {{ platform_compose }} up -d --wait --wait-timeout 1200 postgres redis minio mlflow
       args:
         chdir: "{{ fraudstream_dir }}"
         executable: /bin/bash
