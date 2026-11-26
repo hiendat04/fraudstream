@@ -36,6 +36,13 @@ kubectl apply -f - <<<"$services" >/dev/null
 ./k8s/observability/install.sh
 ./k8s/llm/install.sh
 
+# The MCP servers are ready only once the APIs they call answer, and the agents call the
+# MCP servers. Jenkins deploys the APIs, so a new cluster stops here until it has.
+if ! kubectl -n fraudstream-apis get deploy context-api inference-api >/dev/null 2>&1; then
+  echo "up: the platform on $CONTEXT without the MCP servers and agents; run this again once Jenkins has deployed the APIs"
+  exit 0
+fi
+
 echo "==> MCP image fraudstream-mcp:$TAG, built on the VM for the cluster's amd64 nodes"
 git archive HEAD | ssh "${vm[@]}" "docker build -q -f k8s/Dockerfile.mcp -t fraudstream-mcp:$TAG - >/dev/null \
   && cd /opt/fraudstream && set -a && . ./.env && set +a && ./cicd/ship_image.sh fraudstream-mcp:$TAG"
