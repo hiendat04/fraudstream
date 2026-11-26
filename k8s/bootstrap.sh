@@ -90,14 +90,13 @@ kubectl apply --server-side -k \
   "https://github.com/kubeflow/trainer.git/manifests/overlays/runtimes?ref=${TRAINER_VERSION}"
 
 
-if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
-  echo "==> Switching off the two components with no build for this machine"
-  # Kubeflow publishes these for Intel machines only, so on an Apple Silicon one
-  # they can never start. Neither is needed here: proxy-agent exists to expose the
-  # UI on Google Cloud, and pipelines record their metadata through metadata-grpc
-  # rather than through metadata-writer. GKE's machines are Intel, so they stay on.
-  kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
-fi
+echo "==> Switching off the two components nothing here needs"
+# Kubeflow publishes these for Intel machines only, so on an Apple Silicon one they
+# can never start. Neither is needed anywhere: proxy-agent registers the UI with
+# Google's hosted proxy, which the gateway replaces (on GKE it fails without that
+# setup), and pipelines record their metadata through metadata-grpc rather than
+# through metadata-writer.
+kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
 
 
 echo "==> Installing the NGINX Ingress Controller ${NGINX_INGRESS_CHART}"
