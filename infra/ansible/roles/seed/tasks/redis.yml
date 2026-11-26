@@ -6,19 +6,16 @@
   become: false
   changed_when: true
 
-- name: Stop Redis so it doesn't overwrite the snapshot
-  community.docker.docker_compose_v2:
-    project_src: "{{ fraudstream_dir }}/redis"
-    state: stopped
-
-- name: Put the snapshot where Redis loads from
+- name: Copy the snapshot to the VM
   ansible.builtin.copy:
     src: "{{ seed_local_dir }}/redis.rdb"
-    dest: "{{ fraudstream_dir }}/redis/data/dump.rdb"
-    mode: "0644"
+    dest: "{{ seed_remote_dir }}/redis.rdb"
+    mode: "0600"
 
+# Copied after the stop, which saves Redis's own data over the file.
 - name: Start Redis on the snapshot
-  community.docker.docker_compose_v2:
-    project_src: "{{ fraudstream_dir }}/redis"
-    state: present
-    wait: true
+  ansible.builtin.shell: >-
+    docker stop fraudstream-redis
+    && docker cp {{ seed_remote_dir }}/redis.rdb fraudstream-redis:/data/dump.rdb
+    && docker start fraudstream-redis
+  changed_when: true

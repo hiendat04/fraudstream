@@ -1,2 +1,0 @@
-redis_image: redis:7-alpine
-redis_dir: "{{ fraudstream_dir }}/redis"

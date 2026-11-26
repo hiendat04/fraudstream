@@ -338,10 +338,10 @@ ansible_lookups() {
   # The playbook's own variables, read as a run reads them, on this computer only. On macOS
   # a forked worker dies looking up the system proxy, so no_proxy skips that.
   output=$(cd infra/ansible && no_proxy='*' ansible -i localhost, localhost -c local -m ansible.builtin.debug \
-    -e @group_vars/stores.yml -e @roles/seed/defaults/main.yml \
-    -a '{"msg": "{{ \"set\" if postgres_password else \"missing\" }} {{ \"set\" if seed_local_postgres_user else \"missing\" }}"}' 2>&1 || true)
+    -e @group_vars/platform.yml \
+    -a '{"msg": "{{ \"set\" if postgres_user else \"missing\" }}"}' 2>&1 || true)
   found=$(grep -q SUCCESS <<<"$output" && sed -n 's/^ *"msg": "\([^"]*\)".*/\1/p' <<<"$output" || true)
-  expect "the cloud's postgres password and the seed's login, from Vault" "set set" \
+  expect "the platform's Postgres login, from Vault" set \
     "${found:-$(grep -o 'FAILED.*' <<<"$output" | head -1 | cut -c1-200)}"
   expect "the playbook's syntax" passes \
     "$(cd infra/ansible && ansible-playbook -i localhost, site.yml --syntax-check >/dev/null 2>&1 && echo passes || echo fails)"

@@ -1,6 +1,6 @@
 - name: Dump the Feast registry from the local stack
   ansible.builtin.shell: >-
-    docker exec fraudstream-postgres pg_dump -U {{ seed_local_postgres_user }} -d fraudstream
+    docker exec fraudstream-postgres pg_dump -U {{ postgres_user }} -d fraudstream
     -n public -T 'iceberg_*' --no-owner --no-privileges -Fc > {{ seed_local_dir }}/feast_registry.dump
   delegate_to: localhost
   become: false

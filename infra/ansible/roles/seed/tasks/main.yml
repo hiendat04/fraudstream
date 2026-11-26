@@ -1,11 +1,3 @@
-- name: Create the local export directory
-  ansible.builtin.file:
-    path: "{{ seed_local_dir }}"
-    state: directory
-    mode: "0755"
-  delegate_to: localhost
-  become: false
-
 - name: Create the seed directory on the VM
   ansible.builtin.file:
     path: "{{ seed_remote_dir }}"
@@ -32,12 +24,13 @@
   register: seed_redis_state
   changed_when: false
 
-- name: How many model files are in the bucket
-  ansible.builtin.shell: set -o pipefail && gcloud storage ls "gs://{{ models_bucket }}/mlflow/**" 2>/dev/null | wc -l
+- name: How many model files are in MinIO
+  ansible.builtin.shell: >-
+    set -o pipefail && docker exec fraudstream-minio sh -c
+    'mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+    && mc ls --recursive local/fraudstream/mlflow' | wc -l
   args:
     executable: /bin/bash
-  delegate_to: localhost
-  become: false
   register: seed_artifacts_state
   changed_when: false
   failed_when: false

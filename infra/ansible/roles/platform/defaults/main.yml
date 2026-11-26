@@ -1,0 +1,2 @@
+# The Airflow image's user, which writes the task logs.
+platform_airflow_uid: 50000

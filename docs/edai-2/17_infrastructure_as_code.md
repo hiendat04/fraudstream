@@ -52,20 +52,22 @@ Applying the gke stack again on a running cluster finds nothing to change:
 
 ![Artifact Registry with the three images](../../images/iac/05-artifact-registry-images.png)
 
-## Ansible: the stores VM, in roles
+## Ansible: the platform VM, in roles
 
-The playbook [`infra/ansible/site.yml`](../../infra/ansible/site.yml) refuses to run
-without the cloud passwords from Vault, waits for SSH, then applies six roles in order
-([`ansible/site.yml:16`](../../infra/ansible/site.yml#L16)):
+The VM runs the laptop's own `docker-compose.yml`, with
+[`docker-compose.cloud.yml`](../../docker-compose.cloud.yml) on top: ports bound to the
+VM's internal IP, and the cluster's names. The playbook
+[`infra/ansible/site.yml`](../../infra/ansible/site.yml) waits for SSH, then applies six
+roles in order ([`ansible/site.yml:11`](../../infra/ansible/site.yml#L11)):
 
 | Role | Does | Where |
 |---|---|---|
-| `common` | base packages and settings | [`roles/common/tasks/main.yml`](../../infra/ansible/roles/common/tasks/main.yml) |
+| `common` | base packages, the repo at HEAD, and the cloud settings in `.env` | [`roles/common/tasks/main.yml`](../../infra/ansible/roles/common/tasks/main.yml) |
 | `docker` | Docker and Compose | [`roles/docker/tasks/main.yml`](../../infra/ansible/roles/docker/tasks/main.yml) |
-| `postgres` | PostgreSQL in Compose, from a template | [`roles/postgres/tasks/main.yml`](../../infra/ansible/roles/postgres/tasks/main.yml) |
-| `redis` | Redis, the online store | [`roles/redis/tasks/main.yml`](../../infra/ansible/roles/redis/tasks/main.yml) |
-| `seed` | the Feast registry, MLflow's database and artifacts, and Redis's features, restored from a dump | [`roles/seed/tasks/main.yml`](../../infra/ansible/roles/seed/tasks/main.yml) |
-| `mlflow` | the MLflow server | [`roles/mlflow/tasks/main.yml`](../../infra/ansible/roles/mlflow/tasks/main.yml) |
+| `vault` | Vault, restored from the laptop's snapshot and unseal key | [`roles/vault/tasks/main.yml`](../../infra/ansible/roles/vault/tasks/main.yml) |
+| `platform` | the whole Compose stack, its secrets read from Vault | [`roles/platform/tasks/main.yml`](../../infra/ansible/roles/platform/tasks/main.yml) |
+| `datahub` | DataHub's quickstart | [`roles/datahub/tasks/main.yml`](../../infra/ansible/roles/datahub/tasks/main.yml) |
+| `seed` | the Feast registry, MLflow's database and model files, and Redis's features, restored from a dump | [`roles/seed/tasks/main.yml`](../../infra/ansible/roles/seed/tasks/main.yml) |
 
 The VM gets a new IP every session, so the inventory is read from the platform-vm stack's
 outputs ([`inventory/terraform.py`](../../infra/ansible/inventory/terraform.py)). A second

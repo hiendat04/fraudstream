@@ -47,7 +47,7 @@ turns on the audit log at start ([`vault/init.sh:26`](../../infra/vault/init.sh#
 | `llm/<consumer>` | `llm`, and `kagent` for the agents' own key |
 | `mcp/<consumer>`, `a2a/<consumer>` | `mcp`, `kagent` |
 | `agents/substrate-rustfs` | `ate-system` |
-| `cloud/postgres` | the operator: Ansible and the GKE deploy |
+| `cloud/postgres` | the operator: the GKE deploy |
 
 ## Who may read what
 
@@ -100,8 +100,8 @@ logins never sit in a DAG. Airflow shows them as `***`.
 
 ![A task's rendered environment, with the password hidden](../../images/security/05-airflow-rendered-password.png)
 
-**Ansible** reads the cloud's database password with a Vault lookup
-([`ansible/group_vars/stores.yml:5`](../../infra/ansible/group_vars/stores.yml#L5)).
+**Ansible** reads the database login with a Vault lookup
+([`ansible/group_vars/platform.yml:5`](../../infra/ansible/group_vars/platform.yml#L5)).
 
 **Every read is logged**, with who asked and for which path; values are hashed in the log.
 

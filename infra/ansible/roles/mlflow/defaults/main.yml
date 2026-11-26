@@ -1,2 +1,0 @@
-mlflow_image: fraudstream-mlflow:3.16.0
-mlflow_dir: "{{ fraudstream_dir }}/mlflow"

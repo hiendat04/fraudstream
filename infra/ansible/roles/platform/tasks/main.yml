@@ -1,0 +1,29 @@
+- name: Let Airflow write its logs
+  ansible.builtin.file:
+    path: "{{ fraudstream_dir }}/airflow/logs"
+    state: directory
+    owner: "{{ platform_airflow_uid }}"
+    group: "0"
+    mode: "0775"
+
+- name: Fill the folder Airflow runs, as Jenkins does on every deploy
+  ansible.builtin.command: ./cicd/sync_airflow.sh {{ deploy_dir }}
+  args:
+    chdir: "{{ fraudstream_dir }}"
+  changed_when: true
+
+# env.sh reads every secret from Vault into this shell only; the token comes over SSH stdin.
+- name: Start the platform
+  ansible.builtin.shell: |
+    set -euo pipefail
+    read -r VAULT_TOKEN
+    export VAULT_TOKEN
+    vault() { {{ vault_cli }} "$@"; }
+    . infra/vault/env.sh
+    {{ platform_compose }} up -d --build --wait --wait-timeout 1200
+  args:
+    chdir: "{{ fraudstream_dir }}"
+    executable: /bin/bash
+    stdin: "{{ vault_token }}"
+  no_log: true
+  changed_when: true

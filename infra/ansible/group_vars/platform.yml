@@ -1,0 +1,19 @@
+fraudstream_dir: /opt/fraudstream
+deploy_dir: /opt/fraudstream-deploy
+postgres_db: fraudstream
+# The VM restores the local's Vault, so both run the same Postgres login.
+postgres_user: "{{ lookup('community.hashi_vault.vault_kv2_get', 'platform/postgres', engine_mount_point='secret').secret.login }}"
+# The VM has no Vault CLI: the one inside Vault's container, with the token from the caller's environment.
+vault_cli: >-
+  docker exec -i -e VAULT_TOKEN -e VAULT_ADDR=https://127.0.0.1:8200 -e VAULT_CACERT=/vault/tls/ca.crt
+  fraudstream-vault vault
+# The same .env as the full stack, so starting it later doesn't recreate Vault, which would seal it.
+vault_compose: docker compose --env-file .env -f infra/vault/compose.yml
+platform_compose: >-
+  docker compose -f docker-compose.yml -f docker-compose.cloud.yml
+  --profile orchestration --profile feature-store --profile ci
+# Vault's API from the VM itself, under the name its certificate carries.
+vault_api: >-
+  curl -sf --cacert infra/vault/tls/ca.crt --connect-to vault:8200:{{ internal_ip }}:8200
+# The local's login, sent over SSH stdin. It is valid on the VM because the snapshot carries it.
+vault_token: "{{ lookup('env', 'VAULT_TOKEN') or lookup('file', '~/.vault-token') }}"
