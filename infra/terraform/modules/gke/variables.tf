@@ -50,3 +50,8 @@ variable "disk_size_gb" {
   type    = number
   default = 30
 }
+
+variable "disk_type" {
+  type    = string
+  default = "pd-balanced"
+}

@@ -160,7 +160,7 @@ fi
 echo "==> Installing KEDA ${KEDA_VERSION}"
 # KEDA scales ordinary Deployments. Knative scales the services it runs on its
 # own, so KEDA must never be pointed at a Deployment that Knative created.
-kubectl apply --server-side --force-conflicts \
+kubectl apply --server-side \
   -f "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml"
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 
@@ -197,12 +197,6 @@ kubectl -n knative-serving patch configmap/config-domain --type merge \
 # on the host by kind-cluster.yaml.
 kubectl -n kourier-system patch service/kourier \
   -p '{"spec":{"type":"NodePort","ports":[{"port":80,"nodePort":31080}]}}'
-
-
-if [ "$FRAUDSTREAM_CLUSTER" = gke ]; then
-  echo "==> Lowering the CPU the pods so far reserve, so KServe fits on the small nodes"
-  "$HERE/gke/fit_requests.sh"
-fi
 
 
 echo "==> Installing KServe ${KSERVE_VERSION}"

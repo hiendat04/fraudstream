@@ -30,17 +30,9 @@ services=$(k8s/gke/vm_services.sh "$VM_IP")
 for namespace in $(grep -v '^---$' <<<"$services" | jq -r .metadata.namespace | sort -u); do
   kubectl create namespace "$namespace" --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 done
-# --force replaces a Service whose cluster IP changed, which apply cannot do in place.
-kubectl apply --force -f - <<<"$services" >/dev/null
-
-echo "==> Volumes on standard disks"
-# The trial caps SSD at 300 GB a region, which the VM's and the nodes' boot disks fill.
-# GKE's default class, standard-rwo, is SSD too; standard is HDD, under another quota.
-kubectl patch storageclass standard-rwo -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"false"}}}' >/dev/null
-kubectl patch storageclass standard -p '{"metadata":{"annotations":{"storageclass.kubernetes.io/is-default-class":"true"}}}' >/dev/null
+kubectl apply -f - <<<"$services" >/dev/null
 
 ./k8s/bootstrap.sh
-./k8s/gke/fit_requests.sh
 ./k8s/observability/install.sh
 ./k8s/llm/install.sh
 
@@ -50,5 +42,4 @@ git archive HEAD | ssh "${vm[@]}" "docker build -q -f k8s/Dockerfile.mcp -t frau
 TAG=$TAG IMAGE_PUSHED=1 ./k8s/mcp/install.sh
 
 ./k8s/agents/install.sh
-./k8s/gke/fit_requests.sh
 echo "up: the platform on $CONTEXT, the gateway on https://*.$FRAUDSTREAM_DOMAIN"
