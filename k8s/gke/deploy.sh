@@ -19,7 +19,7 @@ export GATEWAY_USER GATEWAY_PASSWORD
 . k8s/gke/env.sh
 TAG=$(git rev-parse --short=7 HEAD)
 NS=fraudstream-apis
-: "${STORES_DNS:?the platform VM is not up: apply the platform-vm stack and run Ansible first}"
+: "${VM_IP:?the platform VM is not up: apply the platform-vm stack and run Ansible first}"
 
 gcloud auth configure-docker "${GCP_REGION}-docker.pkg.dev" --quiet >/dev/null
 for name in inference drift-detection serving; do
@@ -28,7 +28,7 @@ for name in inference drift-detection serving; do
 done
 
 kubectl --context "$CONTEXT" create namespace "$NS" --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -
-sed "s#STORES_HOST#$STORES_DNS#" k8s/gke/stores.yaml | kubectl --context "$CONTEXT" apply -f -
+k8s/gke/vm_services.sh "$VM_IP" "$NS" | kubectl --context "$CONTEXT" apply -f -
 kubectl --context "$CONTEXT" -n "$NS" create secret generic feature-store-registry \
   --from-literal=POSTGRES_USER=fraudstream --from-file=POSTGRES_PASSWORD=<(printf %s "$postgres_password") \
   --dry-run=client -o yaml | kubectl --context "$CONTEXT" apply -f -

@@ -7,7 +7,6 @@ tf() { "$root/infra/terraform/tf.sh" "$@"; }
 CLUSTER=$(tf gke output -raw cluster_name)
 GATEWAY_IP=$(tf network output -raw gateway_ip)
 REPO=$(tf registry output -raw repository_url)
-STORES_DNS=$(tf platform-vm output -raw internal_dns 2>/dev/null || true)
 VM_IP=$(tf platform-vm output -raw internal_ip 2>/dev/null || true)
 CONTEXT="gke_${GCP_PROJECT}_${GCP_ZONE}_${CLUSTER}"
 
