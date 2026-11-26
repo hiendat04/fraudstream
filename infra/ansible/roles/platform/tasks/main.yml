@@ -13,17 +13,30 @@
   changed_when: true
 
 # env.sh reads every secret from Vault into this shell only; the token comes over SSH stdin.
+# no_log keeps the token out of the result, so the script's own output, which holds no
+# secret, goes to a log that is shown when the start fails.
 - name: Start the platform
-  ansible.builtin.shell: |
-    set -euo pipefail
-    read -r VAULT_TOKEN
-    export VAULT_TOKEN
-    vault() { {{ vault_cli }} "$@"; }
-    . infra/vault/env.sh
-    {{ platform_compose }} up -d --build --wait --wait-timeout 1200
-  args:
-    chdir: "{{ fraudstream_dir }}"
-    executable: /bin/bash
-    stdin: "{{ vault_token }}"
-  no_log: true
-  changed_when: true
+  block:
+    - name: Start the platform
+      ansible.builtin.shell: |
+        set -euo pipefail
+        read -r VAULT_TOKEN
+        export VAULT_TOKEN
+        exec > platform-up.log 2>&1
+        vault() { {{ vault_cli }} "$@"; }
+        . infra/vault/env.sh
+        {{ platform_compose }} up -d --build --wait --wait-timeout 1200
+      args:
+        chdir: "{{ fraudstream_dir }}"
+        executable: /bin/bash
+        stdin: "{{ vault_token }}"
+      no_log: true
+      changed_when: true
+  rescue:
+    - name: Read why the platform didn't start
+      ansible.builtin.command: tail -n 40 {{ fraudstream_dir }}/platform-up.log
+      register: platform_log
+      changed_when: false
+    - name: Stop with the reason
+      ansible.builtin.fail:
+        msg: "{{ platform_log.stdout_lines }}"
