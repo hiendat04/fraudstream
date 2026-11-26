@@ -1,7 +1,8 @@
 # Sourced by the GKE scripts: settings from .env, the addresses Terraform created,
 # the cluster settings k8s/cluster.sh reads, and the cluster's kubectl context,
 # renamed fraudstream-gke, which also becomes the current one.
-root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
+
+root="$(cd "$(dirname "${BASH_SOURCE[0]:-$0}")/../.." && pwd)"
 set -a; . "$root/.env"; set +a
 
 tf() { "$root/infra/terraform/tf.sh" "$@"; }
