@@ -1,4 +1,7 @@
+# Added on top of k8s/platform/nginx-ingress-values.yaml on gke.
 controller:
+  hostPort:
+    enable: false
   ingressClass:
     name: nginx
     create: true

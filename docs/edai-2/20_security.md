@@ -47,7 +47,7 @@ turns on the audit log at start ([`vault/init.sh:26`](../../infra/vault/init.sh#
 | `llm/<consumer>` | `llm`, and `kagent` for the agents' own key |
 | `mcp/<consumer>`, `a2a/<consumer>` | `mcp`, `kagent` |
 | `agents/substrate-rustfs` | `ate-system` |
-| `cloud/postgres` | the operator: the GKE deploy |
+| `cloud/postgres` | nobody now: GKE's pods read the platform VM's Vault |
 
 ## Who may read what
 
@@ -126,8 +126,8 @@ the old one, with nothing redeployed.
 - **RustFS's keys reach Substrate's chart as `--set` values**
   ([`agents/substrate.sh:32`](../../k8s/agents/substrate.sh#L32)): the 0.0.9 chart takes them
   no other way, so they sit in its pod spec in plain text.
-- **The GKE deploy makes its two Secrets by hand** from what it read in Vault, since GKE can't
-  reach the laptop's Vault.
+- **On GKE, Vault is the platform VM's**, restored from a laptop snapshot. A key made later
+  on one Vault isn't on the other until the next snapshot.
 
 The whole setup, with start-up and checks, is in [`infra/vault/`](../../infra/vault/).
 

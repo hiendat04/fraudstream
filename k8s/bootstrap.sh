@@ -101,13 +101,18 @@ fi
 
 
 echo "==> Installing the NGINX Ingress Controller ${NGINX_INGRESS_CHART}"
-# This is F5's controller. The older ingress-nginx project was retired in March
-# 2026. It listens on the node's ports 80 and 443, which kind maps to the local network.
+#It listens on the node's ports 80 and 443, which kind maps to the local network.
+# On gke it sits behind a cloud load balancer on the gateway's reserved IP instead.
+nginx_values=(--values "$HERE/platform/nginx-ingress-values.yaml")
+if [ "$FRAUDSTREAM_CLUSTER" = gke ]; then
+  nginx_values+=(--values "$HERE/gke/nginx-ingress-values.yaml"
+    --set controller.service.loadBalancerIP="${GATEWAY_IP:?GATEWAY_IP is not set: source k8s/gke/env.sh}")
+fi
 helm upgrade --install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
   --version "${NGINX_INGRESS_CHART}" \
   --namespace nginx-ingress --create-namespace \
-  --values "$HERE/platform/nginx-ingress-values.yaml" \
-  --wait --timeout 5m
+  "${nginx_values[@]}" \
+  --wait --timeout 10m
 
 
 echo "==> Installing cert-manager ${CERT_MANAGER_VERSION}"

@@ -124,9 +124,8 @@ SYNCED=(
   "kubeflow lakehouse-credentials MINIO_ACCESS_KEY platform/minio login"
   "kubeflow lakehouse-credentials MINIO_SECRET_KEY platform/minio password"
 )
-# The one script that may still make a Secret by hand: the GKE deploy, whose cluster
-# can't reach Vault; it copies them from Vault.
-HAND_MADE_ALLOWED="k8s/gke/deploy.sh"
+# Scripts that may make a Secret by hand. None: every cluster, GKE too, reads Vault.
+HAND_MADE_ALLOWED=""
 
 hash() { shasum -a 256 | cut -c1-16; }
 secret_hash() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d | hash; }

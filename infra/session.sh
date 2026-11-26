@@ -26,8 +26,7 @@ up() {
   preflight
   for stack in network registry gke platform-vm; do "$tf" "$stack" apply -auto-approve -input=false; done
   (cd infra/ansible && ansible-galaxy collection install -r requirements.yml >/dev/null && no_proxy='*' ansible-playbook site.yml)
-  ./k8s/gke/platform.sh
-  ./k8s/gke/deploy.sh
+  ./k8s/gke/up.sh
   kubectl config use-context kind-fraudstream >/dev/null 2>&1 || true
   gateway_ip=$("$tf" network output -raw gateway_ip)
   echo "up: https://inference.$gateway_ip.sslip.io and https://drift-detection.$gateway_ip.sslip.io"
@@ -45,7 +44,7 @@ down() {
   fi
   "$tf" platform-vm destroy -auto-approve -input=false
   "$tf" gke destroy -auto-approve -input=false
-  kubectl config delete-context "gke_${GCP_PROJECT}_${GCP_ZONE}_fraudstream" >/dev/null 2>&1 || true
+  kubectl config delete-context fraudstream-gke >/dev/null 2>&1 || true
   kubectl config use-context kind-fraudstream >/dev/null 2>&1 || true
   leftovers
 }
