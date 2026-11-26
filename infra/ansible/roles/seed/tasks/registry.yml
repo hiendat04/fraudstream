@@ -1,7 +1,8 @@
+# Tables, not the schema: --clean would otherwise drop public, which the VM's Iceberg tables live in.
 - name: Dump the Feast registry from the local stack
   ansible.builtin.shell: >-
-    docker exec fraudstream-postgres pg_dump -U {{ postgres_user }} -d fraudstream
-    -n public -T 'iceberg_*' --no-owner --no-privileges -Fc > {{ seed_local_dir }}/feast_registry.dump
+    {{ postgres_exec }} pg_dump -d fraudstream
+    -t 'public.*' -T 'public.iceberg_*' --no-owner --no-privileges -Fc > {{ seed_local_dir }}/feast_registry.dump
   delegate_to: localhost
   become: false
   changed_when: true
@@ -14,6 +15,6 @@
 
 - name: Restore the Feast registry
   ansible.builtin.shell: >-
-    docker exec -i fraudstream-postgres pg_restore -U {{ postgres_user }} -d {{ postgres_db }}
+    {{ postgres_exec }} pg_restore -d {{ postgres_db }}
     --no-owner --no-privileges --clean --if-exists < {{ seed_remote_dir }}/feast_registry.dump
   changed_when: true

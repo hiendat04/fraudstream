@@ -100,8 +100,9 @@ logins never sit in a DAG. Airflow shows them as `***`.
 
 ![A task's rendered environment, with the password hidden](../../images/security/05-airflow-rendered-password.png)
 
-**Ansible** reads the database login with a Vault lookup
-([`ansible/group_vars/platform.yml:5`](../../infra/ansible/group_vars/platform.yml#L5)).
+**Ansible** reads no secret from Vault itself. It runs Postgres as the container's own login
+([`ansible/group_vars/platform.yml:6`](../../infra/ansible/group_vars/platform.yml#L6)), and
+the platform's secrets reach Compose through `env.sh` on the VM.
 
 **Every read is logged**, with who asked and for which path; values are hashed in the log.
 

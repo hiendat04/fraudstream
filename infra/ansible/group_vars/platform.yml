@@ -1,8 +1,10 @@
 fraudstream_dir: /opt/fraudstream
 deploy_dir: /opt/fraudstream-deploy
 postgres_db: fraudstream
-# The VM restores the local's Vault, so both run the same Postgres login.
-postgres_user: "{{ lookup('community.hashi_vault.vault_kv2_get', 'platform/postgres', engine_mount_point='secret').secret.login }}"
+# A Postgres command run as the container's own login, so Ansible looks up no secret. That
+# also avoids a Vault lookup, whose forked worker dies on macOS looking up the system proxy.
+postgres_exec: >-
+  docker exec -i fraudstream-postgres sh -c 'PGUSER=$POSTGRES_USER exec "$0" "$@"'
 # The VM has no Vault CLI: the one inside Vault's container, with the token from the caller's environment.
 vault_cli: >-
   docker exec -i -e VAULT_TOKEN -e VAULT_ADDR=https://127.0.0.1:8200 -e VAULT_CACERT=/vault/tls/ca.crt
