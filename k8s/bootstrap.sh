@@ -58,7 +58,8 @@ kubectl config use-context "$CONTEXT" >/dev/null
 echo "==> Installing Kubeflow Pipelines ${PIPELINE_VERSION}"
 kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=${PIPELINE_VERSION}"
 kubectl wait --for condition=established --timeout=60s crd/applications.app.k8s.io
-kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=${PIPELINE_VERSION}"
+kubectl kustomize "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=${PIPELINE_VERSION}" \
+  | with_gke_requests "$HERE/gke/requests/kubeflow-pipelines.yaml" | kubectl apply -f -
 
 
 echo "==> Installing Kubeflow Trainer ${TRAINER_VERSION}"
@@ -76,7 +77,8 @@ helm show crds oci://ghcr.io/kubeflow/charts/kubeflow-trainer --version "${TRAIN
 if ! helm status kubeflow-trainer --namespace kubeflow-system >/dev/null 2>&1; then
   helm install kubeflow-trainer oci://ghcr.io/kubeflow/charts/kubeflow-trainer \
     --namespace kubeflow-system --create-namespace \
-    --version "${TRAINER_VERSION#v}" --wait --timeout 10m
+    --version "${TRAINER_VERSION#v}" $(on_gke --values "$HERE/gke/requests/kubeflow-trainer-values.yaml") \
+    --wait --timeout 10m
 fi
 
 
@@ -160,8 +162,8 @@ fi
 echo "==> Installing KEDA ${KEDA_VERSION}"
 # KEDA scales ordinary Deployments. Knative scales the services it runs on its
 # own, so KEDA must never be pointed at a Deployment that Knative created.
-kubectl apply --server-side \
-  -f "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml"
+curl -sfL "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml" \
+  | with_gke_requests "$HERE/gke/requests/keda.yaml" | kubectl apply --server-side -f -
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 
 
@@ -173,7 +175,8 @@ kubectl apply -f "${KNATIVE_SERVING_URL}/serving-crds.yaml"
 kubectl wait --for=condition=Established --timeout=60s \
   crd/services.serving.knative.dev crd/revisions.serving.knative.dev \
   crd/routes.serving.knative.dev crd/configurations.serving.knative.dev
-kubectl apply -f "${KNATIVE_SERVING_URL}/serving-core.yaml"
+curl -sfL "${KNATIVE_SERVING_URL}/serving-core.yaml" \
+  | with_gke_requests "$HERE/gke/requests/knative-serving.yaml" | kubectl apply -f -
 kubectl -n knative-serving wait --for=condition=Available --timeout=5m \
   deploy/activator deploy/autoscaler deploy/controller deploy/webhook
 
@@ -181,7 +184,8 @@ kubectl -n knative-serving wait --for=condition=Available --timeout=5m \
 echo "==> Installing Kourier ${KOURIER_VERSION}"
 # Kourier is the gateway that sends requests to Knative services. Its controller
 # runs in knative-serving; only the gateway itself runs in kourier-system.
-kubectl apply -f "https://github.com/knative-extensions/net-kourier/releases/download/${KOURIER_VERSION}/kourier.yaml"
+curl -sfL "https://github.com/knative-extensions/net-kourier/releases/download/${KOURIER_VERSION}/kourier.yaml" \
+  | with_gke_requests "$HERE/gke/requests/kourier.yaml" | kubectl apply -f -
 kubectl -n knative-serving wait --for=condition=Available --timeout=5m deploy/net-kourier-controller
 kubectl -n kourier-system wait --for=condition=Available --timeout=5m deploy/3scale-kourier-gateway
 
@@ -210,7 +214,8 @@ kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
 # The file holds both the custom resource definitions and objects that use them,
 # so the first pass cannot create everything. It is applied again once the
 # definitions exist.
-kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve.yaml" || true
+kserve=$(curl -sfL "${KSERVE_URL}/kserve.yaml" | with_gke_requests "$HERE/gke/requests/kserve.yaml")
+kubectl apply --server-side --force-conflicts -f - <<<"$kserve" || true
 kubectl wait --for=condition=Established --timeout=120s \
   crd/inferenceservices.serving.kserve.io \
   crd/clusterservingruntimes.serving.kserve.io \
@@ -219,7 +224,7 @@ kubectl wait --for=condition=Established --timeout=120s \
 # registers their webhooks, and a webhook whose controller is still starting
 # rejects the very objects being applied.
 kubectl -n kserve wait --for=condition=Available --timeout=10m deploy --all
-kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve.yaml"
+kubectl apply --server-side --force-conflicts -f - <<<"$kserve"
 kubectl -n kserve wait --for=condition=Available --timeout=10m deploy --all
 
 # The runtimes below are checked by the webhook that the controller serves, so

@@ -1,0 +1,11 @@
+# GKE's CPU requests for Elasticsearch and Kibana (observability/install.sh).
+---
+apiVersion: apps/v1
+kind: StatefulSet
+metadata: {name: elasticsearch, namespace: observability}
+spec: {template: {spec: {containers: [{name: elasticsearch, resources: {requests: {cpu: 50m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kibana, namespace: observability}
+spec: {template: {spec: {containers: [{name: kibana, resources: {requests: {cpu: 30m}}}]}}}

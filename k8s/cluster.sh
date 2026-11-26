@@ -28,3 +28,20 @@ render() { sed "s/fraudstream\.localhost/$DOMAIN/g" "$1"; }
 
 # An image repository on this cluster: the local name on kind, the registry's on gke.
 image() { echo "${IMAGE_REGISTRY:+$IMAGE_REGISTRY/}$1"; }
+
+# GKE's two nodes have 4 vCPU between them, where the charts' defaults reserve about
+# 7, so the installs there carry smaller CPU requests from k8s/gke/requests/. kind
+# gets nothing extra from either helper.
+# The arguments on gke, nothing on kind, as in:  helm upgrade ... $(on_gke --values <file>)
+on_gke() { if [ "$FRAUDSTREAM_CLUSTER" = gke ]; then echo "$@"; fi; }
+
+# The manifest on stdin, with the patches in the file named on gke, as is on kind.
+#   curl -sfL <url> | with_gke_requests k8s/gke/requests/keda.yaml | kubectl apply -f -
+with_gke_requests() {
+  if [ "$FRAUDSTREAM_CLUSTER" != gke ]; then cat; return; fi
+  _patched=$(mktemp -d)
+  cat > "$_patched/manifest.yaml"
+  cp "$1" "$_patched/requests.yaml"
+  printf 'resources:\n- manifest.yaml\npatches:\n- path: requests.yaml\n' > "$_patched/kustomization.yaml"
+  kubectl kustomize "$_patched" && rm -rf "$_patched"
+}

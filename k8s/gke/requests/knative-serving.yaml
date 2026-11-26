@@ -1,0 +1,17 @@
+# GKE's CPU requests for Knative Serving (bootstrap.sh). The activator scales by CPU
+# percentage, so it keeps more than the rest; the webhook, which also does, keeps 100m.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: activator, namespace: knative-serving}
+spec: {template: {spec: {containers: [{name: activator, resources: {requests: {cpu: 100m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: autoscaler, namespace: knative-serving}
+spec: {template: {spec: {containers: [{name: autoscaler, resources: {requests: {cpu: 30m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: controller, namespace: knative-serving}
+spec: {template: {spec: {containers: [{name: controller, resources: {requests: {cpu: 30m}}}]}}}

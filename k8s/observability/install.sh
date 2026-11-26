@@ -18,7 +18,8 @@ kubectl -n "$NS" wait externalsecret --all --for=condition=Ready --timeout=2m
 echo "==> Prometheus, Grafana, node-exporter, kube-state-metrics"
 helm upgrade --install metrics oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
   --version "$KUBE_PROMETHEUS_STACK_CHART" --namespace "$NS" \
-  --values <(render k8s/observability/prometheus-values.yaml) --wait --timeout 10m
+  --values <(render k8s/observability/prometheus-values.yaml) \
+  $(on_gke --values k8s/gke/requests/prometheus-values.yaml) --wait --timeout 10m
 
 echo "==> Pushgateway"
 helm upgrade --install pushgateway oci://ghcr.io/prometheus-community/charts/prometheus-pushgateway \
@@ -30,7 +31,8 @@ sed "s/JAEGER_VERSION/$JAEGER_VERSION/" k8s/observability/jaeger.yaml | kubectl 
 kubectl -n "$NS" rollout status deploy/jaeger --timeout=5m
 
 echo "==> Elasticsearch and Kibana"
-render k8s/observability/logging.yaml | sed "s/ELASTIC_VERSION/$ELASTIC_VERSION/" | kubectl apply -f -
+render k8s/observability/logging.yaml | sed "s/ELASTIC_VERSION/$ELASTIC_VERSION/" \
+  | with_gke_requests k8s/gke/requests/logging.yaml | kubectl apply -f -
 kubectl -n "$NS" rollout status statefulset/elasticsearch --timeout=10m
 kubectl -n "$NS" rollout status deploy/kibana --timeout=10m
 kubectl -n "$NS" delete job logging-setup --ignore-not-found

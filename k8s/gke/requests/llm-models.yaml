@@ -1,0 +1,12 @@
+# GKE's CPU requests for the model servers (llm/install.sh). They reserve 500m and 1
+# on kind; they still use up to their limit when they answer.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: qwen3-4b, namespace: llm}
+spec: {template: {spec: {containers: [{name: llama, resources: {requests: {cpu: 100m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: qwen3-1-7b, namespace: llm}
+spec: {template: {spec: {containers: [{name: llama, resources: {requests: {cpu: 100m}}}]}}}

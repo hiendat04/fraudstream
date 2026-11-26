@@ -1,0 +1,21 @@
+# GKE's CPU requests for kagent, on top of k8s/agents/kagent-values.yaml. The defaults are
+# 100m for the controller, the UI and each of the three workers, and 250m for Postgres.
+controller:
+  resources:
+    requests:
+      cpu: 30m
+ui:
+  resources:
+    requests:
+      cpu: 20m
+database:
+  postgres:
+    bundled:
+      resources:
+        requests:
+          cpu: 50m
+substrateWorkerPool:
+  template:
+    resources:
+      requests:
+        cpu: 20m

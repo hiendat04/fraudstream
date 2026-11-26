@@ -1,0 +1,5 @@
+# GKE's CPU request for Grafana, on top of k8s/observability/prometheus-values.yaml (200m).
+grafana:
+  resources:
+    requests:
+      cpu: 50m

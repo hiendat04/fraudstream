@@ -47,7 +47,8 @@ echo "==> kagent ${KAGENT_VERSION}"
 helm --kube-context "$CONTEXT" upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
   --version "$KAGENT_VERSION" -n kagent >/dev/null
 helm --kube-context "$CONTEXT" upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
-  --version "$KAGENT_VERSION" -n kagent -f k8s/agents/kagent-values.yaml --wait --timeout 10m >/dev/null
+  --version "$KAGENT_VERSION" -n kagent -f k8s/agents/kagent-values.yaml \
+  $(on_gke --values k8s/gke/requests/kagent-values.yaml) --wait --timeout 10m >/dev/null
 
 agents=(context-agent risk-agent)
 
@@ -79,7 +80,8 @@ kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/das
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
 helm --kube-context "$CONTEXT" upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
-  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml --wait --timeout 5m >/dev/null
+  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml \
+  $(on_gke --values k8s/gke/requests/agentregistry-values.yaml) --wait --timeout 5m >/dev/null
 
 ./k8s/agents/publish.sh
 

@@ -2,9 +2,11 @@
 
 from __future__ import annotations
 
+import os
+import shutil
 import subprocess
 from pathlib import Path
-from unittest import TestCase, main
+from unittest import TestCase, main, skipUnless
 
 ROOT = Path(__file__).resolve().parents[2]
 GKE = {
@@ -57,6 +59,41 @@ class ClusterSettingTest(TestCase):
         out = sourced("render k8s/observability/ingress.yaml", GKE).stdout
         self.assertNotIn("fraudstream.localhost", out)
         self.assertIn("grafana.34.1.2.3.sslip.io", out)
+
+
+MODELS = "{ cat k8s/llm/models/qwen3-4b.yaml; echo ---; cat k8s/llm/models/qwen3-1-7b.yaml; }"
+PATCH = "with_gke_requests k8s/gke/requests/llm-models.yaml"
+
+
+@skipUnless(shutil.which("kubectl"), "needs kubectl, for kustomize")
+class GkeRequestsTest(TestCase):
+    """GKE's smaller CPU requests come with each install; kind's installs are untouched."""
+
+    def run_with_path(self, command: str, env: dict[str, str]) -> subprocess.CompletedProcess[str]:
+        return sourced(command, {**env, "PATH": os.environ["PATH"]})
+
+    def test_kind_takes_every_manifest_and_chart_as_it_is(self) -> None:
+        manifest = (ROOT / "k8s/llm/models/qwen3-4b.yaml").read_text()
+        out = self.run_with_path(f"{PATCH} < k8s/llm/models/qwen3-4b.yaml; on_gke --values extra.yaml", {})
+        self.assertEqual(out.stdout, manifest)
+
+    def test_gke_lowers_the_cpu_request_and_keeps_the_rest(self) -> None:
+        out = self.run_with_path(f"{MODELS} | {PATCH}", GKE)
+        self.assertEqual(out.returncode, 0, out.stderr)
+        self.assertEqual(out.stdout.count("cpu: 100m"), 2)
+        self.assertNotIn("cpu: 500m", out.stdout)
+        self.assertIn("ghcr.io/ggml-org/llama.cpp", out.stdout)
+        self.assertEqual(self.run_with_path("on_gke --values extra.yaml", GKE).stdout.strip(), "--values extra.yaml")
+
+    def test_a_patch_for_a_workload_the_manifest_lacks_fails(self) -> None:
+        # A renamed upstream workload stops the install instead of keeping its default.
+        out = self.run_with_path(f"{PATCH} < k8s/llm/models/qwen3-4b.yaml", GKE)
+        self.assertNotEqual(out.returncode, 0)
+
+    def test_every_gke_requests_file_is_used_by_an_install(self) -> None:
+        scripts = "".join(path.read_text() for path in (ROOT / "k8s").rglob("*.sh"))
+        unused = [path.name for path in (ROOT / "k8s/gke/requests").iterdir() if f"gke/requests/{path.name}" not in scripts]
+        self.assertEqual(unused, [])
 
     def test_no_script_names_the_kind_cluster_itself(self) -> None:
         hits = subprocess.run(
