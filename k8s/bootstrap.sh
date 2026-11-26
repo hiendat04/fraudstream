@@ -200,6 +200,12 @@ kubectl -n kourier-system patch service/kourier \
   -p '{"spec":{"type":"NodePort","ports":[{"port":80,"nodePort":31080}]}}'
 
 
+if [ "$FRAUDSTREAM_CLUSTER" = gke ]; then
+  echo "==> Lowering the CPU the pods so far reserve, so KServe fits on the small nodes"
+  "$HERE/gke/fit_requests.sh"
+fi
+
+
 echo "==> Installing KServe ${KSERVE_VERSION}"
 # Applied server-side because the file is large: a normal apply stores a copy of
 # it in an annotation and would go over the size limit.

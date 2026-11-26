@@ -33,6 +33,7 @@ done
 kubectl apply -f - <<<"$services" >/dev/null
 
 ./k8s/bootstrap.sh
+./k8s/gke/fit_requests.sh
 ./k8s/observability/install.sh
 ./k8s/llm/install.sh
 
@@ -42,4 +43,5 @@ git archive HEAD | ssh "${vm[@]}" "docker build -q -f k8s/Dockerfile.mcp -t frau
 TAG=$TAG IMAGE_PUSHED=1 ./k8s/mcp/install.sh
 
 ./k8s/agents/install.sh
+./k8s/gke/fit_requests.sh
 echo "up: the platform on $CONTEXT, the gateway on https://*.$FRAUDSTREAM_DOMAIN"
