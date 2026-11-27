@@ -2,7 +2,7 @@
 MCP_PATHS = 'mcp_servers/src mcp_servers/pyproject.toml mcp_servers/uv.lock k8s/Dockerfile.mcp k8s/mcp k8s/charts'
 AGENT_PATHS = 'agents/src agents/tools agents/pyproject.toml agents/uv.lock k8s/agents/registry.yaml k8s/agents/publish.sh cicd/deploy_agent.sh'
 CONTEXT_AGENT_PATHS = 'agents/prompts/context-agent.md k8s/agents/context-agent.yaml'
-RISK_AGENT_PATHS = 'agents/prompts/risk-agent.md k8s/agents/risk-agent.yaml'
+RISK_AGENT_PATHS = 'agents/prompts/risk-agent.md k8s/agents/risk-agent.yaml k8s/agents/risk-agent-b.sh k8s/agents/small-model-config.yaml'
 
 pipeline {
   agent any
@@ -306,6 +306,12 @@ pipeline {
       }
       steps {
         sh './cicd/deploy_agent.sh risk-agent'
+        // The B side of the risk agent's A/B test, on the small model, with the prompt just deployed.
+        sh '''
+          kubectl apply -f k8s/agents/small-model-config.yaml
+          ./k8s/agents/risk-agent-b.sh
+          kubectl -n kagent wait sandboxagent/risk-agent-b --for=condition=Ready --timeout=10m
+        '''
       }
     }
 

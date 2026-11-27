@@ -8,7 +8,6 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 . k8s/gke/env.sh
 : "${VM_IP:?the platform VM is not up: apply the platform-vm stack and run Ansible first}"
-TAG=$(git rev-parse --short=7 HEAD)
 
 echo "==> Tunnel to the VM's Vault"
 tunnel=$(mktemp -u)
@@ -35,17 +34,9 @@ kubectl apply -f - <<<"$services" >/dev/null
 ./k8s/observability/install.sh
 ./k8s/llm/install.sh
 
-# The MCP servers are ready only once the APIs they call answer, and the agents call the
-# MCP servers. Jenkins deploys the APIs, so a new cluster stops here until it has.
-if ! kubectl -n fraudstream-apis get deploy context-api inference-api >/dev/null 2>&1; then
-  echo "up: the platform on $CONTEXT without the MCP servers and agents; run this again once Jenkins has deployed the APIs"
-  exit 0
-fi
-
-echo "==> MCP image fraudstream-mcp:$TAG, built on the VM for the cluster's amd64 nodes"
-git archive HEAD | ssh "${vm[@]}" "docker build -q -f k8s/Dockerfile.mcp -t fraudstream-mcp:$TAG - >/dev/null \
-  && cd /opt/fraudstream && set -a && . ./.env && set +a && ./cicd/ship_image.sh fraudstream-mcp:$TAG"
-TAG=$TAG IMAGE_PUSHED=1 ./k8s/mcp/install.sh
-
-./k8s/agents/install.sh
-echo "up: the platform on $CONTEXT, the gateway on https://*.$FRAUDSTREAM_DOMAIN"
+# The MCP install makes these keys too, but Jenkins has no Vault token, and the agent
+# platform waits for the agents' copies.
+for consumer in context-agent risk-agent mcp-check; do ./infra/vault/new-key.sh "mcp/$consumer"; done
+# The APIs, the MCP servers and the agents come from Jenkins's first DEPLOY_ALL build, in that order.
+./k8s/agents/install.sh platform
+echo "up: the platform on $CONTEXT, the gateway on https://*.$FRAUDSTREAM_DOMAIN; next, a DEPLOY_ALL build"

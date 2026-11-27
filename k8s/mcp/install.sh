@@ -12,13 +12,9 @@ cd "$(dirname "$0")/../.."
 kubectl config use-context "$CONTEXT" >/dev/null
 TAG=${TAG:-$(git rev-parse --short=7 HEAD)}
 
-# IMAGE_PUSHED=1 when the image is already in the registry: k8s/gke/up.sh builds it on
-# the VM, since the laptop's would be arm64.
-if [ -z "${IMAGE_PUSHED:-}" ]; then
-  echo "==> image fraudstream-mcp:$TAG"
-  docker build -f k8s/Dockerfile.mcp -t "fraudstream-mcp:$TAG" .
-  ./cicd/ship_image.sh "fraudstream-mcp:$TAG"
-fi
+echo "==> image fraudstream-mcp:$TAG"
+docker build -f k8s/Dockerfile.mcp -t "fraudstream-mcp:$TAG" .
+./cicd/ship_image.sh "fraudstream-mcp:$TAG"
 
 echo "==> MCP servers"
 kubectl create namespace mcp --dry-run=client -o yaml | kubectl apply -f - >/dev/null

@@ -56,8 +56,8 @@ those problems on purpose and builds the whole MLOps loop around handling them.
 - **Production-style serving.** KServe with the model inside its image, an inference API
   and a drift API on Kubernetes, with KEDA autoscaling and automatic Helm rollback.
 - **A real front door.** Every API sits behind an NGINX gateway with its own domain,
-  HTTPS from a local CA, basic auth and a per-client rate limit. CI checks all four after
-  each deploy and rolls back an API left open.
+  HTTPS from a local CA, basic auth and a per-client rate limit. CI checks the HTTPS
+  redirect and the login after each deploy and rolls back an API left open.
 - **One vault for every secret.** HashiCorp Vault holds every password, key and token, and
   nothing in the repository does. Each reader logs in as itself and reads only its own
   entries, and every read is in the audit log.
