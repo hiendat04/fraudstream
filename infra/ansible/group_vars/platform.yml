@@ -19,5 +19,6 @@ platform_compose: >-
 # Vault's API from the VM itself, under the name its certificate carries.
 vault_api: >-
   curl -sf --cacert infra/vault/tls/ca.crt --connect-to vault:8200:{{ internal_ip }}:8200
-# The local's login, sent over SSH stdin. It is valid on the VM because the snapshot carries it.
+# The local's login, sent over SSH stdin. The vault role swaps it for a login to the VM's
+# Vault when the snapshot doesn't carry it.
 vault_token: "{{ lookup('env', 'VAULT_TOKEN') or lookup('file', '~/.vault-token') }}"

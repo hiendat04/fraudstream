@@ -86,3 +86,42 @@
   when: (vault_state.stdout | from_json).sealed
   no_log: true
   changed_when: true
+
+# The VM's Vault knows only the tokens in its snapshot, so a local login made since is
+# refused there. Then the operator logs in to the VM's Vault, as k8s/gke/up.sh does, and
+# that token is the one every later role sends. The tokens travel on stdin only.
+- name: Does the VM's Vault know the local token
+  ansible.builtin.shell: "{{ vault_api }} -H @- https://vault:8200/v1/auth/token/lookup-self >/dev/null"
+  args:
+    chdir: "{{ fraudstream_dir }}"
+    stdin: "X-Vault-Token: {{ vault_token }}"
+  register: vault_token_state
+  failed_when: false
+  changed_when: false
+  no_log: true
+
+- name: Ask for the operator's password
+  ansible.builtin.pause:
+    prompt: "The VM's Vault doesn't know your local token. Vault operator password"
+    echo: false
+  register: vault_operator
+  when: vault_token_state.rc != 0
+
+- name: Log in to the VM's Vault as the operator
+  ansible.builtin.shell: >-
+    set -o pipefail &&
+    {{ vault_api }} --data @- https://vault:8200/v1/auth/userpass/login/operator | jq -er .auth.client_token
+  args:
+    chdir: "{{ fraudstream_dir }}"
+    executable: /bin/bash
+    stdin: "{{ {'password': vault_operator.user_input} | to_json }}"
+  register: vault_login
+  when: vault_token_state.rc != 0
+  no_log: true
+  changed_when: false
+
+- name: Send the VM's token from here on
+  ansible.builtin.set_fact:
+    vault_token: "{{ vault_login.stdout }}"
+  when: vault_token_state.rc != 0
+  no_log: true
