@@ -12,8 +12,9 @@
 # agents and their MCP servers published to it; and both UIs behind NGINX with
 # HTTPS and the gateway login.
 # Safe to run again. Needs Vault unsealed, External Secrets (k8s/secrets/install.sh),
-# and the LLM and MCP installs, whose keys the agents use.
-#   ./k8s/agents/install.sh
+# and the LLM and MCP keys the agents use. The agents themselves need the MCP servers.
+#   ./k8s/agents/install.sh            the platform and the agents
+#   ./k8s/agents/install.sh platform   the platform only: Jenkins deploys the agents
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
@@ -50,6 +51,23 @@ helm --kube-context "$CONTEXT" upgrade --install kagent oci://ghcr.io/kagent-dev
   --version "$KAGENT_VERSION" -n kagent -f k8s/agents/kagent-values.yaml \
   $(on_gke --values k8s/gke/requests/kagent-values.yaml) --wait --timeout 10m >/dev/null
 
+echo "==> agent telemetry and the Agents dashboard"
+kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
+
+echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
+helm --kube-context "$CONTEXT" upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
+  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml \
+  $(on_gke --values k8s/gke/requests/agentregistry-values.yaml) --wait --timeout 5m >/dev/null
+
+echo "==> the UIs behind NGINX"
+render k8s/agents/ingress.yaml | kubectl apply -f - >/dev/null
+
+echo "kagent UI:   https://kagent.$DOMAIN (gateway password)"
+echo "registry UI: https://agentregistry.$DOMAIN (gateway password)"
+# The agents call the MCP servers, which need the APIs. On GKE Jenkins deploys all three,
+# in that order, with cicd/deploy_agent.sh.
+if [ "${1:-}" = platform ]; then exit 0; fi
+
 agents=(context-agent risk-agent)
 
 # By hand the prompt in git is promoted as it is registered; cicd/deploy_agent.sh promotes
@@ -75,18 +93,4 @@ kubectl -n kagent delete scaledobject/coordinator-agent agent/coordinator-agent 
 ./k8s/agents/apply.sh coordinator-agent < k8s/agents/coordinator-agent.yaml
 kubectl -n kagent wait sandboxagent/coordinator-agent --for=condition=Ready --timeout=10m
 
-echo "==> agent telemetry and the Agents dashboard"
-kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
-
-echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
-helm --kube-context "$CONTEXT" upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
-  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml \
-  $(on_gke --values k8s/gke/requests/agentregistry-values.yaml) --wait --timeout 5m >/dev/null
-
 ./k8s/agents/publish.sh
-
-echo "==> the UIs behind NGINX"
-render k8s/agents/ingress.yaml | kubectl apply -f - >/dev/null
-
-echo "kagent UI:   https://kagent.$DOMAIN (gateway password)"
-echo "registry UI: https://agentregistry.$DOMAIN (gateway password)"

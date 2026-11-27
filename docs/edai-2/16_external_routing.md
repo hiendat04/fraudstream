@@ -93,14 +93,12 @@ The certificate is issued by `fraudstream local CA` for the host, and cert-manag
 
 ## Proof
 
-[`cicd/check_gateway.sh`](../../cicd/check_gateway.sh) checks every rule on a host from
-outside: plain HTTP gets 308 to HTTPS ([`cicd/check_gateway.sh:36`](../../cicd/check_gateway.sh#L36)),
-no password and a wrong one get 401, the right one 200 with the certificate trusted
-([`cicd/check_gateway.sh:38`](../../cicd/check_gateway.sh#L38)), a burst of 200 requests is
-partly let through and partly refused with 429, and a burst of wrong passwords is refused
-too ([`cicd/check_gateway.sh:48`](../../cicd/check_gateway.sh#L48)).
-[`cicd/check_ui.sh`](../../cicd/check_ui.sh) does the same for a UI without the burst, since
-one page fires dozens of requests.
+[`cicd/check_gateway.sh`](../../cicd/check_gateway.sh) checks a host from outside: plain
+HTTP gets 308 to HTTPS ([`cicd/check_gateway.sh:30`](../../cicd/check_gateway.sh#L30)),
+no password and a wrong one get 401, and the right one 200 with the certificate trusted
+([`cicd/check_gateway.sh:32`](../../cicd/check_gateway.sh#L32)). The rate limit isn't
+checked after a deploy: a burst was sometimes let through whole, failing deploys at
+random. [`cicd/check_ui.sh`](../../cicd/check_ui.sh) does the same for a UI.
 
 ```bash
 . infra/vault/env.sh
