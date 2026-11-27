@@ -5,6 +5,8 @@ postgres_db: fraudstream
 # also avoids a Vault lookup, whose forked worker dies on macOS looking up the system proxy.
 postgres_exec: >-
   docker exec -i fraudstream-postgres sh -c 'PGUSER=$POSTGRES_USER exec "$0" "$@"'
+pgvector_exec: >-
+  docker exec -i fraudstream-pgvector sh -c 'PGUSER=$POSTGRES_USER exec "$0" "$@"'
 # The VM has no Vault CLI: the one inside Vault's container, with the token from the caller's environment.
 vault_cli: >-
   docker exec -i -e VAULT_TOKEN -e VAULT_ADDR=https://127.0.0.1:8200 -e VAULT_CACERT=/vault/tls/ca.crt

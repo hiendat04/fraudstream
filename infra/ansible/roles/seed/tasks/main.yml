@@ -19,6 +19,13 @@
   changed_when: false
   failed_when: false
 
+- name: Is the RAG index loaded
+  ansible.builtin.command: >-
+    {{ pgvector_exec }} psql -d llm -Atc
+    "select to_regclass('rag.fraudstream_rag_document_chunks') is not null"
+  register: seed_rag_state
+  changed_when: false
+
 - name: How many online features are in Redis
   ansible.builtin.command: docker exec fraudstream-redis redis-cli -n 0 dbsize
   register: seed_redis_state
@@ -38,13 +45,14 @@
 - name: Make sure the local stack is running, to export from
   ansible.builtin.shell: >-
     docker exec fraudstream-postgres true && docker exec fraudstream-redis true
-    && docker exec fraudstream-minio true
+    && docker exec fraudstream-minio true && docker exec fraudstream-pgvector true
   delegate_to: localhost
   become: false
   changed_when: false
   when: >-
     seed_registry_state.stdout != 't' or seed_mlflow_state.stdout != '1'
     or seed_redis_state.stdout | int == 0 or seed_artifacts_state.stdout | int == 0
+    or seed_rag_state.stdout != 't'
 
 - name: Load the Feast registry
   ansible.builtin.include_tasks: registry.yml
@@ -53,6 +61,10 @@
 - name: Load the MLflow database
   ansible.builtin.include_tasks: mlflow.yml
   when: seed_mlflow_state.stdout != '1'
+
+- name: Load the RAG index
+  ansible.builtin.include_tasks: rag.yml
+  when: seed_rag_state.stdout != 't'
 
 - name: Load the online features
   ansible.builtin.include_tasks: redis.yml
