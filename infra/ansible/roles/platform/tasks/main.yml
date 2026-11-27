@@ -12,6 +12,16 @@
     chdir: "{{ fraudstream_dir }}"
   changed_when: true
 
+# The DAGs write their outputs inside the folder they run, which the sync leaves root's.
+- name: Let Airflow write its data and reports
+  ansible.builtin.file:
+    path: "{{ deploy_dir }}/{{ item }}"
+    state: directory
+    owner: "{{ platform_airflow_uid }}"
+    group: "0"
+    mode: "0775"
+  loop: [data, reports]
+
 # env.sh reads every secret from Vault into this shell only; the token comes over SSH stdin.
 # no_log keeps the token out of the result, so the script's own output, which holds no
 # secret, goes to a log that is shown when the start fails.

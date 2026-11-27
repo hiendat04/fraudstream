@@ -1,0 +1,26 @@
+# The RAG chunks and their embeddings: the context API reads them when it starts.
+- name: Dump the RAG index from the local stack
+  ansible.builtin.shell: >-
+    {{ pgvector_exec }} pg_dump -d llm -n rag --no-owner --no-privileges -Fc
+    > {{ seed_local_dir }}/rag_index.dump
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+- name: Copy the RAG index dump to the VM
+  ansible.builtin.copy:
+    src: "{{ seed_local_dir }}/rag_index.dump"
+    dest: "{{ seed_remote_dir }}/rag_index.dump"
+    mode: "0600"
+
+# The dump has the rag schema only; its vector columns need the extension, which lives in public.
+- name: Enable pgvector on the VM
+  ansible.builtin.command: >-
+    {{ pgvector_exec }} psql -d llm -c "create extension if not exists vector"
+  changed_when: true
+
+- name: Restore the RAG index
+  ansible.builtin.shell: >-
+    {{ pgvector_exec }} pg_restore -d llm --no-owner --no-privileges --clean --if-exists
+    < {{ seed_remote_dir }}/rag_index.dump
+  changed_when: true

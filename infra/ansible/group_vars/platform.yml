@@ -5,6 +5,8 @@ postgres_db: fraudstream
 # also avoids a Vault lookup, whose forked worker dies on macOS looking up the system proxy.
 postgres_exec: >-
   docker exec -i fraudstream-postgres sh -c 'PGUSER=$POSTGRES_USER exec "$0" "$@"'
+pgvector_exec: >-
+  docker exec -i fraudstream-pgvector sh -c 'PGUSER=$POSTGRES_USER exec "$0" "$@"'
 # The VM has no Vault CLI: the one inside Vault's container, with the token from the caller's environment.
 vault_cli: >-
   docker exec -i -e VAULT_TOKEN -e VAULT_ADDR=https://127.0.0.1:8200 -e VAULT_CACERT=/vault/tls/ca.crt
@@ -17,5 +19,6 @@ platform_compose: >-
 # Vault's API from the VM itself, under the name its certificate carries.
 vault_api: >-
   curl -sf --cacert infra/vault/tls/ca.crt --connect-to vault:8200:{{ internal_ip }}:8200
-# The local's login, sent over SSH stdin. It is valid on the VM because the snapshot carries it.
+# The local's login, sent over SSH stdin. The vault role swaps it for a login to the VM's
+# Vault when the snapshot doesn't carry it.
 vault_token: "{{ lookup('env', 'VAULT_TOKEN') or lookup('file', '~/.vault-token') }}"
