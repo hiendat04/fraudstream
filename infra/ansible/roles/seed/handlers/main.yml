@@ -1,0 +1,3 @@
+- name: Restart MLflow
+  ansible.builtin.command: docker restart fraudstream-mlflow
+  changed_when: true

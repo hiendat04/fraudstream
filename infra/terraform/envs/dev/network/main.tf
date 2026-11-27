@@ -6,3 +6,9 @@ module "network" {
   pods_cidr     = "10.20.0.0/16"
   services_cidr = "10.30.0.0/20"
 }
+
+# Kept between sessions, so the gateway's sslip.io names stay the same.
+resource "google_compute_address" "gateway" {
+  name   = "fraudstream-gateway"
+  region = var.region
+}

@@ -1,0 +1,10 @@
+# GKE's CPU requests for the agent registry, on top of k8s/agents/agentregistry-values.yaml (100m each).
+resources:
+  requests:
+    cpu: 30m
+database:
+  postgres:
+    bundled:
+      resources:
+        requests:
+          cpu: 30m

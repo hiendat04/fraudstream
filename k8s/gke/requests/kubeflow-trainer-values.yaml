@@ -1,0 +1,6 @@
+# GKE's CPU request for Kubeflow Trainer's JobSet controller (bootstrap.sh). The default is 500m.
+jobset:
+  controller:
+    resources:
+      requests:
+        cpu: 50m

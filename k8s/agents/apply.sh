@@ -6,7 +6,8 @@
 #   ./k8s/agents/apply.sh context-agent < k8s/agents/context-agent.yaml
 set -euo pipefail
 
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. "$(dirname "$0")/../cluster.sh"
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 prompt=$(kubectl -n kagent get configmap "$1-prompt" -o jsonpath='{.metadata.annotations.fraudstream\.dev/prompt}')
 kubectl create --dry-run=client -o json -f - |

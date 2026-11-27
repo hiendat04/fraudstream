@@ -1,0 +1,69 @@
+# The platform VM's changes to docker-compose.yml. Ansible writes the variables to .env.
+#   docker compose -f docker-compose.yml -f docker-compose.cloud.yml --profile orchestration \
+#     --profile feature-store --profile ci up -d
+# Ports bind to the VM's internal IP only: the cluster's pods and NGINX reach them, the internet doesn't.
+x-airflow-cloud: &airflow-cloud
+  environment:
+    PUSHGATEWAY_URL: "https://pushgateway.${FRAUDSTREAM_DOMAIN:?}"
+    PIPELINES_URL: "https://pipelines.${FRAUDSTREAM_DOMAIN:?}"
+  # DataHub runs as its own stack on the host; Linux has no host.docker.internal by default.
+  extra_hosts:
+    - "host.docker.internal:host-gateway"
+
+services:
+  kafka:
+    # 9093 stays on loopback, for the laptop's SSH tunnel.
+    ports: !override
+      - "127.0.0.1:9093:9093"
+      - "${FRAUDSTREAM_VM_IP:?}:29092:29092"
+  kafka-ui:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:18080:8080"
+  postgres:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:5432:5432"
+  minio:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:9000:9000"
+      - "${FRAUDSTREAM_VM_IP:?}:19001:9001"
+  lakefs:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:18000:8000"
+  mlflow:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:5000:5000"
+  trino:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:18082:8080"
+  redis:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:6379:6379"
+  redisinsight:
+    ports: !override
+      - "127.0.0.1:18084:5540"
+  pgvector:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:15432:5432"
+  memgraph:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:7687:7687"
+  memgraph-lab:
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:3000:3000"
+  airflow-init: *airflow-cloud
+  airflow-scheduler: *airflow-cloud
+  airflow-dag-processor: *airflow-cloud
+  airflow-api-server:
+    <<: *airflow-cloud
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:18081:8080"
+  jenkins:
+    environment:
+      FRAUDSTREAM_CLUSTER: "${FRAUDSTREAM_CLUSTER:?}"
+      FRAUDSTREAM_DOMAIN: "${FRAUDSTREAM_DOMAIN:?}"
+      FRAUDSTREAM_IMAGE_REGISTRY: "${FRAUDSTREAM_IMAGE_REGISTRY:?}"
+    ports: !override
+      - "${FRAUDSTREAM_VM_IP:?}:18086:8080"
+    # The VM has no kind network.
+    networks: !reset
+      - default

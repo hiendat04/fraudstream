@@ -7,7 +7,8 @@ services:
     command: server
     restart: unless-stopped
     ports:
-      - "127.0.0.1:8200:8200"
+      # Loopback on the local; the platform VM sets its internal IP, for the cluster's pods.
+      - "${FRAUDSTREAM_VM_IP:-127.0.0.1}:8200:8200"
     volumes:
       - vault-data:/vault/file
       - ./config.hcl:/vault/config/config.hcl:ro

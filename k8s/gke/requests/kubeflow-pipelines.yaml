@@ -1,0 +1,31 @@
+# GKE's CPU requests for Kubeflow Pipelines (bootstrap.sh). The defaults are 64m to 250m.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: ml-pipeline, namespace: kubeflow}
+spec: {template: {spec: {containers: [{name: ml-pipeline-api-server, resources: {requests: {cpu: 50m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: ml-pipeline-persistenceagent, namespace: kubeflow}
+spec: {template: {spec: {containers: [{name: ml-pipeline-persistenceagent, resources: {requests: {cpu: 20m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: controller-manager, namespace: kubeflow}
+spec: {template: {spec: {containers: [{name: manager, resources: {requests: {cpu: 20m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: mysql, namespace: kubeflow}
+spec: {template: {spec: {containers: [{name: mysql, resources: {requests: {cpu: 50m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: workflow-controller, namespace: kubeflow}
+spec: {template: {spec: {containers: [{name: workflow-controller, resources: {requests: {cpu: 20m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: seaweedfs, namespace: kubeflow}
+spec: {template: {spec: {containers: [{name: seaweedfs, resources: {requests: {cpu: 20m}}}]}}}

@@ -18,7 +18,8 @@ set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 kubectl create namespace kagent --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 
@@ -43,10 +44,11 @@ kubectl apply -f k8s/agents/a2a-policy.yaml -f k8s/agents/network.yaml >/dev/nul
 ./k8s/agents/substrate.sh
 
 echo "==> kagent ${KAGENT_VERSION}"
-helm --kube-context kind-fraudstream upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
+helm --kube-context "$CONTEXT" upgrade --install kagent-crds oci://ghcr.io/kagent-dev/kagent/helm/kagent-crds \
   --version "$KAGENT_VERSION" -n kagent >/dev/null
-helm --kube-context kind-fraudstream upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
-  --version "$KAGENT_VERSION" -n kagent -f k8s/agents/kagent-values.yaml --wait --timeout 10m >/dev/null
+helm --kube-context "$CONTEXT" upgrade --install kagent oci://ghcr.io/kagent-dev/kagent/helm/kagent \
+  --version "$KAGENT_VERSION" -n kagent -f k8s/agents/kagent-values.yaml \
+  $(on_gke --values k8s/gke/requests/kagent-values.yaml) --wait --timeout 10m >/dev/null
 
 agents=(context-agent risk-agent)
 
@@ -77,13 +79,14 @@ echo "==> agent telemetry and the Agents dashboard"
 kubectl apply -f k8s/observability/servicemonitors.yaml -f k8s/observability/dashboards/agents.yaml >/dev/null
 
 echo "==> agentregistry ${AGENTREGISTRY_VERSION}"
-helm --kube-context kind-fraudstream upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
-  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml --wait --timeout 5m >/dev/null
+helm --kube-context "$CONTEXT" upgrade --install agentregistry oci://ghcr.io/agentregistry-dev/agentregistry/charts/agentregistry \
+  --version "$AGENTREGISTRY_VERSION" -n agentregistry -f k8s/agents/agentregistry-values.yaml \
+  $(on_gke --values k8s/gke/requests/agentregistry-values.yaml) --wait --timeout 5m >/dev/null
 
 ./k8s/agents/publish.sh
 
 echo "==> the UIs behind NGINX"
-kubectl apply -f k8s/agents/ingress.yaml >/dev/null
+render k8s/agents/ingress.yaml | kubectl apply -f - >/dev/null
 
-echo "kagent UI:   https://kagent.fraudstream.localhost (gateway password)"
-echo "registry UI: https://agentregistry.fraudstream.localhost (gateway password)"
+echo "kagent UI:   https://kagent.$DOMAIN (gateway password)"
+echo "registry UI: https://agentregistry.$DOMAIN (gateway password)"

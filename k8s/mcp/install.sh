@@ -8,18 +8,23 @@
 #   TAG=v2 ./k8s/mcp/install.sh      another tag, to watch a rolling update
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-kubectl config use-context kind-fraudstream >/dev/null
+. k8s/cluster.sh
+kubectl config use-context "$CONTEXT" >/dev/null
 TAG=${TAG:-$(git rev-parse --short=7 HEAD)}
 
-echo "==> image fraudstream-mcp:$TAG"
-docker build -f k8s/Dockerfile.mcp -t "fraudstream-mcp:$TAG" .
-kind load docker-image "fraudstream-mcp:$TAG" --name fraudstream
+# IMAGE_PUSHED=1 when the image is already in the registry: k8s/gke/up.sh builds it on
+# the VM, since the laptop's would be arm64.
+if [ -z "${IMAGE_PUSHED:-}" ]; then
+  echo "==> image fraudstream-mcp:$TAG"
+  docker build -f k8s/Dockerfile.mcp -t "fraudstream-mcp:$TAG" .
+  ./cicd/ship_image.sh "fraudstream-mcp:$TAG"
+fi
 
 echo "==> MCP servers"
 kubectl create namespace mcp --dry-run=client -o yaml | kubectl apply -f - >/dev/null
 for server in fraud-context fraud-risk; do
   helm upgrade --install "$server" k8s/charts/fraudstream-api -n mcp -f "k8s/mcp/$server.yaml" \
-    --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
+    --set image.repository="$(image fraudstream-mcp)" --set-string image.tag="$TAG" --rollback-on-failure --timeout 3m
 done
 
 # A key is made once per consumer in Vault and kept. External Secrets copies each

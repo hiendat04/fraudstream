@@ -8,6 +8,7 @@
 # that changed it, plus that model version packaged inside from MLflow.
 set -euo pipefail
 cd "$(dirname "$0")/.."
+. k8s/cluster.sh
 MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://mlflow:5000}
 manifest=k8s/models/fraud-detection.yaml
 
@@ -16,23 +17,32 @@ manifest=k8s/models/fraud-detection.yaml
 SERVING_TAG=$(git log -1 --format=%h -- serving/src k8s/Dockerfile.serving k8s/Dockerfile.model)
 version=$(sed -n 's#^ *image: .*fraudstream-serving:model-\([0-9][0-9]*\)$#\1#p' "$manifest")
 [ -n "$version" ] || { echo "$manifest must name its model as fraudstream-serving:model-<version>" >&2; exit 1; }
-code_image="dev.local/fraudstream-serving:$SERVING_TAG"
-image="dev.local/fraudstream-serving:model-$version-$SERVING_TAG"
+# dev.local is kind's own prefix: images there are never pulled from a registry.
+registry=${IMAGE_REGISTRY:-dev.local}
+serving_code_image="$registry/fraudstream-serving:$SERVING_TAG"
+image="$registry/fraudstream-serving:model-$version-$SERVING_TAG"
 
-# A rollout step changes only the share, so the node usually has the image already.
-if ! docker exec fraudstream-control-plane crictl inspecti "$image" >/dev/null 2>&1; then
-  docker image inspect "$code_image" >/dev/null 2>&1 \
-    || docker build -f k8s/Dockerfile.serving -t "$code_image" .
+# A rollout step changes only the share, so the image usually exists already.
+shipped() {
+  if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
+    docker exec fraudstream-control-plane crictl inspecti "$1"
+  else
+    docker manifest inspect "$1"
+  fi
+}
+if ! shipped "$image" >/dev/null 2>&1; then
+  docker image inspect "$serving_code_image" >/dev/null 2>&1 \
+    || docker build -f k8s/Dockerfile.serving -t "$serving_code_image" .
   packaged=$(mktemp -d)
   trap 'rm -rf "$packaged"' EXIT
   # Download through the MLflow server: its direct links name MinIO as minio:9000,
   # which only resolves inside the Compose network.
   (cd serving && MLFLOW_ENABLE_PROXY_MULTIPART_DOWNLOAD=false PYTHONPATH=src uv run python -m fraudstream_serving.fetch \
     "models:/fraud-detection/$version" "$packaged" --tracking-uri "$MLFLOW_TRACKING_URI")
-  docker build -f k8s/Dockerfile.model --build-arg BASE="$code_image" -t "$image" "$packaged"
-  kind load docker-image "$image" --name fraudstream
+  docker build -f k8s/Dockerfile.model --build-arg BASE="$serving_code_image" -t "$image" "$packaged"
+  ./cicd/ship_image.sh "$image"
 fi
-sed "s#fraudstream-serving:model-$version\$#fraudstream-serving:model-$version-$SERVING_TAG#" "$manifest" | kubectl apply -f -
+sed "s#dev\.local/fraudstream-serving:model-$version\$#$image#" "$manifest" | kubectl apply -f -
 
 # Wait until KServe routes the manifest's share to the latest revision, then for Ready.
 # Not --for=condition=Ready: that also needs KServe to record the new generation,

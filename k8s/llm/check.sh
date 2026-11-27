@@ -6,7 +6,8 @@
 # The split of fraud-detection-llm between versions has its own check: ./k8s/llm/check-split.sh
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-kubectl config use-context kind-fraudstream >/dev/null
+. k8s/cluster.sh
+kubectl config use-context "$CONTEXT" >/dev/null
 
 kubectl -n llm wait --for=condition=Programmed gateway/llm-gateway --timeout=60s >/dev/null
 kubectl -n llm rollout status deploy/qwen3-4b --timeout=60s >/dev/null

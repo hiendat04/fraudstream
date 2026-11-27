@@ -15,7 +15,8 @@
 # Needs VAULT_ADDR, VAULT_CACERT and a token from `vault login -method=userpass username=operator`.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 
 failed=0
 expect() {
@@ -123,9 +124,8 @@ SYNCED=(
   "kubeflow lakehouse-credentials MINIO_ACCESS_KEY platform/minio login"
   "kubeflow lakehouse-credentials MINIO_SECRET_KEY platform/minio password"
 )
-# The one script that may still make a Secret by hand: the GKE deploy, whose cluster
-# can't reach Vault; it copies them from Vault.
-HAND_MADE_ALLOWED="k8s/gke/deploy.sh"
+# Scripts that may make a Secret by hand. None: every cluster, GKE too, reads Vault.
+HAND_MADE_ALLOWED=""
 
 hash() { shasum -a 256 | cut -c1-16; }
 secret_hash() { kubectl -n "$1" get secret "$2" -o jsonpath="{.data.$3}" 2>/dev/null | base64 -d | hash; }
@@ -231,7 +231,7 @@ keys() {
   [ "$mode" = --rotate ] || return 0
 
   echo "==> keys, rotating a2a-check"
-  command kubectl --context kind-fraudstream -n kagent port-forward svc/a2a-gateway 18095:8080 >/dev/null &
+  command kubectl --context "$CONTEXT" -n kagent port-forward svc/a2a-gateway 18095:8080 >/dev/null &
   forward=$!
   sleep 2
   old=$(vault kv get -mount=secret -field=key a2a/a2a-check)
@@ -333,15 +333,9 @@ airflow() {
 # Not named ansible, which would hide the command.
 ansible_lookups() {
   echo "==> ansible"
-  local output found
-  # The playbook's own variables, read as a run reads them, on this computer only. On macOS
-  # a forked worker dies looking up the system proxy, so no_proxy skips that.
-  output=$(cd infra/ansible && no_proxy='*' ansible -i localhost, localhost -c local -m ansible.builtin.debug \
-    -e @group_vars/stores.yml -e @roles/seed/defaults/main.yml \
-    -a '{"msg": "{{ \"set\" if postgres_password else \"missing\" }} {{ \"set\" if seed_local_postgres_user else \"missing\" }}"}' 2>&1 || true)
-  found=$(grep -q SUCCESS <<<"$output" && sed -n 's/^ *"msg": "\([^"]*\)".*/\1/p' <<<"$output" || true)
-  expect "the cloud's postgres password and the seed's login, from Vault" "set set" \
-    "${found:-$(grep -o 'FAILED.*' <<<"$output" | head -1 | cut -c1-200)}"
+  # The playbook reads no secret from Vault itself: the seed runs Postgres as the container's login.
+  expect "the playbook asks Vault for no secret" none \
+    "$(git grep -q vault_kv2_get -- infra/ansible && echo some || echo none)"
   expect "the playbook's syntax" passes \
     "$(cd infra/ansible && ansible-playbook -i localhost, site.yml --syntax-check >/dev/null 2>&1 && echo passes || echo fails)"
 }

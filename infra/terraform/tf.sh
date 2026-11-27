@@ -19,7 +19,7 @@ export TF_VAR_state_bucket="${GCP_PROJECT}-tfstate"
 export TF_VAR_billing_account="${GCP_BILLING_ACCOUNT:-}"
 export TF_VAR_budget_amount="${GCP_BUDGET_AMOUNT:-30}"
 export TF_VAR_budget_currency="${GCP_BUDGET_CURRENCY:-USD}"
-if [ "$stack" = stores-vm ]; then
+if [ "$stack" = platform-vm ]; then
   export TF_VAR_admin_cidr="$(curl -s --max-time 5 https://api.ipify.org)/32"
   export TF_VAR_ssh_public_key="$(cat "$HOME/.ssh/fraudstream_gcp.pub")"
 fi

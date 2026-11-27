@@ -202,8 +202,12 @@ services:
         done
 
   minio:
-    image: minio/minio:RELEASE.2025-04-08T15-41-24Z
+    # Docker Hub no longer serves MinIO's own images. This is the same server and mc
+    # build; run as root without Bitnami's start scripts, it behaves like the official one.
+    image: bitnamilegacy/minio:2025.4.8
     container_name: fraudstream-minio
+    user: "0"
+    entrypoint: ["minio"]
     command: server /data --console-address ":9001"
     ports:
       - "${MINIO_API_PORT:-19000}:9000"
@@ -221,8 +225,10 @@ services:
       start_period: 10s
 
   minio-bucket-init:
-    image: minio/mc:RELEASE.2025-04-08T15-39-49Z
+    # The server's image, which carries mc too.
+    image: bitnamilegacy/minio:2025.4.8
     container_name: fraudstream-minio-bucket-init
+    user: "0"
     depends_on:
       minio:
         condition: service_healthy

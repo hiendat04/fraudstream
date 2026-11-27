@@ -1,0 +1,6 @@
+# GKE's CPU request for each endpoint picker, on top of k8s/llm/router-values.yaml (200m).
+router:
+  epp:
+    resources:
+      requests:
+        cpu: 50m

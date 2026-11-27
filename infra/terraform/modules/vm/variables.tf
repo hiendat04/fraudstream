@@ -42,3 +42,8 @@ variable "client_cidrs" {
 variable "service_ports" {
   type = list(string)
 }
+
+variable "disk_size_gb" {
+  type    = number
+  default = 30
+}

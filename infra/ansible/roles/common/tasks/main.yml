@@ -4,8 +4,11 @@
       - ca-certificates
       - curl
       - gnupg
+      - jq
       - python3-debian
+      - python3-venv
       - python3-yaml
+      - rsync
     update_cache: true
     cache_valid_time: 3600
 
@@ -14,3 +17,44 @@
     path: "{{ fraudstream_dir }}"
     state: directory
     mode: "0755"
+
+- name: Create the local export directory
+  ansible.builtin.file:
+    path: "{{ playbook_dir }}/.seed"
+    state: directory
+    mode: "0755"
+  delegate_to: localhost
+  become: false
+
+# Committed code only: what is not in HEAD does not reach the VM.
+- name: Refuse to send the VM code that differs from this checkout  # noqa: command-instead-of-module
+  ansible.builtin.command: git -C {{ playbook_dir }}/../.. status --porcelain --untracked-files=all -- . ':!*.DS_Store'
+  delegate_to: localhost
+  become: false
+  register: common_uncommitted
+  changed_when: false
+  failed_when: common_uncommitted.stdout | length > 0
+
+- name: Pack the repo at HEAD  # noqa: command-instead-of-module
+  ansible.builtin.command: >-
+    git -C {{ playbook_dir }}/../.. archive --format=tar.gz -o {{ playbook_dir }}/.seed/fraudstream.tar.gz HEAD
+  delegate_to: localhost
+  become: false
+  changed_when: true
+
+- name: Unpack the repo on the VM
+  ansible.builtin.unarchive:
+    src: "{{ playbook_dir }}/.seed/fraudstream.tar.gz"
+    dest: "{{ fraudstream_dir }}"
+
+# Compose reads these from .env, and Jenkins gets the first three.
+- name: Write the cloud settings
+  ansible.builtin.copy:
+    dest: "{{ fraudstream_dir }}/.env"
+    content: |
+      FRAUDSTREAM_CLUSTER=gke
+      FRAUDSTREAM_DOMAIN={{ gateway_ip }}.sslip.io
+      FRAUDSTREAM_IMAGE_REGISTRY={{ repository_url }}
+      FRAUDSTREAM_VM_IP={{ internal_ip }}
+      AIRFLOW_PROJECT_DIR={{ deploy_dir }}
+    mode: "0644"

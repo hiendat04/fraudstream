@@ -38,8 +38,10 @@ resource "google_container_cluster" "this" {
     service_account = google_service_account.nodes.email
   }
 
+  # The platform's own Fluent Bit ships pod logs to Elasticsearch. GKE's log agent would
+  # reserve another 105m on each node, out of the 4 vCPU the platform has.
   logging_config {
-    enable_components = ["SYSTEM_COMPONENTS"]
+    enable_components = []
   }
 
   monitoring_config {
@@ -59,8 +61,9 @@ resource "google_container_node_pool" "default" {
 
   node_config {
     machine_type    = var.machine_type
-    disk_size_gb    = 30
-    disk_type       = "pd-balanced"
+    image_type      = var.image_type
+    disk_size_gb    = var.disk_size_gb
+    disk_type       = var.disk_type
     spot            = var.spot
     service_account = google_service_account.nodes.email
     oauth_scopes    = ["https://www.googleapis.com/auth/cloud-platform"]

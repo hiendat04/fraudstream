@@ -7,7 +7,8 @@ cd "$(dirname "$0")/../.."
 . k8s/versions.sh
 NS=observability
 
-kubectl config use-context kind-fraudstream >/dev/null
+. k8s/cluster.sh
+kubectl config use-context "$CONTEXT" >/dev/null
 
 echo "==> Namespace, and the gateway password and Grafana admin from Vault"
 kubectl create namespace "$NS" --dry-run=client -o yaml | kubectl apply -f -
@@ -17,7 +18,8 @@ kubectl -n "$NS" wait externalsecret --all --for=condition=Ready --timeout=2m
 echo "==> Prometheus, Grafana, node-exporter, kube-state-metrics"
 helm upgrade --install metrics oci://ghcr.io/prometheus-community/charts/kube-prometheus-stack \
   --version "$KUBE_PROMETHEUS_STACK_CHART" --namespace "$NS" \
-  --values k8s/observability/prometheus-values.yaml --wait --timeout 10m
+  --values <(render k8s/observability/prometheus-values.yaml) \
+  $(on_gke --values k8s/gke/requests/prometheus-values.yaml) --wait --timeout 10m
 
 echo "==> Pushgateway"
 helm upgrade --install pushgateway oci://ghcr.io/prometheus-community/charts/prometheus-pushgateway \
@@ -29,7 +31,8 @@ sed "s/JAEGER_VERSION/$JAEGER_VERSION/" k8s/observability/jaeger.yaml | kubectl 
 kubectl -n "$NS" rollout status deploy/jaeger --timeout=5m
 
 echo "==> Elasticsearch and Kibana"
-sed "s/ELASTIC_VERSION/$ELASTIC_VERSION/" k8s/observability/logging.yaml | kubectl apply -f -
+render k8s/observability/logging.yaml | sed "s/ELASTIC_VERSION/$ELASTIC_VERSION/" \
+  | with_gke_requests k8s/gke/requests/logging.yaml | kubectl apply -f -
 kubectl -n "$NS" rollout status statefulset/elasticsearch --timeout=10m
 kubectl -n "$NS" rollout status deploy/kibana --timeout=10m
 kubectl -n "$NS" delete job logging-setup --ignore-not-found
@@ -46,11 +49,11 @@ kubectl apply -f k8s/observability/servicemonitors.yaml
 kubectl apply -f k8s/observability/dashboards/
 
 echo "==> Routes through the gateway"
-kubectl apply -f k8s/observability/ingress.yaml
+render k8s/observability/ingress.yaml | kubectl apply -f -
 
 echo "==> Kubeflow Pipelines behind the gateway for the drift pipeline"
 kubectl apply -f k8s/platform/kubeflow-secrets.yaml
-kubectl apply -f k8s/gateway/pipelines.yaml
+render k8s/gateway/pipelines.yaml | kubectl apply -f -
 
 echo
-echo "Grafana: https://grafana.fraudstream.localhost"
+echo "Grafana: https://grafana.$DOMAIN"

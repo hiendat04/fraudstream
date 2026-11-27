@@ -1,0 +1,22 @@
+# GKE's CPU requests for KServe (bootstrap.sh). The defaults are 100m each, and the
+# node agent runs on every node.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kserve-controller-manager, namespace: kserve}
+spec: {template: {spec: {containers: [{name: manager, resources: {requests: {cpu: 30m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: kserve-localmodel-controller-manager, namespace: kserve}
+spec: {template: {spec: {containers: [{name: manager, resources: {requests: {cpu: 20m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: llmisvc-controller-manager, namespace: kserve}
+spec: {template: {spec: {containers: [{name: manager, resources: {requests: {cpu: 20m}}}]}}}
+---
+apiVersion: apps/v1
+kind: DaemonSet
+metadata: {name: kserve-localmodelnode-agent, namespace: kserve}
+spec: {template: {spec: {containers: [{name: manager, resources: {requests: {cpu: 20m}}}]}}}

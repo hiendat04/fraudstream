@@ -3,15 +3,22 @@
     docker exec fraudstream-minio sh -c
     'mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
     && rm -rf /tmp/mlflow-export && mc mirror --quiet local/fraudstream/mlflow /tmp/mlflow-export'
-    && rm -rf {{ seed_local_dir }}/mlflow-artifacts
-    && docker cp fraudstream-minio:/tmp/mlflow-export {{ seed_local_dir }}/mlflow-artifacts
+    && docker cp fraudstream-minio:/tmp/mlflow-export - > {{ seed_local_dir }}/mlflow-artifacts.tar
   delegate_to: localhost
   become: false
   changed_when: true
 
-- name: Upload the model files to the bucket
-  ansible.builtin.command: >-
-    gcloud storage rsync --recursive {{ seed_local_dir }}/mlflow-artifacts gs://{{ models_bucket }}/mlflow
-  delegate_to: localhost
-  become: false
+- name: Copy the model files to the VM
+  ansible.builtin.copy:
+    src: "{{ seed_local_dir }}/mlflow-artifacts.tar"
+    dest: "{{ seed_remote_dir }}/mlflow-artifacts.tar"
+    mode: "0600"
+
+- name: Load the model files into the VM's MinIO
+  ansible.builtin.shell: >-
+    docker exec fraudstream-minio rm -rf /tmp/mlflow-export
+    && docker cp - fraudstream-minio:/tmp < {{ seed_remote_dir }}/mlflow-artifacts.tar
+    && docker exec fraudstream-minio sh -c
+    'mc alias set local http://localhost:9000 "$MINIO_ROOT_USER" "$MINIO_ROOT_PASSWORD" >/dev/null
+    && mc mirror --quiet /tmp/mlflow-export local/fraudstream/mlflow && rm -rf /tmp/mlflow-export'
   changed_when: true

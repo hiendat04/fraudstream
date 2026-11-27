@@ -7,7 +7,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 source k8s/versions.sh
-kubectl config use-context kind-fraudstream >/dev/null
+. k8s/cluster.sh
+kubectl config use-context "$CONTEXT" >/dev/null
 
 # CRDs go on separately from their charts: Helm installs CRDs once and never
 # updates them.
@@ -32,7 +33,8 @@ kubectl apply -f k8s/llm/models/fetch.yaml >/dev/null
 kubectl -n llm wait --for=condition=complete job/fetch-models --timeout=45m
 
 echo "==> model servers"
-kubectl apply -f k8s/llm/models/qwen3-4b.yaml -f k8s/llm/models/qwen3-1-7b.yaml >/dev/null
+{ cat k8s/llm/models/qwen3-4b.yaml; echo ---; cat k8s/llm/models/qwen3-1-7b.yaml; } \
+  | with_gke_requests k8s/gke/requests/llm-models.yaml | kubectl apply -f - >/dev/null
 kubectl -n llm rollout status deploy/qwen3-4b --timeout=10m
 
 # One endpoint picker and InferencePool per model, named after the model.
@@ -40,6 +42,7 @@ echo "==> llm-d endpoint pickers ${LLMD_ROUTER_VERSION}"
 for pool in qwen3-4b qwen3-1-7b; do
   helm upgrade --install "$pool" oci://ghcr.io/llm-d/charts/llm-d-router-gateway \
     --version "$LLMD_ROUTER_VERSION" -n llm -f k8s/llm/router-values.yaml \
+    $(on_gke --values k8s/gke/requests/router-values.yaml) \
     --set router.modelServers.matchLabels.app="$pool" \
     --set router.monitoring.prometheus.auth.secretName="$pool-metrics-reader" \
     --wait --timeout 5m >/dev/null

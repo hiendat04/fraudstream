@@ -15,13 +15,13 @@ resource "google_compute_instance" "this" {
   zone                      = var.zone
   machine_type              = var.machine_type
   tags                      = [var.name]
-  labels                    = { role = "stores" }
+  labels                    = { role = "platform" }
   allow_stopping_for_update = true
 
   boot_disk {
     initialize_params {
       image = "debian-cloud/debian-12"
-      size  = 30
+      size  = var.disk_size_gb
       type  = "pd-balanced"
     }
   }

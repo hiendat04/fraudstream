@@ -17,8 +17,22 @@ metadata:
 spec:
   backoffLimit: 2
   template:
+    metadata:
+      labels:
+        llm.fraudstream/volume: llm-models
     spec:
       restartPolicy: Never
+      # The image runs as curl_user (gid 101); a new cloud disk is root's until this group owns it.
+      securityContext:
+        fsGroup: 101
+      # llm-models attaches to one node at a time, so every pod using it runs on that node.
+      affinity:
+        podAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            - labelSelector:
+                matchLabels:
+                  llm.fraudstream/volume: llm-models
+              topologyKey: kubernetes.io/hostname
       containers:
         - name: fetch
           image: curlimages/curl:8.21.0

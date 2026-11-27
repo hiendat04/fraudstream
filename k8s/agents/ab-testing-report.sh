@@ -6,8 +6,9 @@
 # Exits 0 on pass, 10 on fail and 12 when the candidate has too few calls to say.
 set -euo pipefail
 cd "$(dirname "$0")/../.."
+. k8s/cluster.sh
 
-command kubectl --context kind-fraudstream -n observability port-forward svc/kps-prometheus 19090:9090 >/dev/null &
+command kubectl --context "$CONTEXT" -n observability port-forward svc/kps-prometheus 19090:9090 >/dev/null &
 forward=$!
 trap 'kill $forward 2>/dev/null; wait $forward 2>/dev/null || true' EXIT
 sleep 2

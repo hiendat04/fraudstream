@@ -1,0 +1,10 @@
+- name: Install uv, which runs DataHub's command line
+  ansible.builtin.shell: python3 -m venv /opt/uv && /opt/uv/bin/pip install --quiet uv==0.11.16
+  args:
+    creates: /opt/uv/bin/uv
+
+- name: Start DataHub
+  ansible.builtin.shell: PATH=/opt/uv/bin:$PATH ./datahub/scripts/start.sh
+  args:
+    chdir: "{{ fraudstream_dir }}"
+  changed_when: true

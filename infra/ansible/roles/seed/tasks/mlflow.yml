@@ -1,6 +1,6 @@
 - name: Dump the MLflow database from the local stack
   ansible.builtin.shell: >-
-    docker exec fraudstream-postgres pg_dump -U {{ seed_local_postgres_user }} -d mlflow
+    {{ postgres_exec }} pg_dump -d mlflow
     --no-owner --no-privileges -Fc > {{ seed_local_dir }}/mlflow.dump
   delegate_to: localhost
   become: false
@@ -14,7 +14,7 @@
 
 - name: Restore the MLflow database
   ansible.builtin.shell: >-
-    docker exec -i fraudstream-postgres pg_restore -U {{ postgres_user }} -d mlflow
+    {{ postgres_exec }} pg_restore -d mlflow
     --no-owner --no-privileges --clean --if-exists < {{ seed_remote_dir }}/mlflow.dump
   changed_when: true
   notify: Restart MLflow

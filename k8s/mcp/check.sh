@@ -7,12 +7,13 @@
 set -euo pipefail
 cd "$(dirname "$0")/../.."
 # --context on every call, not use-context: install.sh may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 kubectl -n mcp wait --for=condition=Programmed gateway/mcp-gateway --timeout=60s >/dev/null
 
 key() { kubectl -n mcp get secret "mcp-key-$1" -o jsonpath='{.data.key}' | base64 -d; }
 # The binary, not the function: a function in the background runs in a subshell, and killing that can leave kubectl listening.
-command kubectl --context kind-fraudstream -n mcp port-forward svc/mcp-gateway 18090:8080 >/dev/null &
+command kubectl --context "$CONTEXT" -n mcp port-forward svc/mcp-gateway 18090:8080 >/dev/null &
 forward=$!
 trap 'kill $forward' EXIT
 sleep 2
@@ -25,12 +26,12 @@ CONTEXT_AGENT_KEY=$(key context-agent) RISK_AGENT_KEY=$(key risk-agent) MCP_CHEC
 sleep 30
 prom=/api/v1/namespaces/observability/services/kps-prometheus:9090/proxy/api/v1/query
 uv run --project mcp_servers python - "$prom" <<'PY'
-import json, subprocess, sys, urllib.parse
+import json, os, subprocess, sys, urllib.parse
 bad = 0
 for query in ("sum by (consumer) (agentgateway_mcp_requests_total)",
               "sum by (server, tool, outcome) (mcp_tool_calls_total)"):
     url = sys.argv[1] + "?query=" + urllib.parse.quote(query)
-    out = json.loads(subprocess.run(["kubectl", "--context", "kind-fraudstream", "get", "--raw", url], capture_output=True, text=True, check=True).stdout)
+    out = json.loads(subprocess.run(["kubectl", "--context", os.environ["CONTEXT"], "get", "--raw", url], capture_output=True, text=True, check=True).stdout)
     series = out["data"]["result"]
     print(("ok  " if series else "FAIL") + f"  {query}: {len(series)} series")
     for item in series:

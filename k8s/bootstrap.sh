@@ -16,12 +16,13 @@ CLUSTER_NAME=fraudstream
 COMPOSE_NETWORK=fraudstream_default
 HERE="$(cd "$(dirname "$0")" && pwd)"
 . "$HERE/versions.sh"
+. "$HERE/cluster.sh"
 
 
 echo "==> Checking the tools are installed and runnable"
 # Running each one also catches a binary built for the wrong platform, which
 # sits on PATH looking perfectly fine until something tries to execute it.
-if ! kind version >/dev/null 2>&1; then
+if [ "$FRAUDSTREAM_CLUSTER" = kind ] && ! kind version >/dev/null 2>&1; then
   echo "Error: kind will not run. Check:  file \$(command -v kind)"
   exit 1
 fi
@@ -39,24 +40,29 @@ if ! docker info >/dev/null 2>&1; then
 fi
 
 
-echo "==> Creating the cluster"
-if ! kind get clusters | grep -qx "$CLUSTER_NAME"; then
-  kind create cluster --config "$HERE/kind-cluster.yaml"
+# On gke, Terraform made the cluster and the pods reach the VM through its Services.
+if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
+  echo "==> Creating the cluster"
+  if ! kind get clusters | grep -qx "$CLUSTER_NAME"; then
+    kind create cluster --config "$HERE/kind-cluster.yaml"
+  fi
+
+  echo "==> Connecting the cluster to the lakehouse network"
+  # kind puts its node on a Docker network of its own, so until it joins the
+  # compose network the pods cannot resolve postgres or minio at all
+  docker network connect "$COMPOSE_NETWORK" "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
 fi
-kubectl config use-context "kind-${CLUSTER_NAME}" >/dev/null
-
-
-echo "==> Connecting the cluster to the lakehouse network"
-# kind puts its node on a Docker network of its own, so until it joins the
-# compose network the pods cannot resolve postgres or minio at all.
-# The error when it is already connected is not interesting, so ignore it.
-docker network connect "$COMPOSE_NETWORK" "${CLUSTER_NAME}-control-plane" 2>/dev/null || true
+kubectl config use-context "$CONTEXT" >/dev/null
 
 
 echo "==> Installing Kubeflow Pipelines ${PIPELINE_VERSION}"
 kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/cluster-scoped-resources?ref=${PIPELINE_VERSION}"
 kubectl wait --for condition=established --timeout=60s crd/applications.app.k8s.io
-kubectl apply -k "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=${PIPELINE_VERSION}"
+# The release's dev manifests name its own images :master, whatever that is on the day
+# of the pull. The release tags keep the images matched to the manifests.
+kubectl kustomize "github.com/kubeflow/pipelines/manifests/kustomize/env/dev?ref=${PIPELINE_VERSION}" \
+  | sed "s|\(ghcr.io/kubeflow/kfp-[a-z-]*\):master$|\1:${PIPELINE_VERSION}|" \
+  | with_gke_requests "$HERE/gke/requests/kubeflow-pipelines.yaml" | kubectl apply -f -
 
 
 echo "==> Installing Kubeflow Trainer ${TRAINER_VERSION}"
@@ -74,7 +80,8 @@ helm show crds oci://ghcr.io/kubeflow/charts/kubeflow-trainer --version "${TRAIN
 if ! helm status kubeflow-trainer --namespace kubeflow-system >/dev/null 2>&1; then
   helm install kubeflow-trainer oci://ghcr.io/kubeflow/charts/kubeflow-trainer \
     --namespace kubeflow-system --create-namespace \
-    --version "${TRAINER_VERSION#v}" --wait --timeout 10m
+    --version "${TRAINER_VERSION#v}" $(on_gke --values "$HERE/gke/requests/kubeflow-trainer-values.yaml") \
+    --wait --timeout 10m
 fi
 
 
@@ -88,22 +95,28 @@ kubectl apply --server-side -k \
   "https://github.com/kubeflow/trainer.git/manifests/overlays/runtimes?ref=${TRAINER_VERSION}"
 
 
-echo "==> Switching off the two components with no build for this machine"
-# Kubeflow publishes these for Intel machines only, so on an Apple Silicon one
-# they can never start. Neither is needed here: proxy-agent exists to expose the
-# UI on Google Cloud, and pipelines record their metadata through metadata-grpc
-# rather than through metadata-writer.
+echo "==> Switching off the two components nothing here needs"
+# Kubeflow publishes these for Intel machines only, so on an Apple Silicon one they
+# can never start. Neither is needed anywhere: proxy-agent registers the UI with
+# Google's hosted proxy, which the gateway replaces (on GKE it fails without that
+# setup), and pipelines record their metadata through metadata-grpc rather than
+# through metadata-writer.
 kubectl -n kubeflow scale deploy metadata-writer proxy-agent --replicas=0
 
 
 echo "==> Installing the NGINX Ingress Controller ${NGINX_INGRESS_CHART}"
-# This is F5's controller. The older ingress-nginx project was retired in March
-# 2026. It listens on the node's ports 80 and 443, which kind maps to the local network.
+#It listens on the node's ports 80 and 443, which kind maps to the local network.
+# On gke it sits behind a cloud load balancer on the gateway's reserved IP instead.
+nginx_values=(--values "$HERE/platform/nginx-ingress-values.yaml")
+if [ "$FRAUDSTREAM_CLUSTER" = gke ]; then
+  nginx_values+=(--values "$HERE/gke/nginx-ingress-values.yaml"
+    --set controller.service.loadBalancerIP="${GATEWAY_IP:?GATEWAY_IP is not set: source k8s/gke/env.sh}")
+fi
 helm upgrade --install nginx-ingress oci://ghcr.io/nginx/charts/nginx-ingress \
   --version "${NGINX_INGRESS_CHART}" \
   --namespace nginx-ingress --create-namespace \
-  --values "$HERE/platform/nginx-ingress-values.yaml" \
-  --wait --timeout 5m
+  "${nginx_values[@]}" \
+  --wait --timeout 10m
 
 
 echo "==> Installing cert-manager ${CERT_MANAGER_VERSION}"
@@ -131,26 +144,29 @@ echo "==> Connecting the cluster to Vault"
 kubectl apply -f "$HERE/platform/kubeflow-secrets.yaml"
 
 
-echo "==> Installing metrics-server ${METRICS_SERVER_CHART}"
-# kind uses self-signed kubelet certificates that Metrics Server cannot verify.
-# --kubelet-insecure-tls lets Metrics Server connect to the kubelet anyway.
-# We download the Helm chart directly from GitHub instead of using a Helm repo.
-# This avoids problems with other Helm repos configured on the machine.
-CHART_DIR="$(mktemp -d)"
-curl -sfL -o "$CHART_DIR/metrics-server.tgz" \
-  "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-${METRICS_SERVER_CHART}/metrics-server-${METRICS_SERVER_CHART}.tgz"
-helm upgrade --install metrics-server "$CHART_DIR/metrics-server.tgz" \
-  --namespace kube-system \
-  --values "$HERE/platform/metrics-server-values.yaml" \
-  --wait --timeout 5m
-rm -rf "$CHART_DIR"
+# GKE brings its own metrics-server.
+if [ "$FRAUDSTREAM_CLUSTER" = kind ]; then
+  echo "==> Installing metrics-server ${METRICS_SERVER_CHART}"
+  # kind uses self-signed kubelet certificates that Metrics Server cannot verify.
+  # --kubelet-insecure-tls lets Metrics Server connect to the kubelet anyway.
+  # I download the Helm chart directly from GitHub instead of using a Helm repo.
+  # This avoids problems with other Helm repos configured on the machine.
+  CHART_DIR="$(mktemp -d)"
+  curl -sfL -o "$CHART_DIR/metrics-server.tgz" \
+    "https://github.com/kubernetes-sigs/metrics-server/releases/download/metrics-server-helm-chart-${METRICS_SERVER_CHART}/metrics-server-${METRICS_SERVER_CHART}.tgz"
+  helm upgrade --install metrics-server "$CHART_DIR/metrics-server.tgz" \
+    --namespace kube-system \
+    --values "$HERE/platform/metrics-server-values.yaml" \
+    --wait --timeout 5m
+  rm -rf "$CHART_DIR"
+fi
 
 
 echo "==> Installing KEDA ${KEDA_VERSION}"
 # KEDA scales ordinary Deployments. Knative scales the services it runs on its
 # own, so KEDA must never be pointed at a Deployment that Knative created.
-kubectl apply --server-side \
-  -f "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml"
+curl -sfL "https://github.com/kedacore/keda/releases/download/${KEDA_VERSION}/keda-${KEDA_VERSION#v}.yaml" \
+  | with_gke_requests "$HERE/gke/requests/keda.yaml" | kubectl apply --server-side -f -
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 
 
@@ -162,7 +178,8 @@ kubectl apply -f "${KNATIVE_SERVING_URL}/serving-crds.yaml"
 kubectl wait --for=condition=Established --timeout=60s \
   crd/services.serving.knative.dev crd/revisions.serving.knative.dev \
   crd/routes.serving.knative.dev crd/configurations.serving.knative.dev
-kubectl apply -f "${KNATIVE_SERVING_URL}/serving-core.yaml"
+curl -sfL "${KNATIVE_SERVING_URL}/serving-core.yaml" \
+  | with_gke_requests "$HERE/gke/requests/knative-serving.yaml" | kubectl apply -f -
 kubectl -n knative-serving wait --for=condition=Available --timeout=5m \
   deploy/activator deploy/autoscaler deploy/controller deploy/webhook
 
@@ -170,7 +187,8 @@ kubectl -n knative-serving wait --for=condition=Available --timeout=5m \
 echo "==> Installing Kourier ${KOURIER_VERSION}"
 # Kourier is the gateway that sends requests to Knative services. Its controller
 # runs in knative-serving; only the gateway itself runs in kourier-system.
-kubectl apply -f "https://github.com/knative-extensions/net-kourier/releases/download/${KOURIER_VERSION}/kourier.yaml"
+curl -sfL "https://github.com/knative-extensions/net-kourier/releases/download/${KOURIER_VERSION}/kourier.yaml" \
+  | with_gke_requests "$HERE/gke/requests/kourier.yaml" | kubectl apply -f -
 kubectl -n knative-serving wait --for=condition=Available --timeout=5m deploy/net-kourier-controller
 kubectl -n kourier-system wait --for=condition=Available --timeout=5m deploy/3scale-kourier-gateway
 
@@ -199,7 +217,8 @@ kubectl create namespace kserve --dry-run=client -o yaml | kubectl apply -f -
 # The file holds both the custom resource definitions and objects that use them,
 # so the first pass cannot create everything. It is applied again once the
 # definitions exist.
-kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve.yaml" || true
+kserve=$(curl -sfL "${KSERVE_URL}/kserve.yaml" | with_gke_requests "$HERE/gke/requests/kserve.yaml")
+kubectl apply --server-side --force-conflicts -f - <<<"$kserve" || true
 kubectl wait --for=condition=Established --timeout=120s \
   crd/inferenceservices.serving.kserve.io \
   crd/clusterservingruntimes.serving.kserve.io \
@@ -208,7 +227,7 @@ kubectl wait --for=condition=Established --timeout=120s \
 # registers their webhooks, and a webhook whose controller is still starting
 # rejects the very objects being applied.
 kubectl -n kserve wait --for=condition=Available --timeout=10m deploy --all
-kubectl apply --server-side --force-conflicts -f "${KSERVE_URL}/kserve.yaml"
+kubectl apply --server-side --force-conflicts -f - <<<"$kserve"
 kubectl -n kserve wait --for=condition=Available --timeout=10m deploy --all
 
 # The runtimes below are checked by the webhook that the controller serves, so
@@ -232,7 +251,7 @@ kubectl -n kubeflow-system wait --for=condition=Available --timeout=10m deploy -
 kubectl -n kubeflow wait --for=condition=Available --timeout=20m deploy --all
 kubectl -n nginx-ingress wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n cert-manager wait --for=condition=Available --timeout=5m deploy --all
-kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
+[ "$FRAUDSTREAM_CLUSTER" = gke ] || kubectl -n kube-system wait --for=condition=Available --timeout=5m deploy/metrics-server
 kubectl -n keda wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n knative-serving wait --for=condition=Available --timeout=5m deploy --all
 kubectl -n kourier-system wait --for=condition=Available --timeout=5m deploy --all

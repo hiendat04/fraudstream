@@ -1,4 +1,11 @@
+# Added on top of k8s/platform/nginx-ingress-values.yaml on gke.
 controller:
+  hostPort:
+    enable: false
+  # The chart reserves 100m; the nodes have 4 vCPU for the whole platform.
+  resources:
+    requests:
+      cpu: 50m
   ingressClass:
     name: nginx
     create: true

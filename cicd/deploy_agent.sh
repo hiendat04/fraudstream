@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Deploys one agent, gated by its eval questions. Registers the agent's prompt
+# Deploys one agent, gated by its eval questions unless AGENT_EVALS=skip. Registers the agent's prompt
 # from git in MLflow under the alias candidate, renders that version into the
 # agent's ConfigMap and applies the agent, waits until kagent runs both (the
 # agent's golden snapshot rebuilt on the new prompt), and
@@ -13,7 +13,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 # --context on every call, not use-context: another script may be writing the kubeconfig at the same time.
-kubectl() { command kubectl --context kind-fraudstream "$@"; }
+. k8s/cluster.sh
+kubectl() { command kubectl --context "$CONTEXT" "$@"; }
 prompts() { (cd agents && PYTHONPATH=src MLFLOW_TRACKING_URI=${MLFLOW_TRACKING_URI:-http://localhost:18085} uv run python -m fraudstream_agents.prompts "$@"); }
 
 agent=${1:-}
@@ -55,6 +56,10 @@ deploy_and_check() {
   prompts render "$agent" --alias candidate | kubectl apply -f - >/dev/null || return 1
   ./k8s/agents/apply.sh "$agent" < "k8s/agents/$agent.yaml" || return 1
   rolled || return 1
+  if [ "${AGENT_EVALS:-run}" = skip ]; then
+    echo "==> $agent's eval questions skipped (AGENT_EVALS=skip)"
+    return
+  fi
   echo "==> $agent's eval questions"
   ./k8s/agents/check.sh --agent "$agent"
 }

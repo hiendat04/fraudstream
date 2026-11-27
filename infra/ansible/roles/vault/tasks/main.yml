@@ -1,0 +1,88 @@
+- name: Create Vault's TLS directory
+  ansible.builtin.file:
+    path: "{{ fraudstream_dir }}/infra/vault/tls"
+    state: directory
+    mode: "0755"
+
+# Not in git, so not in the repo copy. The vault user in the image is uid 100.
+- name: Copy Vault's certificate and key
+  ansible.builtin.copy:
+    src: "{{ playbook_dir }}/../vault/tls/{{ item.name }}"
+    dest: "{{ fraudstream_dir }}/infra/vault/tls/{{ item.name }}"
+    owner: "100"
+    mode: "{{ item.mode }}"
+  loop:
+    - { name: ca.crt, mode: "0644" }
+    - { name: vault.crt, mode: "0644" }
+    - { name: vault.key, mode: "0400" }
+
+- name: Start Vault
+  ansible.builtin.command: "{{ vault_compose }} up -d --quiet-pull"
+  args:
+    chdir: "{{ fraudstream_dir }}"
+  environment:
+    # The other services are this project's too, not orphans.
+    COMPOSE_IGNORE_ORPHANS: "1"
+  changed_when: false
+
+- name: Wait for Vault to answer
+  ansible.builtin.command: "{{ vault_api }} https://vault:8200/v1/sys/seal-status"
+  args:
+    chdir: "{{ fraudstream_dir }}"
+  register: vault_state
+  until: vault_state.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+
+- name: Copy the laptop's Vault snapshot
+  ansible.builtin.copy:
+    src: ~/.fraudstream/vault.snap
+    dest: "{{ fraudstream_dir }}/vault.snap"
+    mode: "0600"
+  when: not (vault_state.stdout | from_json).initialized
+
+# A throwaway key and token, only to load the snapshot. The snapshot brings back the
+# local's keys, logins and secrets. Nothing here is printed or written to disk.
+- name: Restore the snapshot into the new Vault
+  ansible.builtin.shell: |
+    set -euo pipefail
+    api() { {{ vault_api }} "$@"; }
+    init=$(api -X PUT --data '{"secret_shares": 1, "secret_threshold": 1}' https://vault:8200/v1/sys/init)
+    printf '%s' "$init" | jq '{key: .keys_base64[0]}' | api -X PUT --data @- https://vault:8200/v1/sys/unseal >/dev/null
+    token=$(printf '%s' "$init" | jq -r .root_token)
+    restored=
+    # Raft needs a few seconds after unsealing to elect itself leader.
+    for _ in $(seq 30); do
+      if api -X POST -H @<(printf 'X-Vault-Token: %s\n' "$token") --data-binary @vault.snap \
+        https://vault:8200/v1/sys/storage/raft/snapshot-force; then restored=yes; break; fi
+      sleep 2
+    done
+    rm vault.snap
+    [ -n "$restored" ]
+  args:
+    chdir: "{{ fraudstream_dir }}"
+    executable: /bin/bash
+  when: not (vault_state.stdout | from_json).initialized
+  no_log: true
+  changed_when: true
+
+- name: Is Vault sealed
+  ansible.builtin.command: "{{ vault_api }} https://vault:8200/v1/sys/seal-status"
+  args:
+    chdir: "{{ fraudstream_dir }}"
+  register: vault_state
+  until: vault_state.rc == 0
+  retries: 30
+  delay: 2
+  changed_when: false
+
+# The key unseal.sh uses, from the local, over SSH stdin.
+- name: Unseal Vault
+  ansible.builtin.shell: "{{ vault_api }} -X PUT --data @- https://vault:8200/v1/sys/unseal >/dev/null"
+  args:
+    chdir: "{{ fraudstream_dir }}"
+    stdin: "{{ {'key': (lookup('file', '~/.fraudstream/vault-init.json') | from_json).unseal_keys_b64[0]} | to_json }}"
+  when: (vault_state.stdout | from_json).sealed
+  no_log: true
+  changed_when: true

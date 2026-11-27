@@ -47,7 +47,7 @@ turns on the audit log at start ([`vault/init.sh:26`](../../infra/vault/init.sh#
 | `llm/<consumer>` | `llm`, and `kagent` for the agents' own key |
 | `mcp/<consumer>`, `a2a/<consumer>` | `mcp`, `kagent` |
 | `agents/substrate-rustfs` | `ate-system` |
-| `cloud/postgres` | the operator: Ansible and the GKE deploy |
+| `cloud/postgres` | nobody now: GKE's pods read the platform VM's Vault |
 
 ## Who may read what
 
@@ -100,8 +100,9 @@ logins never sit in a DAG. Airflow shows them as `***`.
 
 ![A task's rendered environment, with the password hidden](../../images/security/05-airflow-rendered-password.png)
 
-**Ansible** reads the cloud's database password with a Vault lookup
-([`ansible/group_vars/stores.yml:5`](../../infra/ansible/group_vars/stores.yml#L5)).
+**Ansible** reads no secret from Vault itself. It runs Postgres as the container's own login
+([`ansible/group_vars/platform.yml:6`](../../infra/ansible/group_vars/platform.yml#L6)), and
+the platform's secrets reach Compose through `env.sh` on the VM.
 
 **Every read is logged**, with who asked and for which path; values are hashed in the log.
 
@@ -125,8 +126,8 @@ the old one, with nothing redeployed.
 - **RustFS's keys reach Substrate's chart as `--set` values**
   ([`agents/substrate.sh:32`](../../k8s/agents/substrate.sh#L32)): the 0.0.9 chart takes them
   no other way, so they sit in its pod spec in plain text.
-- **The GKE deploy makes its two Secrets by hand** from what it read in Vault, since GKE can't
-  reach the laptop's Vault.
+- **On GKE, Vault is the platform VM's**, restored from a laptop snapshot. A key made later
+  on one Vault isn't on the other until the next snapshot.
 
 The whole setup, with start-up and checks, is in [`infra/vault/`](../../infra/vault/).
 

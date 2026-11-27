@@ -1,13 +1,8 @@
-- name: Configure the stores VM
-  hosts: stores
+- name: Configure the platform VM
+  hosts: platform
   become: true
   gather_facts: false
   pre_tasks:
-    - name: Refuse to run without the cloud passwords
-      ansible.builtin.assert:
-        that:
-          - postgres_password | length > 0
-        fail_msg: Vault's cloud/postgres has no password; run ./infra/vault/seed.sh
     - name: Wait for the VM to accept SSH
       ansible.builtin.wait_for_connection:
         timeout: 300
@@ -16,7 +11,7 @@
   roles:
     - common
     - docker
-    - postgres
-    - redis
+    - vault
+    - platform
+    - datahub
     - seed
-    - mlflow

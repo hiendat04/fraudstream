@@ -1,0 +1,12 @@
+# GKE's CPU requests for Kourier (bootstrap.sh). The defaults are 200m; the gateway
+# scales by CPU percentage, so it keeps more.
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: net-kourier-controller, namespace: knative-serving}
+spec: {template: {spec: {containers: [{name: controller, resources: {requests: {cpu: 30m}}}]}}}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata: {name: 3scale-kourier-gateway, namespace: kourier-system}
+spec: {template: {spec: {containers: [{name: kourier-gateway, resources: {requests: {cpu: 100m}}}]}}}
