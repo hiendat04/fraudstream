@@ -9,7 +9,6 @@ cd "$(dirname "$0")/../.."
 . k8s/gke/env.sh
 : "${VM_IP:?the platform VM is not up: apply the platform-vm stack and run Ansible first}"
 TAG=$(git rev-parse --short=7 HEAD)
-vm=(-i ~/.ssh/fraudstream_gcp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR "fraudstream@$VM_HOST")
 
 echo "==> Tunnel to the VM's Vault"
 tunnel=$(mktemp -u)

@@ -11,6 +11,8 @@ GATEWAY_IP=$(tf network output -raw gateway_ip)
 REPO=$(tf registry output -raw repository_url)
 VM_IP=$(tf platform-vm output -raw internal_ip 2>/dev/null || true)
 VM_HOST=$(tf platform-vm output -raw external_ip 2>/dev/null || true)
+# SSH to the platform VM as Ansible set it up:  ssh "${vm[@]}" <command>
+vm=(-i ~/.ssh/fraudstream_gcp -o UserKnownHostsFile=/dev/null -o StrictHostKeyChecking=no -o LogLevel=ERROR "fraudstream@$VM_HOST")
 FRAUDSTREAM_CLUSTER=gke
 FRAUDSTREAM_DOMAIN=$GATEWAY_IP.sslip.io
 FRAUDSTREAM_IMAGE_REGISTRY=$REPO

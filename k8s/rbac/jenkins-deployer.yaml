@@ -1,0 +1,31 @@
+# Jenkins on the platform VM deploys to GKE as this account. cluster-admin, since the
+# installers it runs create CRDs and cluster roles. Its token lives only in Jenkins's
+# kubeconfig on the VM (cicd/jenkins/kubeconfig.sh)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-deployer
+  namespace: kube-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins-deployer
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: cluster-admin
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: kube-system
+---
+# A token that doesn't expire, which Kubernetes writes into this Secret.
+apiVersion: v1
+kind: Secret
+metadata:
+  name: jenkins-deployer
+  namespace: kube-system
+  annotations:
+    kubernetes.io/service-account.name: jenkins-deployer
+type: kubernetes.io/service-account-token
